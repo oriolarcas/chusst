@@ -1,7 +1,43 @@
 const { invoke } = window.__TAURI__.tauri;
 
-let greetInputEl;
-let greetMsgEl;
+function get_square(row_index, col_index) {
+  const col_id_map = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+  const row_id = row_index + 1;
+  const col_id = col_id_map[col_index];
+  return document.querySelector(".row-" + row_id + " .col-" + col_id);
+}
+
+function get_piece(row_index, col_index) {
+  const col_id_map = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+  const row_id = row_index + 1;
+  const col_id = col_id_map[col_index];
+  return document.querySelector(".row-" + row_id + " .col-" + col_id + " div");
+}
+
+function apply_to_squares(func) {
+  for (let row_index = 0; row_index < 8; row_index++) {
+    for (let col_index = 0; col_index < 8; col_index++) {
+      func(get_square(row_index, col_index), row_index, col_index);
+    }
+  }
+}
+
+function apply_to_pieces(func) {
+  for (let row_index = 0; row_index < 8; row_index++) {
+    for (let col_index = 0; col_index < 8; col_index++) {
+      func(get_piece(row_index, col_index), row_index, col_index);
+    }
+  }
+}
+
+function reset_highlighted() {
+  apply_to_squares((square) => square.classList.remove("highlighted"));
+}
+
+function highlight_square(row_index, col_index) {
+  let square = get_square(row_index, col_index);
+  square.classList.add("highlighted");
+}
 
 async function get_board() {
   // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
@@ -19,25 +55,29 @@ async function get_board() {
   //   7 [{piece: "Rook", player: "Black"}, {piece: "Knight", player: "Black"}, {piece: "Bishop", player: "Black"}, {piece: "Queen", player: "Black"}, {piece: "King", player: "Black"}, {piece: "Bishop", player: "Black"}, {piece: "Knight", player: "Black"}, {piece: "Rook", player: "Black"}]
   // ] }
 
-  console.log(board);
-
-  const col_id_map = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
   for (const [row_index, row_obj] of board.rows.entries()) {
-    for (const [col_index, square] of row_obj.entries()) {
-      const row_id = row_index + 1;
-      const col_id = col_id_map[col_index];
-      console.log(col_id + row_id + ": " + square);
-      let square_element = document.querySelector(".row-" + row_id + " .col-" + col_id + " div");
-      square_element.className = "";
-      if (square !== null) {
-        square_element.classList.add(square.piece.toLowerCase());
-        square_element.classList.add(square.player.toLowerCase());
+    for (const [col_index, piece] of row_obj.entries()) {
+      let piece_element = get_piece(row_index, col_index);
+      piece_element.className = "";
+      if (piece !== null) {
+        piece_element.classList.add(piece.piece.toLowerCase());
+        piece_element.classList.add(piece.player.toLowerCase());
       }
     }
   }
 }
 
 window.addEventListener("DOMContentLoaded", () => {
-  // boardEl = document.querySelector("#board");
   get_board();
+
+  apply_to_pieces((piece, row_index, col_index) => {
+    piece.addEventListener("click", async (event) => {
+      const moves = await invoke("get_possible_moves", {row: row_index, col: col_index});
+      console.log(moves);
+      reset_highlighted();
+      for (const move of moves) {
+        highlight_square(move.row, move.col);
+      }
+    });
+  });
 });

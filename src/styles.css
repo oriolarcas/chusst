@@ -37,10 +37,17 @@
 
 .square.light {
   background-color: burlywood;
+  border: 1px solid burlywood;
 }
 
 .square.dark {
   background-color: maroon;
+  border: 1px solid maroon;
+}
+
+.square.highlighted {
+  background-color: aqua !important;
+  border: 1px solid black;
 }
 
 .square div {
