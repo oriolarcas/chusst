@@ -58,6 +58,39 @@ fn only_enemy(board: &Board, position: Option<Position>, player: &Player) -> Opt
     )
 }
 
+fn only_empty_or_enemy(
+    board: &Board,
+    position: Option<Position>,
+    player: &Player,
+) -> Option<Position> {
+    match position {
+        Some(position_value) => match board.rows[position_value.row][position_value.col] {
+            // Occupied square
+            Some(piece) => {
+                if piece.player != *player {
+                    // Enemy piece
+                    Some(position_value)
+                } else {
+                    // Friend piece
+                    None
+                }
+            }
+            // Empty square
+            None => Some(position_value),
+        },
+        None => None,
+    }
+}
+
+fn collect_valid_moves<const N: usize>(positions: [Option<Position>; N]) -> Vec<Position> {
+    positions
+        .iter()
+        .filter(|position| position.is_some())
+        .map(|position| position.as_ref().unwrap())
+        .copied()
+        .collect()
+}
+
 pub fn get_possible_moves(board: &Board, position: Position) -> Vec<Position> {
     let square = &board.rows[position.row][position.col];
     if square.is_none() {
@@ -81,7 +114,7 @@ pub fn get_possible_moves(board: &Board, position: Position) -> Vec<Position> {
                 Player::Black => position.row == 6,
             };
             let normal = only_empty(&board, try_move(&position, direction, 0));
-            let passed = if can_pass {
+            let passed = if can_pass /* TODO: && not blocked */ {
                 only_empty(&board, try_move(&position, direction * 2, 0))
             } else {
                 None
@@ -92,16 +125,18 @@ pub fn get_possible_moves(board: &Board, position: Position) -> Vec<Position> {
             );
             // TODO: capture passed pawns
 
-            [normal, passed, captures.0, captures.1]
-                .iter()
-                .filter(|position| position.is_some())
-                .map(|position| position.as_ref().unwrap())
-                .copied()
-                .collect()
+            collect_valid_moves([normal, passed, captures.0, captures.1])
         }
-        PieceType::Knight => {
-            vec![]
-        }
+        PieceType::Knight => collect_valid_moves([
+            only_empty_or_enemy(&board, try_move(&position, -1, -2), player),
+            only_empty_or_enemy(&board, try_move(&position, -1, 2), player),
+            only_empty_or_enemy(&board, try_move(&position, -2, -1), player),
+            only_empty_or_enemy(&board, try_move(&position, -2, 1), player),
+            only_empty_or_enemy(&board, try_move(&position, 2, -1), player),
+            only_empty_or_enemy(&board, try_move(&position, 2, 1), player),
+            only_empty_or_enemy(&board, try_move(&position, 1, -2), player),
+            only_empty_or_enemy(&board, try_move(&position, 1, 2), player),
+        ]),
         PieceType::Bishop => {
             vec![]
         }
@@ -111,8 +146,15 @@ pub fn get_possible_moves(board: &Board, position: Position) -> Vec<Position> {
         PieceType::Queen => {
             vec![]
         }
-        PieceType::King => {
-            vec![]
-        }
+        PieceType::King => collect_valid_moves([
+            only_empty_or_enemy(&board, try_move(&position, -1, -1), player),
+            only_empty_or_enemy(&board, try_move(&position, -1, 0), player),
+            only_empty_or_enemy(&board, try_move(&position, -1, 1), player),
+            only_empty_or_enemy(&board, try_move(&position, 0, -1), player),
+            only_empty_or_enemy(&board, try_move(&position, 0, 1), player),
+            only_empty_or_enemy(&board, try_move(&position, 1, -1), player),
+            only_empty_or_enemy(&board, try_move(&position, 1, 0), player),
+            only_empty_or_enemy(&board, try_move(&position, 1, 1), player),
+        ]),
     }
 }
