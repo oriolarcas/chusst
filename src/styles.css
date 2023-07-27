@@ -45,8 +45,23 @@
   border: 1px solid maroon;
 }
 
-.square.highlighted {
+.square.highlight-source {
+  background-color: teal !important;
+  border: 1px solid blue;
+}
+
+.square.highlight-move {
   background-color: aqua !important;
+  border: 1px solid black;
+}
+
+.square.highlight-capture {
+  background-color: coral !important;
+  border: 1px solid red;
+}
+
+.square.highlight-selected {
+  background-color: gray !important;
   border: 1px solid black;
 }
 

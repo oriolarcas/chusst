@@ -143,7 +143,7 @@ pub struct Board {
     pub rows: Rows,
 }
 
-#[derive(Copy, Clone, Serialize)]
+#[derive(Copy, Clone, PartialEq, Serialize)]
 pub struct Position {
     pub row: usize,
     pub col: usize,

@@ -7,7 +7,11 @@ mod moves;
 
 use board::{Board, Piece, PieceType, Player, Position};
 
-static BOARD: Board = Board {
+use tauri::{LogicalSize, Manager, Size};
+
+use std::sync::Mutex;
+
+static BOARD: Mutex<Board> = Mutex::new(Board {
     // Initial board
     // Note that white pieces are at the top, because arrays are defined top-down, while chess rows go bottom-up
     rows: [
@@ -56,27 +60,55 @@ static BOARD: Board = Board {
             p!(rb),
         ],
     ],
-};
+});
 
 // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
 #[tauri::command]
 fn get_board() -> Board {
-    BOARD
+    *BOARD.lock().unwrap()
 }
 
 #[tauri::command]
 fn get_possible_moves(row: usize, col: usize) -> Vec<Position> {
-    let position = Position {row, col};
-    println!("[Rust] Getting possible moves of {}", position);
-
-    let possible_moves = moves::get_possible_moves(&BOARD, position);
-    println!("Found {} moves", possible_moves.len());
+    let position = Position { row, col };
+    let possible_moves = moves::get_possible_moves(&mut BOARD.lock().unwrap(), position);
+    println!(
+        "Possible moves of {}: {} moves",
+        position,
+        possible_moves.len()
+    );
     possible_moves
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn do_move(source_row: usize, source_col: usize, target_row: usize, target_col: usize) -> bool {
+    let source = Position {
+        row: source_row,
+        col: source_col,
+    };
+    let target = Position {
+        row: target_row,
+        col: target_col,
+    };
+    println!("Move {} -> {}", source, target);
+    moves::do_move(&mut BOARD.lock().unwrap(), source, target)
 }
 
 fn main() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![get_board, get_possible_moves])
+        .setup(|app| {
+            let main_window = app.get_window("main").unwrap();
+            main_window.set_size(Size::Logical(LogicalSize {
+                width: 1000.0,
+                height: 800.0,
+            }))?;
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            get_board,
+            get_possible_moves,
+            do_move
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

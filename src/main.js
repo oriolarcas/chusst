@@ -1,5 +1,22 @@
 const { invoke } = window.__TAURI__.tauri;
 
+let board = {rows: [
+  new Array(8).fill(null),
+  new Array(8).fill(null),
+  new Array(8).fill(null),
+  new Array(8).fill(null),
+  new Array(8).fill(null),
+  new Array(8).fill(null),
+  new Array(8).fill(null),
+  new Array(8).fill(null),
+]};
+
+const WHITE = "white";
+const BLACK = "black";
+
+let player = WHITE;
+let selected = null;
+
 function get_square(row_index, col_index) {
   const col_id_map = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
   const row_id = row_index + 1;
@@ -30,18 +47,47 @@ function apply_to_pieces(func) {
   }
 }
 
-function reset_highlighted() {
-  apply_to_squares((square) => square.classList.remove("highlighted"));
+function reset_highlighted(highlight_type) {
+  apply_to_squares((square) => {
+    if (highlight_type !== undefined) {
+      square.classList.remove("highlight-" + highlight_type);
+      return;
+    }
+    square.classList.remove("highlight-source");
+    square.classList.remove("highlight-move");
+    square.classList.remove("highlight-capture");
+    // square.classList.remove("highlight-selected");
+  });
 }
 
-function highlight_square(row_index, col_index) {
+function highlight_square(row_index, col_index, hightlight_type) {
   let square = get_square(row_index, col_index);
-  square.classList.add("highlighted");
+  square.classList.add("highlight-" + hightlight_type);
+}
+
+function is_square_empty(row, col) {
+  return board.rows[row][col] === null;
+}
+
+function is_square_player(row, col, player) {
+  const square = board.rows[row][col];
+  if (square === null) {
+    return false;
+  }
+  return square.player.toLowerCase() == player;
+}
+
+function is_square_selected(row, col) {
+  if (selected === null) {
+    return false;
+  }
+  return selected.row == row && selected.col == col;
 }
 
 async function get_board() {
+  console.log("Reloading board");
   // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
-  const board = await invoke("get_board");
+  board = await invoke("get_board");
 
   // Object layout:
   // { rows: [
@@ -71,13 +117,62 @@ window.addEventListener("DOMContentLoaded", () => {
   get_board();
 
   apply_to_pieces((piece, row_index, col_index) => {
-    piece.addEventListener("click", async (event) => {
+    piece.addEventListener("mouseover", async (event) => {
+      reset_highlighted();
+      if (is_square_empty(row_index, col_index)) {
+        return;
+      }
+
       const moves = await invoke("get_possible_moves", {row: row_index, col: col_index});
       console.log(moves);
-      reset_highlighted();
+
+      highlight_square(row_index, col_index, "source");
       for (const move of moves) {
-        highlight_square(move.row, move.col);
+        const move_type = board.rows[move.row][move.col] == null ? "move" : "capture";
+        highlight_square(move.row, move.col, move_type);
       }
+    });
+
+    piece.addEventListener("mouseout", async (event) => {
+      reset_highlighted();
+    });
+  });
+
+  apply_to_squares((square, row_index, col_index) => {
+    square.addEventListener("click", async (event) => {
+      console.log("Selecting " + row_index + "," + col_index);
+      const already_selected = is_square_selected(row_index, col_index);
+
+      if (selected !== null && !already_selected) {
+        // Move
+        const result = await invoke("do_move", {source_row: selected.row, source_col: selected.col, target_row: row_index, target_col: col_index});
+        if (!result) {
+          console.log("Invalid move");
+          return;
+        }
+
+        console.log("Move done");
+
+        selected = null;
+        reset_highlighted();
+        reset_highlighted("selected");
+        get_board();
+        return;
+      }
+
+      selected = null;
+      reset_highlighted("selected");
+
+      if (already_selected) {
+        return;
+      }
+
+      if (!is_square_player(row_index, col_index, player)) {
+        return;
+      }
+
+      selected = {"row": row_index, "col": col_index};
+      highlight_square(row_index, col_index, "selected");
     });
   });
 });
