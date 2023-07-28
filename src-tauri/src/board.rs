@@ -1,7 +1,7 @@
 use serde::Serialize;
 use std::fmt;
 
-#[derive(Copy, Clone, Serialize)]
+#[derive(Copy, Clone, PartialEq, Serialize)]
 pub enum PieceType {
     Pawn,   // p
     Knight, // n
@@ -155,6 +155,11 @@ impl fmt::Display for Position {
         let col = ["a", "b", "c", "d", "e", "f", "g", "h"][self.col];
         write!(f, "{}{}", col, row)
     }
+}
+
+pub struct Move {
+    pub source: Position,
+    pub target: Position,
 }
 
 #[derive(Copy, Clone, Serialize)]

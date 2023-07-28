@@ -49,22 +49,31 @@ function apply_to_pieces(func) {
   }
 }
 
+function reset_highlighted_square_element(square, highlight_type) {
+  if (highlight_type !== undefined) {
+    square.classList.remove("highlight-" + highlight_type);
+    return;
+  }
+  square.classList.remove("highlight-source");
+  square.classList.remove("highlight-move");
+  square.classList.remove("highlight-capture");
+  // square.classList.remove("highlight-selected");
+}
+
+function reset_highlighted_square(row, col, highlight_type) {
+  let square = get_square(row, col);
+  reset_highlighted_square_element(square, highlight_type);
+}
+
 function reset_highlighted(highlight_type) {
   apply_to_squares((square) => {
-    if (highlight_type !== undefined) {
-      square.classList.remove("highlight-" + highlight_type);
-      return;
-    }
-    square.classList.remove("highlight-source");
-    square.classList.remove("highlight-move");
-    square.classList.remove("highlight-capture");
-    // square.classList.remove("highlight-selected");
+    reset_highlighted_square_element(square, highlight_type)
   });
 }
 
-function highlight_square(row_index, col_index, hightlight_type) {
+function highlight_square(row_index, col_index, highlight_type) {
   let square = get_square(row_index, col_index);
-  square.classList.add("highlight-" + hightlight_type);
+  square.classList.add("highlight-" + highlight_type);
 }
 
 function is_square_empty(row, col) {
@@ -84,6 +93,29 @@ function is_square_selected(row, col) {
     return false;
   }
   return selected.row == row && selected.col == col;
+}
+
+function select_square(row, col) {
+  selected = {row, col};
+}
+
+async function highlight_piece_moves(row, col) {
+  reset_highlighted();
+  if (is_square_empty(row, col)) {
+    return;
+  }
+
+  const moves = await invoke("get_possible_moves", {row: row, col: col});
+  console.log(moves);
+
+  if (!is_square_selected(row, col)) {
+    highlight_square(row, col, "source");
+  }
+
+  for (const move of moves) {
+    const move_type = game.board.rows[move.row][move.col] == null ? "move" : "capture";
+    highlight_square(move.row, move.col, move_type);
+  }
 }
 
 async function get_game() {
@@ -120,23 +152,15 @@ window.addEventListener("DOMContentLoaded", () => {
 
   apply_to_pieces((piece, row_index, col_index) => {
     piece.addEventListener("mouseover", async (event) => {
-      reset_highlighted();
-      if (is_square_empty(row_index, col_index)) {
-        return;
-      }
-
-      const moves = await invoke("get_possible_moves", {row: row_index, col: col_index});
-      console.log(moves);
-
-      highlight_square(row_index, col_index, "source");
-      for (const move of moves) {
-        const move_type = game.board.rows[move.row][move.col] == null ? "move" : "capture";
-        highlight_square(move.row, move.col, move_type);
+      if (selected === null) {
+        await highlight_piece_moves(row_index, col_index);
       }
     });
 
     piece.addEventListener("mouseout", async (event) => {
-      reset_highlighted();
+      if (selected === null) {
+        reset_highlighted();
+      }
     });
   });
 
@@ -145,7 +169,7 @@ window.addEventListener("DOMContentLoaded", () => {
       console.log("Selecting " + row_index + "," + col_index);
       const already_selected = is_square_selected(row_index, col_index);
 
-      if (selected !== null && !already_selected) {
+      if (selected !== null && !already_selected && !is_square_player(row_index, col_index, game.turn)) {
         // Move
         const result = await invoke("do_move", {source_row: selected.row, source_col: selected.col, target_row: row_index, target_col: col_index});
         if (!result) {
@@ -158,13 +182,17 @@ window.addEventListener("DOMContentLoaded", () => {
         selected = null;
         reset_highlighted();
         reset_highlighted("selected");
-        get_game();
+        await get_game();
+
+        await highlight_piece_moves(row_index, col_index);
 
         return;
       }
 
       selected = null;
+      reset_highlighted();
       reset_highlighted("selected");
+      await highlight_piece_moves(row_index, col_index);
 
       if (already_selected) {
         return;
@@ -174,7 +202,7 @@ window.addEventListener("DOMContentLoaded", () => {
         return;
       }
 
-      selected = {"row": row_index, "col": col_index};
+      select_square(row_index, col_index);
       highlight_square(row_index, col_index, "selected");
     });
   });

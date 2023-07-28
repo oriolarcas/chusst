@@ -5,7 +5,7 @@
 mod board;
 mod moves;
 
-use board::{Board, Game, Piece, PieceType, Player, Position};
+use board::{Board, Game, Move, Piece, PieceType, Player, Position};
 
 use tauri::{LogicalSize, Manager, Size};
 
@@ -85,16 +85,19 @@ fn get_possible_moves(row: usize, col: usize) -> Vec<Position> {
 
 #[tauri::command(rename_all = "snake_case")]
 fn do_move(source_row: usize, source_col: usize, target_row: usize, target_col: usize) -> bool {
-    let source = Position {
-        row: source_row,
-        col: source_col,
+    let mv = Move {
+        source: Position {
+            row: source_row,
+            col: source_col,
+        },
+        target: Position {
+            row: target_row,
+            col: target_col,
+        },
     };
-    let target = Position {
-        row: target_row,
-        col: target_col,
-    };
-    println!("Move {} -> {}", source, target);
-    moves::do_move(&mut GAME.lock().unwrap(), source, target)
+    let game = &mut GAME.lock().unwrap();
+    println!("Move {}", moves::move_name(&game, &mv));
+    moves::do_move(game, mv)
 }
 
 fn main() {
