@@ -5,73 +5,76 @@
 mod board;
 mod moves;
 
-use board::{Board, Piece, PieceType, Player, Position};
+use board::{Board, Game, Piece, PieceType, Player, Position};
 
 use tauri::{LogicalSize, Manager, Size};
 
 use std::sync::Mutex;
 
-static BOARD: Mutex<Board> = Mutex::new(Board {
-    // Initial board
-    // Note that white pieces are at the top, because arrays are defined top-down, while chess rows go bottom-up
-    rows: [
-        [
-            p!(rw),
-            p!(nw),
-            p!(bw),
-            p!(qw),
-            p!(kw),
-            p!(bw),
-            p!(nw),
-            p!(rw),
+static GAME: Mutex<Game> = Mutex::new(Game {
+    board: Board {
+        // Initial board
+        // Note that white pieces are at the top, because arrays are defined top-down, while chess rows go bottom-up
+        rows: [
+            [
+                p!(rw),
+                p!(nw),
+                p!(bw),
+                p!(qw),
+                p!(kw),
+                p!(bw),
+                p!(nw),
+                p!(rw),
+            ],
+            [
+                p!(pw),
+                p!(pw),
+                p!(pw),
+                p!(pw),
+                p!(pw),
+                p!(pw),
+                p!(pw),
+                p!(pw),
+            ],
+            [p!(); 8],
+            [p!(); 8],
+            [p!(); 8],
+            [p!(); 8],
+            [
+                p!(pb),
+                p!(pb),
+                p!(pb),
+                p!(pb),
+                p!(pb),
+                p!(pb),
+                p!(pb),
+                p!(pb),
+            ],
+            [
+                p!(rb),
+                p!(nb),
+                p!(bb),
+                p!(qb),
+                p!(kb),
+                p!(bb),
+                p!(nb),
+                p!(rb),
+            ],
         ],
-        [
-            p!(pw),
-            p!(pw),
-            p!(pw),
-            p!(pw),
-            p!(pw),
-            p!(pw),
-            p!(pw),
-            p!(pw),
-        ],
-        [p!(); 8],
-        [p!(); 8],
-        [p!(); 8],
-        [p!(); 8],
-        [
-            p!(pb),
-            p!(pb),
-            p!(pb),
-            p!(pb),
-            p!(pb),
-            p!(pb),
-            p!(pb),
-            p!(pb),
-        ],
-        [
-            p!(rb),
-            p!(nb),
-            p!(bb),
-            p!(qb),
-            p!(kb),
-            p!(bb),
-            p!(nb),
-            p!(rb),
-        ],
-    ],
+    },
+    turn: Player::White,
 });
 
 // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
 #[tauri::command]
-fn get_board() -> Board {
-    *BOARD.lock().unwrap()
+fn get_game() -> Game {
+    *GAME.lock().unwrap()
 }
 
 #[tauri::command]
 fn get_possible_moves(row: usize, col: usize) -> Vec<Position> {
     let position = Position { row, col };
-    let possible_moves = moves::get_possible_moves(&mut BOARD.lock().unwrap(), position);
+    let possible_moves = moves::get_possible_moves(&GAME.lock().unwrap().board, position);
     println!(
         "Possible moves of {}: {} moves",
         position,
@@ -91,7 +94,7 @@ fn do_move(source_row: usize, source_col: usize, target_row: usize, target_col: 
         col: target_col,
     };
     println!("Move {} -> {}", source, target);
-    moves::do_move(&mut BOARD.lock().unwrap(), source, target)
+    moves::do_move(&mut GAME.lock().unwrap(), source, target)
 }
 
 fn main() {
@@ -105,7 +108,7 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            get_board,
+            get_game,
             get_possible_moves,
             do_move
         ])

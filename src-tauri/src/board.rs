@@ -156,3 +156,9 @@ impl fmt::Display for Position {
         write!(f, "{}{}", col, row)
     }
 }
+
+#[derive(Copy, Clone, Serialize)]
+pub struct Game {
+    pub board: Board,
+    pub turn: Player,
+}

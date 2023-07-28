@@ -1,4 +1,4 @@
-use crate::board::{Board, PieceType, Player, Position};
+use crate::board::{Game, Board, PieceType, Player, Position};
 
 struct Direction {
     row_inc: i8,
@@ -112,14 +112,18 @@ fn only_player(board: &Board, position: Option<Position>, player: Player) -> Opt
     }
 }
 
+fn enemy(player: &Player) -> Player {
+    match player {
+        Player::White => Player::Black,
+        Player::Black => Player::White,
+    }
+}
+
 fn only_enemy(board: &Board, position: Option<Position>, player: &Player) -> Option<Position> {
     only_player(
         board,
         position,
-        match player {
-            Player::White => Player::Black,
-            Player::Black => Player::White,
-        },
+        enemy(player),
     )
 }
 
@@ -267,7 +271,8 @@ pub fn get_possible_moves(board: &Board, position: Position) -> Vec<Position> {
     }
 }
 
-pub fn do_move(board: &mut Board, source: Position, target: Position) -> bool {
+pub fn do_move(game: &mut Game, source: Position, target: Position) -> bool {
+    let board = &mut game.board;
     let possible_moves = get_possible_moves(&board, source);
 
     if possible_moves
@@ -280,6 +285,8 @@ pub fn do_move(board: &mut Board, source: Position, target: Position) -> bool {
 
     board.rows[target.row][target.col] = board.rows[source.row][source.col];
     board.rows[source.row][source.col] = None;
+
+    game.turn = enemy(&game.turn);
 
     return true;
 }

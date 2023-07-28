@@ -1,20 +1,22 @@
 const { invoke } = window.__TAURI__.tauri;
 
-let board = {rows: [
-  new Array(8).fill(null),
-  new Array(8).fill(null),
-  new Array(8).fill(null),
-  new Array(8).fill(null),
-  new Array(8).fill(null),
-  new Array(8).fill(null),
-  new Array(8).fill(null),
-  new Array(8).fill(null),
-]};
+let game = {
+  board: {rows: [
+    new Array(8).fill(null),
+    new Array(8).fill(null),
+    new Array(8).fill(null),
+    new Array(8).fill(null),
+    new Array(8).fill(null),
+    new Array(8).fill(null),
+    new Array(8).fill(null),
+    new Array(8).fill(null),
+  ]},
+  turn: null,
+};
 
 const WHITE = "white";
 const BLACK = "black";
 
-let player = WHITE;
 let selected = null;
 
 function get_square(row_index, col_index) {
@@ -66,15 +68,15 @@ function highlight_square(row_index, col_index, hightlight_type) {
 }
 
 function is_square_empty(row, col) {
-  return board.rows[row][col] === null;
+  return game.board.rows[row][col] === null;
 }
 
 function is_square_player(row, col, player) {
-  const square = board.rows[row][col];
+  const square = game.board.rows[row][col];
   if (square === null) {
     return false;
   }
-  return square.player.toLowerCase() == player;
+  return square.player.toLowerCase() == player.toLowerCase();
 }
 
 function is_square_selected(row, col) {
@@ -84,10 +86,10 @@ function is_square_selected(row, col) {
   return selected.row == row && selected.col == col;
 }
 
-async function get_board() {
+async function get_game() {
   console.log("Reloading board");
   // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
-  board = await invoke("get_board");
+  game = await invoke("get_game");
 
   // Object layout:
   // { rows: [
@@ -101,7 +103,7 @@ async function get_board() {
   //   7 [{piece: "Rook", player: "Black"}, {piece: "Knight", player: "Black"}, {piece: "Bishop", player: "Black"}, {piece: "Queen", player: "Black"}, {piece: "King", player: "Black"}, {piece: "Bishop", player: "Black"}, {piece: "Knight", player: "Black"}, {piece: "Rook", player: "Black"}]
   // ] }
 
-  for (const [row_index, row_obj] of board.rows.entries()) {
+  for (const [row_index, row_obj] of game.board.rows.entries()) {
     for (const [col_index, piece] of row_obj.entries()) {
       let piece_element = get_piece(row_index, col_index);
       piece_element.className = "";
@@ -114,7 +116,7 @@ async function get_board() {
 }
 
 window.addEventListener("DOMContentLoaded", () => {
-  get_board();
+  get_game();
 
   apply_to_pieces((piece, row_index, col_index) => {
     piece.addEventListener("mouseover", async (event) => {
@@ -128,7 +130,7 @@ window.addEventListener("DOMContentLoaded", () => {
 
       highlight_square(row_index, col_index, "source");
       for (const move of moves) {
-        const move_type = board.rows[move.row][move.col] == null ? "move" : "capture";
+        const move_type = game.board.rows[move.row][move.col] == null ? "move" : "capture";
         highlight_square(move.row, move.col, move_type);
       }
     });
@@ -156,7 +158,8 @@ window.addEventListener("DOMContentLoaded", () => {
         selected = null;
         reset_highlighted();
         reset_highlighted("selected");
-        get_board();
+        get_game();
+
         return;
       }
 
@@ -167,7 +170,7 @@ window.addEventListener("DOMContentLoaded", () => {
         return;
       }
 
-      if (!is_square_player(row_index, col_index, player)) {
+      if (!is_square_player(row_index, col_index, game.turn)) {
         return;
       }
 
