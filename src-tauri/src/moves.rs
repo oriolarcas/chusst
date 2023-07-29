@@ -1,4 +1,33 @@
+use std::collections::BinaryHeap;
+
 use crate::board::{Board, Game, Move, PieceType, Player, Position};
+
+type Score = i32;
+
+struct WeightedMove {
+    pub mv: Move,
+    pub score: Score,
+}
+
+impl PartialEq for WeightedMove {
+    fn eq(&self, other: &Self) -> bool {
+        self.mv == other.mv
+    }
+}
+
+impl PartialOrd for WeightedMove {
+    fn partial_cmp(&self, other: &Self) -> std::option::Option<std::cmp::Ordering> {
+        self.score.partial_cmp(&other.score)
+    }
+}
+
+impl Eq for WeightedMove {}
+
+impl Ord for WeightedMove {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.score.cmp(&other.score)
+    }
+}
 
 struct Direction {
     row_inc: i8,
@@ -341,12 +370,12 @@ pub fn get_possible_moves(board: &Board, position: Position) -> Vec<Position> {
     }
 }
 
-pub fn move_name(game: &Game, mv: &Move) -> String {
+pub fn move_name(board: &Board, player: &Player, mv: &Move) -> String {
     let mut name = String::new();
-    let src_piece = game.board.rows[mv.source.row][mv.source.col].unwrap();
-    let tgt_piece_opt = game.board.rows[mv.target.row][mv.target.col];
+    let src_piece = board.rows[mv.source.row][mv.source.col].unwrap();
+    let tgt_piece_opt = board.rows[mv.target.row][mv.target.col];
 
-    let pieces_iter = player_pieces_iter!(board: &game.board, player: &game.turn);
+    let pieces_iter = player_pieces_iter!(board: board, player: player);
 
     match src_piece.piece {
         PieceType::Pawn => {}
@@ -365,7 +394,7 @@ pub fn move_name(game: &Game, mv: &Move) -> String {
             continue;
         }
 
-        match game.board.rows[player_piece_position.row][player_piece_position.col] {
+        match board.rows[player_piece_position.row][player_piece_position.col] {
             Some(player_piece) => {
                 if player_piece.piece != src_piece.piece {
                     continue;
@@ -374,7 +403,7 @@ pub fn move_name(game: &Game, mv: &Move) -> String {
             None => {}
         }
 
-        if get_possible_moves(&game.board, player_piece_position)
+        if get_possible_moves(board, player_piece_position)
             .iter()
             .find(|possible_position| **possible_position == mv.target)
             .is_some()
@@ -408,9 +437,64 @@ pub fn move_name(game: &Game, mv: &Move) -> String {
     name
 }
 
-// pub fn get_best_move(game: &Game) -> Move {
+fn get_piece_value(piece: PieceType) -> Score {
+    match piece {
+        PieceType::Pawn => 100,
+        PieceType::Knight => 300,
+        PieceType::Bishop => 300,
+        PieceType::Rook => 500,
+        PieceType::Queen => 900,
+        PieceType::King => Score::MAX,
+    }
+}
 
-// }
+fn get_best_move_recursive(
+    board: &Board,
+    player: &Player,
+    search_depth: u32,
+) -> Option<WeightedMove> {
+    let pieces_iter = player_pieces_iter!(board: board, player: player);
+
+    let mut moves: BinaryHeap<WeightedMove> = BinaryHeap::new();
+
+    for player_piece_position in pieces_iter {
+        for possible_position in get_possible_moves(&board, player_piece_position) {
+            let mut score = match board.rows[possible_position.row][possible_position.col] {
+                Some(piece) => get_piece_value(piece.piece),
+                None => 0,
+            };
+
+            let mv = Move {
+                source: player_piece_position,
+                target: possible_position,
+            };
+
+            // Recursion
+            if search_depth > 0 {
+                let mut game = Game {
+                    board: *board,
+                    turn: *player,
+                };
+
+                assert!(do_move(&mut game, mv));
+
+                score = score.saturating_sub(
+                    get_best_move_recursive(&game.board, &game.turn, search_depth - 1)
+                        .map(|next_move| next_move.score)
+                        .unwrap_or(Score::MIN),
+                );
+            }
+
+            moves.push(WeightedMove { mv, score });
+        }
+    }
+
+    moves.pop()
+}
+
+pub fn get_best_move(board: &Board, player: &Player) -> Option<Move> {
+    get_best_move_recursive(board, player, 3).map(|weighted_move| weighted_move.mv)
+}
 
 pub fn do_move(game: &mut Game, mv: Move) -> bool {
     let board = &mut game.board;

@@ -157,6 +157,7 @@ impl fmt::Display for Position {
     }
 }
 
+#[derive(Copy, Clone, PartialEq)]
 pub struct Move {
     pub source: Position,
     pub target: Position,

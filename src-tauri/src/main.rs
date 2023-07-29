@@ -75,11 +75,11 @@ fn get_game() -> Game {
 fn get_possible_moves(row: usize, col: usize) -> Vec<Position> {
     let position = Position { row, col };
     let possible_moves = moves::get_possible_moves(&GAME.lock().unwrap().board, position);
-    println!(
-        "Possible moves of {}: {} moves",
-        position,
-        possible_moves.len()
-    );
+    // println!(
+    //     "Possible moves of {}: {} moves",
+    //     position,
+    //     possible_moves.len()
+    // );
     possible_moves
 }
 
@@ -96,8 +96,17 @@ fn do_move(source_row: usize, source_col: usize, target_row: usize, target_col: 
         },
     };
     let game = &mut GAME.lock().unwrap();
-    println!("Move {}", moves::move_name(&game, &mv));
-    moves::do_move(game, mv)
+    println!("Move {}", moves::move_name(&game.board, &game.turn, &mv));
+    if !moves::do_move(game, mv) {
+        return false;
+    }
+
+    match moves::get_best_move(&game.board, &game.turn) {
+        Some(mv) => println!("{}: best move is {}", game.turn, moves::move_name(&game.board, &game.turn, &mv)),
+        None => println!("{}: no move?!", game.turn),
+    }
+
+    true
 }
 
 fn main() {
