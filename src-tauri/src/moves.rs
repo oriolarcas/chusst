@@ -473,13 +473,14 @@ fn get_best_move_recursive(
             if search_depth > 0 {
                 let mut game = Game {
                     board: *board,
-                    turn: *player,
+                    player: *player,
+                    turn: 0,
                 };
 
                 assert!(do_move(&mut game, mv));
 
                 score = score.saturating_sub(
-                    get_best_move_recursive(&game.board, &game.turn, search_depth - 1)
+                    get_best_move_recursive(&game.board, &game.player, search_depth - 1)
                         .map(|next_move| next_move.score)
                         .unwrap_or(Score::MIN),
                 );
@@ -493,7 +494,9 @@ fn get_best_move_recursive(
 }
 
 pub fn get_best_move(board: &Board, player: &Player) -> Option<Move> {
-    get_best_move_recursive(board, player, 3).map(|weighted_move| weighted_move.mv)
+    let best_move = get_best_move_recursive(board, player, 3);
+
+    best_move.map(|weighted_move| weighted_move.mv)
 }
 
 pub fn do_move(game: &mut Game, mv: Move) -> bool {
@@ -511,7 +514,7 @@ pub fn do_move(game: &mut Game, mv: Move) -> bool {
     board.rows[mv.target.row][mv.target.col] = board.rows[mv.source.row][mv.source.col];
     board.rows[mv.source.row][mv.source.col] = None;
 
-    game.turn = enemy(&game.turn);
+    game.player = enemy(&game.player);
 
     return true;
 }

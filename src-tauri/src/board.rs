@@ -166,5 +166,6 @@ pub struct Move {
 #[derive(Copy, Clone, Serialize)]
 pub struct Game {
     pub board: Board,
-    pub turn: Player,
+    pub player: Player,
+    pub turn: u32,
 }

@@ -169,7 +169,7 @@ window.addEventListener("DOMContentLoaded", () => {
       console.log("Selecting " + row_index + "," + col_index);
       const already_selected = is_square_selected(row_index, col_index);
 
-      if (selected !== null && !already_selected && !is_square_player(row_index, col_index, game.turn)) {
+      if (selected !== null && !already_selected && !is_square_player(row_index, col_index, game.player)) {
         // Move
         const result = await invoke("do_move", {source_row: selected.row, source_col: selected.col, target_row: row_index, target_col: col_index});
         if (!result) {
@@ -198,7 +198,7 @@ window.addEventListener("DOMContentLoaded", () => {
         return;
       }
 
-      if (!is_square_player(row_index, col_index, game.turn)) {
+      if (!is_square_player(row_index, col_index, game.player)) {
         return;
       }
 

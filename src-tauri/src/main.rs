@@ -62,7 +62,8 @@ static GAME: Mutex<Game> = Mutex::new(Game {
             ],
         ],
     },
-    turn: Player::White,
+    player: Player::White,
+    turn: 1,
 });
 
 // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
@@ -96,15 +97,23 @@ fn do_move(source_row: usize, source_col: usize, target_row: usize, target_col: 
         },
     };
     let game = &mut GAME.lock().unwrap();
-    println!("Move {}", moves::move_name(&game.board, &game.turn, &mv));
+
+    let white_move = moves::move_name(&game.board, &game.player, &mv);
+
     if !moves::do_move(game, mv) {
+        println!("Invalid move: {}", white_move);
         return false;
     }
 
-    match moves::get_best_move(&game.board, &game.turn) {
-        Some(mv) => println!("{}: best move is {}", game.turn, moves::move_name(&game.board, &game.turn, &mv)),
+    match moves::get_best_move(&game.board, &game.player) {
+        Some(mv) => {
+            println!("{}. {} {}", game.turn, white_move, moves::move_name(&game.board, &game.player, &mv));
+            assert!(moves::do_move(game, mv));
+        }
         None => println!("{}: no move?!", game.turn),
     }
+
+    game.turn += 1;
 
     true
 }
