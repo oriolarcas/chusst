@@ -106,9 +106,11 @@ fn do_move(source_row: usize, source_col: usize, target_row: usize, target_col: 
     }
 
     match moves::get_best_move(&game.board, &game.player) {
-        Some(mv) => {
+        Some(move_branch) => {
+            let mv = move_branch.first().unwrap();
             println!("{}. {} {}", game.turn, white_move, moves::move_name(&game.board, &game.player, &mv));
-            assert!(moves::do_move(game, mv));
+
+            assert!(moves::do_move(game, *mv));
         }
         None => println!("{}: no move?!", game.turn),
     }
