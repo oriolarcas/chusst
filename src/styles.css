@@ -16,7 +16,6 @@
 
 .container {
   margin: 0;
-  padding-top: 10vh;
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -26,6 +25,23 @@
 .row {
   display: flex;
   justify-content: center;
+}
+
+.row-name {
+  width: 20px;
+  height: 60px;
+  line-height: 60px;
+  padding: 1px 0px 1px;
+}
+
+.row-name .label {
+  display: inline-block;
+}
+
+.col-name .label {
+  display: table-cell;
+  width: 60px;
+  padding: 0px 1px;
 }
 
 .square {
