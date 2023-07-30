@@ -64,6 +64,7 @@ static GAME: Mutex<Game> = Mutex::new(Game {
     },
     player: Player::White,
     turn: 1,
+    last_move: None,
 });
 
 // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
@@ -75,7 +76,8 @@ fn get_game() -> Game {
 #[tauri::command]
 fn get_possible_moves(row: usize, col: usize) -> Vec<Position> {
     let position = Position { row, col };
-    let possible_moves = moves::get_possible_moves(&GAME.lock().unwrap().board, position);
+    let game = &mut GAME.lock().unwrap();
+    let possible_moves = moves::get_possible_moves(&game.board, &game.last_move, position);
     // println!(
     //     "Possible moves of {}: {} moves",
     //     position,
@@ -98,17 +100,17 @@ fn do_move(source_row: usize, source_col: usize, target_row: usize, target_col: 
     };
     let game = &mut GAME.lock().unwrap();
 
-    let white_move = moves::move_name(&game.board, &game.player, &mv);
+    let white_move = moves::move_name(&game.board, &game.last_move, &game.player, &mv);
 
     if !moves::do_move(game, mv) {
         println!("Invalid move: {}", white_move);
         return false;
     }
 
-    match moves::get_best_move(&game.board, &game.player) {
+    match moves::get_best_move(&game.board, &game.last_move, &game.player) {
         Some(move_branch) => {
             let mv = move_branch.first().unwrap();
-            println!("{}. {} {}", game.turn, white_move, moves::move_name(&game.board, &game.player, &mv));
+            println!("{}. {} {}", game.turn, white_move, moves::move_name(&game.board, &game.last_move, &game.player, &mv));
 
             assert!(moves::do_move(game, *mv));
         }

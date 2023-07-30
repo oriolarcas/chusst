@@ -157,10 +157,31 @@ impl fmt::Display for Position {
     }
 }
 
-#[derive(Copy, Clone, PartialEq)]
+#[derive(Copy, Clone, PartialEq, Serialize)]
 pub struct Move {
     pub source: Position,
     pub target: Position,
+}
+
+impl fmt::Display for Move {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{} -> {}", self.source, self.target)
+    }
+}
+
+#[derive(Copy, Clone, PartialEq, Serialize)]
+pub enum MoveExtraInfo {
+    Other,
+    // Promotion(PieceType),
+    Passed,
+    EnPassant,
+    // Castle,
+}
+
+#[derive(Copy, Clone, Serialize)]
+pub struct MoveInfo {
+    pub mv: Move,
+    pub info: MoveExtraInfo,
 }
 
 #[derive(Copy, Clone, Serialize)]
@@ -168,4 +189,5 @@ pub struct Game {
     pub board: Board,
     pub player: Player,
     pub turn: u32,
+    pub last_move: Option<MoveInfo>,
 }
