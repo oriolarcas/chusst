@@ -1,0 +1,43 @@
+.board {
+  border: 1px black solid;
+  width: calc(60px * 8 + 2);
+}
+
+.label {
+  text-align: center;
+}
+
+.file-labels, .rank {
+  justify-content: center;
+  width: calc(60px * 8);
+}
+
+.file-labels .label {
+  display: table-cell;
+  width: 60px;
+  padding: 0px 1px;
+}
+
+.square {
+  width: 60px !important;
+  height: 60px !important;
+  display: table-cell;
+  padding: 0px !important;
+}
+
+.square.light {
+  background-color: white;
+  border: 1px solid white;
+}
+
+.square.dark {
+  /* background-image: repeating-linear-gradient(
+    135deg,
+    darkseagreen,
+    darkseagreen 3px,
+    white 3px,
+    white 7px
+  ); */
+  background-color: darkseagreen;
+  border: 1px transparent darkseagreen;
+}
