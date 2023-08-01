@@ -664,6 +664,18 @@ pub fn get_best_move(
 
 pub fn do_move(game: &mut Game, mv: Move) -> bool {
     let board = &mut game.board;
+
+    match &board.rows[mv.source.row][mv.source.col] {
+        Some(piece) => {
+            if piece.player != game.player {
+                return false;
+            }
+        }
+        None => {
+            return false;
+        }
+    }
+
     let possible_moves = get_possible_moves(&board, &game.last_move, mv.source);
 
     if possible_moves
