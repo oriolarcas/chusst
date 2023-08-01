@@ -131,16 +131,17 @@ macro_rules! p {
     };
 }
 
-pub type Rank<T> = [T; 8];
 pub type Square = Option<Piece>;
-pub type Row = Rank<Square>;
-pub type Rows = Rank<Row>;
+
+pub type Rank<T> = [T; 8];
+pub type Row<T> = Rank<T>;
+pub type Rows<T> = Rank<Row<T>>;
 
 #[derive(Copy, Clone, Serialize)]
 pub struct Board {
     // rows[x][y], where x = 0..7 = rows 1..8, and y = 0..7 = columns a..h
     // for instance, e4 is Board.rows[2][4]
-    pub rows: Rows,
+    pub rows: Rows<Square>,
 }
 
 #[derive(Copy, Clone, PartialEq, Serialize)]

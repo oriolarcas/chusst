@@ -1,7 +1,10 @@
 use std::collections::BinaryHeap;
 use std::time::Instant;
 
-use crate::board::{Board, Game, Move, MoveExtraInfo, MoveInfo, PieceType, Player, Position};
+use crate::board::{Board, Game, Move, MoveExtraInfo, MoveInfo, PieceType, Player, Position, Rows};
+
+// List of pieces that can capture each square
+pub type BoardCaptures = Rows<Vec<Position>>;
 
 type Score = i32;
 
@@ -606,6 +609,32 @@ fn get_best_move_recursive(
         }
         None => None,
     }
+}
+
+pub fn get_possible_captures(board: &Board, last_move: &Option<MoveInfo>) -> BoardCaptures {
+    let board_iter: BoardIter = Default::default();
+    let mut board_captures: BoardCaptures = Default::default();
+
+    for source_position in board_iter.into_iter() {
+        match board.rows[source_position.row][source_position.col] {
+            Some(square) => {
+                for possible_position in get_possible_moves(&board, last_move, source_position) {
+                    let is_capture = board.rows[possible_position.row][possible_position.col].is_some();
+
+                    if is_capture {
+                        board_captures[possible_position.row][possible_position.col].push(source_position);
+                    } else if !is_capture && square.piece == PieceType::Pawn {
+                        if possible_position.col.abs_diff(source_position.col) != 0 {
+
+                        }
+                    }
+                }
+            }
+            None => ()
+        }
+    }
+
+    board_captures
 }
 
 pub fn get_best_move(

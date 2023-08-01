@@ -86,6 +86,12 @@ fn get_possible_moves(row: usize, col: usize) -> Vec<Position> {
     possible_moves
 }
 
+#[tauri::command]
+fn get_possible_captures() -> moves::BoardCaptures {
+    let game = &mut GAME.lock().unwrap();
+    moves::get_possible_captures(&game.board, &game.last_move)
+}
+
 #[tauri::command(rename_all = "snake_case")]
 fn do_move(source_row: usize, source_col: usize, target_row: usize, target_col: usize) -> bool {
     let mv = Move {
@@ -135,6 +141,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             get_game,
             get_possible_moves,
+            get_possible_captures,
             do_move
         ])
         .run(tauri::generate_context!())

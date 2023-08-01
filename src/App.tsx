@@ -26,16 +26,24 @@ type Game = {
 
 type Hints = Set<string>[][];
 
-function createHints(): Hints {
+function createBoardMatrix<T>(type: {new(): T}): T[][] {
   let hints = new Array(8);
   const indices = Array.from(hints.keys());
   for (const rank of indices) {
     hints[rank] = new Array(8);
     for (const file of indices) {
-      hints[rank][file] = new Set();
+      hints[rank][file] = new type();
     }
   }
   return hints;
+}
+
+function createHints(): Hints {
+  return createBoardMatrix(Set<string>);
+}
+
+function createCaptureMatrix(): Position[][][] {
+  return createBoardMatrix(Array<Position>);
 }
 
 enum PieceHintTypes {
@@ -77,17 +85,21 @@ class App extends Component<{}, {}> {
     game?: Game,
     selected: Position | null,
     hints: Hints,
+    captures: Position[][][],
   } = {
     selected: null,
     hints: createHints(),
+    captures: createCaptureMatrix(),
   };
 
   async reloadBoard(hints?: Hints) {
     const game = await invoke('get_game');
+    const captures = await invoke('get_possible_captures');
+
     if (hints === undefined) {
       hints = createHints();
     }
-    this.setState({game, hints, selected: null});
+    this.setState({game, hints, captures, selected: null});
   }
 
   async componentDidMount() {
@@ -196,7 +208,12 @@ class App extends Component<{}, {}> {
             piece_classes = {piece, player};
           }
 
+          const attackers = this.state.captures[rank_index][file_index];
           let badges = new Map<PieceHintTypes, number>();
+          if (attackers.length > 0) {
+            badges.set(PieceHintTypes.Danger, attackers.length);
+          }
+          // badges.set(PieceHintTypes.Advantage, 1);
 
           return <Square
               color={bg_color}
