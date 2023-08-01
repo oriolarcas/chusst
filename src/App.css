@@ -39,7 +39,27 @@
     white 7px
   ); */
   background-color: darkseagreen;
-  border: 1px transparent darkseagreen;
+  border: 1px solid darkseagreen;
+}
+
+.square.highlighted-source {
+  background-color: teal !important;
+  border: 1px solid blue;
+}
+
+.square.highlighted-move {
+  background-color: aqua !important;
+  border: 1px solid black;
+}
+
+.square.highlighted-capture {
+  background-color: coral !important;
+  border: 1px solid red;
+}
+
+.square.highlighted-selected {
+  background-color: gray !important;
+  border: 1px solid black;
 }
 
 .piece {
