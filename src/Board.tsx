@@ -26,7 +26,7 @@ type Game = {
 
 type Hints = Set<string>[][];
 
-function createBoardMatrix<T>(type: {new(): T}): T[][] {
+function newBoardMatrix<T>(type: {new(): T}): T[][] {
   let hints = new Array(8);
   const indices = Array.from(hints.keys());
   for (const rank of indices) {
@@ -38,12 +38,12 @@ function createBoardMatrix<T>(type: {new(): T}): T[][] {
   return hints;
 }
 
-function createHints(): Hints {
-  return createBoardMatrix(Set<string>);
+function newHintMatrix(): Hints {
+  return newBoardMatrix(Set<string>);
 }
 
-function createCaptureMatrix(): Position[][][] {
-  return createBoardMatrix(Array<Position>);
+function newCaptureMatrix(): Position[][][] {
+  return newBoardMatrix(Array<Position>);
 }
 
 enum PieceHintTypes {
@@ -62,8 +62,12 @@ interface SquareProps {
 }
 
 function Square({color, squareExtraClasses, piece, onClick, onMouseEnter, onMouseLeave, hints}: SquareProps) {
+  const square_class_name = Array.from(squareExtraClasses)
+    .map((class_name) => 'highlighted-' + class_name)
+    .concat(['square', color])
+    .join(' ');
   return <div
-      className={Array.from(squareExtraClasses).map((class_name) => 'highlighted-' + class_name).concat(['square', color]).join(' ')}
+      className={square_class_name}
       onClick={onClick}
     >
     { piece ? (
@@ -99,8 +103,8 @@ class Board extends Component<BoardProps, {}> {
     captures: Position[][][],
   } = {
     selected: null,
-    hints: createHints(),
-    captures: createCaptureMatrix(),
+    hints: newHintMatrix(),
+    captures: newCaptureMatrix(),
   };
 
   onMessage(msg: string) {
@@ -112,7 +116,7 @@ class Board extends Component<BoardProps, {}> {
     const captures = await invoke('get_possible_captures');
 
     if (hints === undefined) {
-      hints = createHints();
+      hints = newHintMatrix();
     }
     this.setState({game, hints, captures, selected: null});
   }
@@ -134,7 +138,7 @@ class Board extends Component<BoardProps, {}> {
   }
 
   async highlightPieceMoves(position: Position, selected?: boolean): Promise<Set<string>[][]> {
-    let hints = createHints();
+    let hints = newHintMatrix();
 
     hints[position.row][position.col].add(selected === true ? 'selected' : 'source');
 
@@ -148,14 +152,33 @@ class Board extends Component<BoardProps, {}> {
     return hints;
   }
 
+  filterAttackingHints(hints: Hints) {
+    const hints_to_remove = ['attacker'];
+    for (let rank of hints) {
+      for (let square of rank) {
+        for (const to_remove of hints_to_remove) {
+          square.delete(to_remove);
+        }
+      }
+    }
+  }
+
+  updateHintsWithAttackers(hints: Hints, position: Position) {
+    this.filterAttackingHints(hints);
+
+    for (const attacker of this.state.captures[position.row][position.col]) {
+      hints[attacker.row][attacker.col].add('attacker');
+    }
+  }
+
   onMouseEnter = async (event: any, rank: number, file: number, hint?: PieceHintTypes) => {
     let position: Position = {row: rank, col: file};
     if (hint !== undefined) {
-      this.onMessage("Hint mouse enter");
+      let hints = this.state.hints;
+      this.updateHintsWithAttackers(hints, position);
+      this.setState({hints});
       return;
     }
-
-    this.onMessage("Square mouse enter");
 
     if (this.state.selected === null && !this.isSquareEmpty(position)) {
       const hints = await this.highlightPieceMoves(position);
@@ -165,14 +188,14 @@ class Board extends Component<BoardProps, {}> {
 
   onMouseLeave = (event: any, rank: number, file: number, hint?: PieceHintTypes) => {
     if (hint !== undefined) {
-      this.onMessage("Hint mouse leave");
+      let hints = this.state.hints;
+      this.filterAttackingHints(hints);
+      this.setState({hints});
       return;
     }
 
-    this.onMessage("Square mouse leave");
-
     if (this.state.selected === null) {
-      let hints = createHints();
+      let hints = newHintMatrix();
       this.setState({hints});
     }
   }
@@ -224,7 +247,7 @@ class Board extends Component<BoardProps, {}> {
           let player = square?.player;
           let piece_classes: Piece | undefined;
 
-          let hints = this.state.hints?.[rank_index][file_index];
+          let hints = this.state.hints[rank_index][file_index];
 
           if (piece && player) {
             piece_classes = {piece, player};
