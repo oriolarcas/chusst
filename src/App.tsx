@@ -2,12 +2,15 @@ import './App.css';
 
 import { Component } from 'react';
 import { Container, Row, Col } from 'react-bootstrap';
+import Badge from 'react-bootstrap/Badge';
 import { invoke } from '@tauri-apps/api';
 
-type Square = {
+type Piece = {
   piece: string;
   player: string;
-} | null;
+}
+
+type SquareType = Piece | null;
 
 type Position = {
   row: number;
@@ -15,7 +18,7 @@ type Position = {
 }
 
 type Game = {
-  board: {rows: Square[][]};
+  board: {rows: SquareType[][]};
   player: string;
   turn: number;
   last_move: Position | null;
@@ -35,20 +38,53 @@ function createHints(): Hints {
   return hints;
 }
 
+enum PieceHintTypes {
+  Danger = "danger",
+  Advantage = "primary",
+}
+
+interface SquareProps {
+  color: string,
+  squareExtraClasses: Set<string>,
+  piece?: Piece,
+  onClick?: (event: any) => void,
+  onMouseOver?: (event: any) => void,
+  onMouseOut?: (event: any) => void,
+  hints?: Map<PieceHintTypes, number>,
+}
+
+function Square({color, squareExtraClasses, piece, onClick, onMouseOver, onMouseOut, hints}: SquareProps) {
+  return <div
+      className={Array.from(squareExtraClasses).map((class_name) => 'highlighted-' + class_name).concat(['square', color]).join(' ')}
+      onClick={onClick}
+    >
+    { piece ? (
+      <div
+        className={['piece', piece.piece.toLowerCase(), piece.player.toLowerCase()].join(' ')}
+        onMouseOver={onMouseOver}
+        onMouseOut={onMouseOut}>
+        { Array.from(hints?.entries() ?? []).map(([hint_type, hint_count]) =>
+            <Badge className='hint' pill bg={hint_type}>{hint_count}</Badge>
+        ) }
+        </div>
+    ) : null}
+    </div>
+    ;
+}
+
 class App extends Component<{}, {}> {
   state: {
-    game: Game | null,
+    game?: Game,
     selected: Position | null,
     hints: Hints,
   } = {
-    game: null,
     selected: null,
     hints: createHints(),
   };
 
-  async reloadBoard(hints: Hints | null = null) {
+  async reloadBoard(hints?: Hints) {
     const game = await invoke('get_game');
-    if (hints === null) {
+    if (hints === undefined) {
       hints = createHints();
     }
     this.setState({game, hints, selected: null});
@@ -79,13 +115,13 @@ class App extends Component<{}, {}> {
   }
 
   isSquarePlayer(position: Position, player: string) {
-    return this.state.game?.board.rows[position.row][position.col]?.player == player;
+    return this.state.game?.board.rows[position.row][position.col]?.player === player;
   }
 
-  async highlightPieceMoves(position: Position, selected: boolean = false): Promise<Set<string>[][]> {
+  async highlightPieceMoves(position: Position, selected?: boolean): Promise<Set<string>[][]> {
     let hints = createHints();
 
-    hints[position.row][position.col].add(selected ? 'selected' : 'source');
+    hints[position.row][position.col].add(selected === true ? 'selected' : 'source');
 
     const moves: Position[] = await invoke('get_possible_moves', {row: position.row, col: position.col});
 
@@ -122,7 +158,7 @@ class App extends Component<{}, {}> {
 
     if (this.state.selected !== null && !already_selected && !this.isSquarePlayer(position, this.state.game.player)) {
       // Move
-      const result = await invoke('do_move', {source_row: this.state.selected.row, source_col: this.state.selected.col, target_row: rank, target_col: file});
+      const result = await invoke('do_move', {source_row: this.state.selected?.row, source_col: this.state.selected?.col, target_row: rank, target_col: file});
       if (!result) {
         console.log('Invalid move');
         return;
@@ -149,31 +185,28 @@ class App extends Component<{}, {}> {
         {Array.from(new Array(8).keys()).map((file_index) => {
           const bg_color = (file_index + rank_index) % 2 === 0 ? 'dark' : 'light';
 
-          let square_classes = ['square', bg_color];
           let square = this.state.game?.board.rows[rank_index][file_index];
           let piece = square?.piece;
           let player = square?.player;
-          let piece_classes = ['piece'];
+          let piece_classes: Piece | undefined;
 
           let hints = this.state.hints?.[rank_index][file_index];
-          if (hints) {
-            square_classes = square_classes.concat(Array.from(hints).map((class_name) => 'highlighted-' + class_name));
-          }
 
           if (piece && player) {
-            piece_classes.push(piece.toLowerCase());
-            piece_classes.push(player.toLowerCase());
+            piece_classes = {piece, player};
           }
 
-          return (
-            <div className={square_classes.join(' ')}>
-              <div
-                className={piece_classes.join(' ')}
-                onClick={(event) => this.onClick(event, rank_index, file_index)}
-                onMouseOver={(event) => this.onMouseOver(event, rank_index, file_index)}
-                onMouseOut={(event) => this.onMouseOut(event, rank_index, file_index)}></div>
-            </div>
-          )
+          let badges = new Map<PieceHintTypes, number>();
+
+          return <Square
+              color={bg_color}
+              squareExtraClasses={hints}
+              piece={piece_classes}
+              onClick={(event) => this.onClick(event, rank_index, file_index)}
+              onMouseOver={(event) => this.onMouseOver(event, rank_index, file_index)}
+              onMouseOut={(event) => this.onMouseOut(event, rank_index, file_index)}
+              hints={badges}
+            />;
         })}
       </Row>
     )
