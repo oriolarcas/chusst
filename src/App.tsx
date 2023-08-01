@@ -1,8 +1,8 @@
 import './App.css';
 import Board from './Board';
 
-import { Component } from 'react';
-import { Container, Row, Col, FormText, FormControl } from 'react-bootstrap';
+import { Component, RefObject, createRef } from 'react';
+import { Container, Row, Col } from 'react-bootstrap';
 import Form from 'react-bootstrap/Form';
 
 function FileLabels() {
@@ -15,13 +15,43 @@ function FileLabels() {
     </Row>;
 }
 
-function MessageBox() {
-  return <Row>
-      <Form.Control as="textarea" rows={4} disabled />
-    </Row>;
+class MessageBox extends Component<{onMount: (setter: (msg: string) => void) => void}, {}> {
+  state: {messages: string[]} = {
+    messages: [],
+  };
+  messageBoxRef: RefObject<any> = createRef();
+
+  logMessage = (msg: string) => {
+    let messages = this.state.messages;
+    messages.push(msg);
+    this.setState({messages});
+  }
+
+  componentDidMount(): void {
+    this.props.onMount(this.logMessage);
+  }
+
+  componentDidUpdate() {
+    this.messageBoxRef.current.scrollTop = this.messageBoxRef.current.scrollHeight;
+  }
+
+  render() {
+    return <Row>
+        <Form.Control as="textarea" rows={4} disabled ref={this.messageBoxRef} value={this.state.messages.join('\n')} />
+      </Row>;
+  }
 }
 
 class App extends Component<{}, {}> {
+  messageLogger?: (msg: string) => void;
+
+  onMessageBoxMount = (setter: (msg: string) => void) => {
+    this.messageLogger = setter;
+  }
+
+  onMessage = (msg: string) => {
+    this.messageLogger?.(msg);
+  }
 
   render() {
     return (
@@ -31,9 +61,9 @@ class App extends Component<{}, {}> {
           <Col className='px-0'></Col>
           <Col className='p-0'>
             <FileLabels />
-            <Board />
+            <Board onMessage={this.onMessage} />
             <FileLabels />
-            <MessageBox />
+            <MessageBox onMount={this.onMessageBoxMount} />
           </Col>
           <Col className='px-0'></Col>
         </Row>

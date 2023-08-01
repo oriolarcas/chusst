@@ -87,7 +87,11 @@ function Square({color, squareExtraClasses, piece, onClick, onMouseEnter, onMous
     ;
 }
 
-class Board extends Component<{}, {}> {
+interface BoardProps {
+  onMessage?: (msg: string) => void;
+}
+
+class Board extends Component<BoardProps, {}> {
   state: {
     game?: Game,
     selected: Position | null,
@@ -98,6 +102,10 @@ class Board extends Component<{}, {}> {
     hints: createHints(),
     captures: createCaptureMatrix(),
   };
+
+  onMessage(msg: string) {
+    this.props.onMessage?.(msg);
+  }
 
   async reloadBoard(hints?: Hints) {
     const game = await invoke('get_game');
@@ -143,11 +151,11 @@ class Board extends Component<{}, {}> {
   onMouseEnter = async (event: any, rank: number, file: number, hint?: PieceHintTypes) => {
     let position: Position = {row: rank, col: file};
     if (hint !== undefined) {
-      console.log("Hint mouse enter");
+      this.onMessage("Hint mouse enter");
       return;
     }
 
-    console.log("Square mouse enter");
+    this.onMessage("Square mouse enter");
 
     if (this.state.selected === null && !this.isSquareEmpty(position)) {
       const hints = await this.highlightPieceMoves(position);
@@ -157,11 +165,11 @@ class Board extends Component<{}, {}> {
 
   onMouseLeave = (event: any, rank: number, file: number, hint?: PieceHintTypes) => {
     if (hint !== undefined) {
-      console.log("Hint mouse leave");
+      this.onMessage("Hint mouse leave");
       return;
     }
 
-    console.log("Square mouse leave");
+    this.onMessage("Square mouse leave");
 
     if (this.state.selected === null) {
       let hints = createHints();
