@@ -1,4 +1,3 @@
-use std::collections::BinaryHeap;
 use std::time::Instant;
 
 use crate::board::{Board, Game, Move, MoveExtraInfo, MoveInfo, PieceType, Player, Position, Rows};
@@ -8,13 +7,20 @@ pub type BoardCaptures = Rows<Vec<Position>>;
 
 type Score = i32;
 
-struct SortedMoves {
-    pub moves: Vec<Move>,
+#[derive(PartialEq)]
+struct WeightedMove {
+    pub mv: Move,
+    pub score: Score,
+}
+
+#[derive(Default)]
+struct Branch {
+    pub moves: Vec<WeightedMove>,
     pub score: Score,
     pub searched: u32,
 }
 
-impl PartialEq for SortedMoves {
+impl PartialEq for Branch {
     fn eq(&self, other: &Self) -> bool {
         match (self.moves.first(), other.moves.first()) {
             (None, None) => true,
@@ -24,17 +30,9 @@ impl PartialEq for SortedMoves {
     }
 }
 
-impl Eq for SortedMoves {}
-
-impl PartialOrd for SortedMoves {
+impl PartialOrd for Branch {
     fn partial_cmp(&self, other: &Self) -> std::option::Option<std::cmp::Ordering> {
         self.score.partial_cmp(&other.score)
-    }
-}
-
-impl Ord for SortedMoves {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.score.cmp(&other.score)
     }
 }
 
@@ -510,7 +508,7 @@ pub fn move_name(
     name
 }
 
-pub fn move_branch_names(board: &Board, player: &Player, moves: &Vec<Move>) -> Vec<String> {
+pub fn move_branch_names(board: &Board, player: &Player, moves: &Vec<&Move>) -> Vec<String> {
     let mut game = Game {
         board: *board,
         player: *player,
@@ -545,10 +543,10 @@ fn get_best_move_recursive(
     last_move: &Option<MoveInfo>,
     player: &Player,
     search_depth: u32,
-) -> Option<SortedMoves> {
+) -> Option<Branch> {
     let pieces_iter = player_pieces_iter!(board: board, player: player);
 
-    let mut moves: BinaryHeap<SortedMoves> = BinaryHeap::new();
+    let mut best_move: Option<Branch> = None;
 
     let mut searched_moves: u32 = 0;
 
@@ -561,16 +559,19 @@ fn get_best_move_recursive(
                 None => 0,
             };
 
-            let mv = Move {
-                source: player_piece_position,
-                target: possible_position,
-            };
-
-            let mut weighted_move = SortedMoves {
-                moves: vec![mv],
+            let mut branch = Branch {
+                moves: vec![WeightedMove {
+                    mv: Move {
+                        source: player_piece_position,
+                        target: possible_position,
+                    },
+                    score: local_score,
+                }],
                 score: local_score,
                 searched: 0,
             };
+
+            let mv = branch.moves.first().unwrap();
 
             // Recursion
             if search_depth > 0 {
@@ -581,9 +582,13 @@ fn get_best_move_recursive(
                     last_move: *last_move,
                 };
 
-                assert!(do_move(&mut game, mv), "Unexpected invalid move {}", mv);
+                assert!(
+                    do_move(&mut game, &mv.mv),
+                    "Unexpected invalid move {}",
+                    mv.mv
+                );
 
-                let mut branch = get_best_move_recursive(
+                let mut next_moves = get_best_move_recursive(
                     &game.board,
                     &game.last_move,
                     &game.player,
@@ -591,24 +596,34 @@ fn get_best_move_recursive(
                 )
                 .unwrap();
 
-                weighted_move.moves.append(&mut branch.moves);
-                weighted_move.score = local_score.saturating_sub(branch.score);
-                weighted_move.searched = branch.searched;
+                branch.moves.append(&mut next_moves.moves);
+                branch.score = local_score.saturating_sub(next_moves.score);
+                branch.searched = next_moves.searched;
 
                 searched_moves += branch.searched;
             };
 
-            moves.push(weighted_move);
+            match &mut best_move {
+                Some(current_best_move) => {
+                    if current_best_move < &mut branch {
+                        best_move = Some(branch);
+                    }
+                }
+                None => {
+                    best_move = Some(branch);
+                }
+            }
         }
     }
 
-    match moves.pop() {
-        Some(mut best_move) => {
+    match &mut best_move {
+        Some(best_move) => {
             best_move.searched = searched_moves;
-            Some(best_move)
         }
-        None => None,
+        None => (),
     }
+
+    best_move
 }
 
 pub fn get_possible_captures(board: &Board, last_move: &Option<MoveInfo>) -> BoardCaptures {
@@ -619,18 +634,18 @@ pub fn get_possible_captures(board: &Board, last_move: &Option<MoveInfo>) -> Boa
         match board.rows[source_position.row][source_position.col] {
             Some(square) => {
                 for possible_position in get_possible_moves(&board, last_move, source_position) {
-                    let is_capture = board.rows[possible_position.row][possible_position.col].is_some();
+                    let is_capture =
+                        board.rows[possible_position.row][possible_position.col].is_some();
 
                     if is_capture {
-                        board_captures[possible_position.row][possible_position.col].push(source_position);
+                        board_captures[possible_position.row][possible_position.col]
+                            .push(source_position);
                     } else if !is_capture && square.piece == PieceType::Pawn {
-                        if possible_position.col.abs_diff(source_position.col) != 0 {
-
-                        }
+                        if possible_position.col.abs_diff(source_position.col) != 0 {}
                     }
                 }
             }
-            None => ()
+            None => (),
         }
     }
 
@@ -643,26 +658,40 @@ pub fn get_best_move(
     player: &Player,
 ) -> Option<Vec<Move>> {
     let start_time = Instant::now();
-    let best_move = get_best_move_recursive(board, last_move, player, 3);
+    let best_branch = get_best_move_recursive(board, last_move, player, 3);
     let duration = (Instant::now() - start_time).as_secs_f64();
 
-    let total_moves = best_move
+    let total_moves = best_branch
         .as_ref()
         .map(|weighted_move| weighted_move.searched)
         .unwrap();
+
+    let branch_moves = best_branch
+        .as_ref()
+        .unwrap()
+        .moves
+        .iter()
+        .map(|mv| &mv.mv)
+        .collect::<Vec<&Move>>();
 
     println!(
         "  ({:.2} s., {:.0} mps) Best branch after {}: {}",
         duration,
         f64::from(total_moves) / duration,
         total_moves,
-        move_branch_names(&board, &player, &best_move.as_ref().unwrap().moves).join(" "),
+        std::iter::zip(
+            &best_branch.as_ref().unwrap().moves,
+            move_branch_names(&board, &player, &branch_moves)
+        )
+        .map(|(move_info, move_name)| format!("{}{:+}", move_name, move_info.score))
+        .collect::<Vec<String>>()
+        .join(" "),
     );
 
-    best_move.map(|sorted_moves| sorted_moves.moves)
+    Some(branch_moves.iter().map(|move_ref| **move_ref).collect())
 }
 
-pub fn do_move(game: &mut Game, mv: Move) -> bool {
+pub fn do_move(game: &mut Game, mv: &Move) -> bool {
     let board = &mut game.board;
 
     match &board.rows[mv.source.row][mv.source.col] {
@@ -722,7 +751,7 @@ pub fn do_move(game: &mut Game, mv: Move) -> bool {
 
     game.player = enemy(&game.player);
     game.last_move = Some(MoveInfo {
-        mv,
+        mv: *mv,
         info: move_info,
     });
 

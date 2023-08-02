@@ -108,7 +108,7 @@ fn do_move(source_row: usize, source_col: usize, target_row: usize, target_col: 
 
     let white_move = moves::move_name(&game.board, &game.last_move, &game.player, &mv);
 
-    if !moves::do_move(game, mv) {
+    if !moves::do_move(game, &mv) {
         println!("Invalid move: {}", white_move);
         return false;
     }
@@ -118,7 +118,7 @@ fn do_move(source_row: usize, source_col: usize, target_row: usize, target_col: 
             let mv = move_branch.first().unwrap();
             println!("{}. {} {}", game.turn, white_move, moves::move_name(&game.board, &game.last_move, &game.player, &mv));
 
-            assert!(moves::do_move(game, *mv));
+            assert!(moves::do_move(game, mv));
         }
         None => println!("{}: no move?!", game.turn),
     }
