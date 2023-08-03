@@ -12,56 +12,7 @@ use tauri::{LogicalSize, Manager, Size};
 use std::sync::Mutex;
 
 static GAME: Mutex<Game> = Mutex::new(Game {
-    board: Board {
-        // Initial board
-        // Note that white pieces are at the top, because arrays are defined top-down, while chess rows go bottom-up
-        rows: [
-            [
-                p!(rw),
-                p!(nw),
-                p!(bw),
-                p!(qw),
-                p!(kw),
-                p!(bw),
-                p!(nw),
-                p!(rw),
-            ],
-            [
-                p!(pw),
-                p!(pw),
-                p!(pw),
-                p!(pw),
-                p!(pw),
-                p!(pw),
-                p!(pw),
-                p!(pw),
-            ],
-            [p!(); 8],
-            [p!(); 8],
-            [p!(); 8],
-            [p!(); 8],
-            [
-                p!(pb),
-                p!(pb),
-                p!(pb),
-                p!(pb),
-                p!(pb),
-                p!(pb),
-                p!(pb),
-                p!(pb),
-            ],
-            [
-                p!(rb),
-                p!(nb),
-                p!(bb),
-                p!(qb),
-                p!(kb),
-                p!(bb),
-                p!(nb),
-                p!(rb),
-            ],
-        ],
-    },
+    board: initial_board!(),
     player: Player::White,
     turn: 1,
     last_move: None,
@@ -113,10 +64,15 @@ fn do_move(source_row: usize, source_col: usize, target_row: usize, target_col: 
         return false;
     }
 
-    match moves::get_best_move(&game.board, &game.last_move, &game.player) {
+    match moves::get_best_move(game) {
         Some(move_branch) => {
             let mv = move_branch.first().unwrap();
-            println!("{}. {} {}", game.turn, white_move, moves::move_name(&game.board, &game.last_move, &game.player, &mv));
+            println!(
+                "{}. {} {}",
+                game.turn,
+                white_move,
+                moves::move_name(&game.board, &game.last_move, &game.player, &mv)
+            );
 
             assert!(moves::do_move(game, mv));
         }
