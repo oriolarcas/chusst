@@ -150,6 +150,43 @@ impl Board {
     }
 }
 
+fn get_unicode_piece(piece: PieceType, player: Player) -> &'static str {
+    match (player, piece) {
+        (Player::White, PieceType::Pawn) => "♙",
+        (Player::White, PieceType::Knight) => "♘",
+        (Player::White, PieceType::Bishop) => "♗",
+        (Player::White, PieceType::Rook) => "♖",
+        (Player::White, PieceType::Queen) => "♕",
+        (Player::White, PieceType::King) => "♔",
+        (Player::Black, PieceType::Pawn) => "♟︎",
+        (Player::Black, PieceType::Knight) => "♞",
+        (Player::Black, PieceType::Bishop) => "♝",
+        (Player::Black, PieceType::Rook) => "♜",
+        (Player::Black, PieceType::Queen) => "♛",
+        (Player::Black, PieceType::King) => "♚",
+    }
+}
+
+impl fmt::Display for Board {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let mut rows: Vec<String> = Default::default();
+
+        rows.push("   a  b  c  d  e  f  g  h ".to_owned());
+        for (rank, row) in self.rows.iter().rev().enumerate() {
+            let mut row_str = String::from(format!("{} ", 8 - rank));
+            for square in row {
+                let piece = match square {
+                    Some(square_value) => get_unicode_piece(square_value.piece, square_value.player),
+                    None => " ",
+                };
+                row_str += format!("[{}]", piece).as_str();
+            }
+            rows.push(row_str);
+        }
+        write!(f, "{}", rows.join("\n"))
+    }
+}
+
 macro_rules! initial_board {
     () => {
         Board {
