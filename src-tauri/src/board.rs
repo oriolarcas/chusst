@@ -1,7 +1,7 @@
 use serde::Serialize;
 use std::fmt;
 
-#[derive(Copy, Clone, Debug, PartialEq, Serialize)]
+#[derive(Copy, Clone, Debug, Eq, Hash, PartialEq, Serialize)]
 pub enum PieceType {
     Pawn,   // p
     Knight, // n

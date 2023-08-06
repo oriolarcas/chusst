@@ -1,4 +1,5 @@
 import './Board.css';
+import './Pieces.css';
 
 import { Component } from 'react';
 import { Row } from 'react-bootstrap';
@@ -23,6 +24,16 @@ type Game = {
   turn: number;
   last_move: Position | null;
 };
+
+type MoveDescription = {
+  mv: string,
+  captures: Piece[],
+}
+
+type TurnDescription = {
+  white: MoveDescription,
+  black: MoveDescription,
+}
 
 type Hints = Set<string>[][];
 
@@ -92,7 +103,7 @@ function Square({color, squareExtraClasses, piece, onClick, onMouseEnter, onMous
 }
 
 interface BoardProps {
-  onMove?: (move: string) => void;
+  onMove?: (move: string, white_captures: string[], black_captures: string[]) => void;
   onMessage?: (msg: string) => void;
 }
 
@@ -219,8 +230,14 @@ class Board extends Component<BoardProps, {}> {
 
       console.log('Move done');
 
-      const history: [string[]] = await invoke('get_history');
-      this.props.onMove?.(history[history.length - 1].join(" "));
+      const history: TurnDescription[] = await invoke('get_history');
+      const last_turn = history[history.length - 1];
+
+      this.props.onMove?.(
+        last_turn.white.mv + " " + last_turn.black.mv,
+        last_turn.white.captures.map((piece) => piece.piece),
+        last_turn.black.captures.map((piece) => piece.piece)
+      );
 
       let hints = await this.highlightPieceMoves(position);
 

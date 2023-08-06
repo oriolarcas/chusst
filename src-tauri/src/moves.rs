@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::time::Instant;
 
 use crate::board::{
@@ -643,7 +644,7 @@ pub fn move_branch_names(board: &Board, player: &Player, moves: &Vec<&Move>) -> 
     for mv in moves {
         move_names.push(move_name(&game.board, &game.last_move, &game.player, &mv));
 
-        assert!(do_move(&mut game, *mv));
+        assert!(do_move(&mut game, *mv).is_some());
     }
 
     move_names
@@ -801,9 +802,57 @@ pub fn get_best_move(game: &mut Game, search_depth: u32) -> Option<Vec<Move>> {
     Some(branch_moves.iter().map(|move_ref| **move_ref).collect())
 }
 
-pub fn do_move(game: &mut Game, mv: &Move) -> bool {
+pub fn do_move(game: &mut Game, mv: &Move) -> Option<Vec<Piece>> {
+    let enemy_player = enemy(&game.player);
+    let mut enemy_army: HashMap<PieceType, u32> = HashMap::new();
+
+    for piece in player_pieces_iter!(board: &game.board, player: &enemy_player)
+        .map(|position| game.board.square(position).unwrap().piece)
+    {
+        match enemy_army.get_mut(&piece) {
+            Some(piece_count) => {
+                *piece_count += 1;
+            }
+            None => {
+                enemy_army.insert(piece, 1);
+            }
+        }
+    }
+
     let rev_game = &mut ReversableGame::from(game);
-    rev_game.do_move(mv)
+    let result = rev_game.do_move(mv);
+
+    if result {
+        for piece in player_pieces_iter!(board: &game.board, player: &enemy_player)
+            .map(|position| game.board.square(position).unwrap().piece)
+        {
+            match enemy_army.get_mut(&piece) {
+                Some(piece_count) => {
+                    *piece_count -= 1;
+                    if *piece_count == 0 {
+                        assert!(enemy_army.remove(&piece).is_some());
+                    }
+                }
+                None => {
+                    // A pawn has been promoted to something else (promotion is mandatory)
+                    assert_ne!(piece, PieceType::Pawn);
+                    assert!(enemy_army.remove(&PieceType::Pawn).is_some());
+                }
+            }
+        }
+        Some(
+            enemy_army
+                .keys()
+                .into_iter()
+                .map(|piece| Piece {
+                    piece: *piece,
+                    player: enemy_player,
+                })
+                .collect(),
+        )
+    } else {
+        None
+    }
 }
 
 #[cfg(test)]
@@ -875,7 +924,7 @@ mod tests {
 
             // Do setup moves
             for mv in &test_board.initial_moves {
-                assert!(do_move(&mut game, &mv));
+                assert!(do_move(&mut game, &mv).is_some());
             }
 
             let original_board = game.board.clone();

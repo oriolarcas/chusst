@@ -7,13 +7,26 @@ mod moves;
 
 use board::{Board, Game, Move, Piece, PieceType, Player, Position};
 
+use serde::Serialize;
 use tauri::{LogicalSize, Manager, Size};
 
 use std::sync::Mutex;
 
+#[derive(Clone, Serialize)]
+struct MoveDescription {
+    mv: String,
+    captures: Vec<Piece>,
+}
+
+#[derive(Clone, Serialize)]
+struct TurnDescription {
+    white: MoveDescription,
+    black: MoveDescription,
+}
+
 struct GameData {
     game: Game,
-    history: Vec<(String, String)>,
+    history: Vec<TurnDescription>,
 }
 
 static GAME: Mutex<GameData> = Mutex::new(GameData {
@@ -32,7 +45,7 @@ fn get_game() -> Game {
 }
 
 #[tauri::command]
-fn get_history() -> Vec<(String, String)> {
+fn get_history() -> Vec<TurnDescription> {
     GAME.lock().unwrap().history.clone()
 }
 
@@ -67,19 +80,23 @@ fn do_move(source_row: usize, source_col: usize, target_row: usize, target_col: 
 
     let white_move = moves::move_name(&game.board, &game.last_move, &game.player, &mv);
 
-    if !moves::do_move(game, &mv) {
-        println!("Invalid move: {}", white_move);
-        return false;
-    }
+    let white_captures = match moves::do_move(game, &mv) {
+        Some(captures) => captures,
+        None => {
+            println!("Invalid move: {}", white_move);
+            return false;
+        }
+    };
 
-    let black_move = match moves::get_best_move(game, 3) {
+    let (black_move, black_captures) = match moves::get_best_move(game, 3) {
         Some(move_branch) => {
             let mv = move_branch.first().unwrap();
             let description = moves::move_name(&game.board, &game.last_move, &game.player, &mv);
 
-            assert!(moves::do_move(game, mv));
+            let black_captures = moves::do_move(game, mv);
+            assert!(black_captures.is_some());
 
-            description
+            (description, black_captures.unwrap())
         }
         None => panic!("No move?!"),
     };
@@ -89,7 +106,16 @@ fn do_move(source_row: usize, source_col: usize, target_row: usize, target_col: 
 
     println!("{}. {} {}", turn, white_move, black_move);
 
-    history.push((white_move, black_move));
+    history.push(TurnDescription {
+        white: MoveDescription {
+            mv: white_move,
+            captures: white_captures,
+        },
+        black: MoveDescription {
+            mv: black_move,
+            captures: black_captures,
+        },
+    });
 
     true
 }

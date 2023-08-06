@@ -1,7 +1,9 @@
 import './App.css';
+import './Pieces.css';
+
 import Board from './Board';
 
-import { Component, ReactNode, RefObject, createRef } from 'react';
+import { Component, ErrorInfo, ReactNode, RefObject, createRef } from 'react';
 import { Container, Row, Col } from 'react-bootstrap';
 import Form from 'react-bootstrap/Form';
 
@@ -84,33 +86,83 @@ class MessageBox extends Component<{onMount: (setter: (msg: string) => void) => 
   }
 }
 
-class ScoreBoard extends Component<{}, {}> {
+class ScoreBoard extends Component<{onMount: (setter: (white_captures: string[], black_captures: string[]) => void) => void}, {}> {
+  state: {white_captures: string[], black_captures: string[]} = {
+    white_captures: [],
+    black_captures: [],
+  }
+
+  addCaptures = (new_white_captures: string[], new_black_captures: string[]) => {
+    let white_captures = this.state.white_captures;
+    let black_captures = this.state.black_captures;
+    white_captures.push(...new_white_captures);
+    black_captures.push(...new_black_captures);
+    this.setState({white_captures, black_captures})
+  }
+
+  componentDidMount(): void {
+    this.props.onMount(this.addCaptures);
+  }
+
+  getPieceScore(piece: string): number {
+    switch (piece.toLowerCase()) {
+      case "pawn":   return 1;
+      case "knight": return 3;
+      case "bishop": return 3;
+      case "rook":   return 5;
+      case "queen":  return 9;
+    }
+    return 0;
+  }
+
+  getPlayerScore(captures: string[]): number {
+    return captures.map((piece) => this.getPieceScore(piece)).reduce((total, piece_value) => total + piece_value, 0);
+  }
+
   render(): ReactNode {
-    return <Row>
+    const white_total_score = this.getPlayerScore(this.state.white_captures);
+    const black_total_score = this.getPlayerScore(this.state.black_captures);
+
+    const white_score = white_total_score - black_total_score;
+    const black_score = black_total_score - black_total_score;
+
+    return <Row className='score-board'>
         <Col style={{textAlign: 'left'}}>
-          White
+          <p className='m-0'>White ({white_score})</p>
+          <p className='captured-list'>{this.state.white_captures.map((piece) =>
+            <div className={'captured piece black ' + piece.toLowerCase()}></div>
+          )}</p>
         </Col>
         <Col style={{textAlign: 'right'}}>
-          Black
+          <p className='m-0'>Black ({black_score})</p>
+          <p className='captured-list'>{this.state.black_captures.map((piece) =>
+            <div className={'captured piece white ' + piece.toLowerCase()}></div>
+          )}</p>
         </Col>
       </Row>;
   }
 }
 
 class App extends Component<{}, {}> {
-  moveCallback?: (msg: string) => void;
+  moveCallback?: (move: string) => void;
+  captureCallback?: (white_captures: string[], black_captures: string[]) => void;
   messageLogger?: (msg: string) => void;
-
-  onMessageBoxMount = (setter: (msg: string) => void) => {
-    this.messageLogger = setter;
-  }
 
   onGameRecordMount = (setter: (move: string) => void) => {
     this.moveCallback = setter;
   }
 
-  onMove = (move: string) => {
+  onScoreBoardMount = (setter: (white_captures: string[], black_captures: string[]) => void) => {
+    this.captureCallback = setter;
+  }
+
+  onMessageBoxMount = (setter: (msg: string) => void) => {
+    this.messageLogger = setter;
+  }
+
+  onMove = (move: string, white_captures: string[], black_captures: string[]) => {
     this.moveCallback?.(move);
+    this.captureCallback?.(white_captures, black_captures);
   }
 
   onMessage = (msg: string) => {
@@ -133,7 +185,7 @@ class App extends Component<{}, {}> {
             <FileLabels />
             <Board onMove={this.onMove} onMessage={this.onMessage} />
             <FileLabels />
-            <ScoreBoard />
+            <ScoreBoard onMount={this.onScoreBoardMount} />
             <MessageBox onMount={this.onMessageBoxMount} />
           </Col>
           <Col className='px-0'>

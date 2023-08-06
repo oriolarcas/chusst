@@ -1,0 +1,47 @@
+.black.pawn {
+  background-image: url("assets/Chess_pdt45.svg");
+}
+
+.black.knight {
+  background-image: url("assets/Chess_ndt45.svg");
+}
+
+.black.bishop {
+  background-image: url("assets/Chess_bdt45.svg");
+}
+
+.black.rook {
+  background-image: url("assets/Chess_rdt45.svg");
+}
+
+.black.queen {
+  background-image: url("assets/Chess_qdt45.svg");
+}
+
+.black.king {
+  background-image: url("assets/Chess_kdt45.svg");
+}
+
+.white.pawn {
+  background-image: url("assets/Chess_plt45.svg");
+}
+
+.white.knight {
+  background-image: url("assets/Chess_nlt45.svg");
+}
+
+.white.bishop {
+  background-image: url("assets/Chess_blt45.svg");
+}
+
+.white.rook {
+  background-image: url("assets/Chess_rlt45.svg");
+}
+
+.white.queen {
+  background-image: url("assets/Chess_qlt45.svg");
+}
+
+.white.king {
+  background-image: url("assets/Chess_klt45.svg");
+}
