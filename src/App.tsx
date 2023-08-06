@@ -6,13 +6,25 @@ import { Container, Row, Col } from 'react-bootstrap';
 import Form from 'react-bootstrap/Form';
 
 function FileLabels() {
-  return <Row className='file-labels m-0'>
+  return <Row className='file-label-row file-labels m-0'>
     {
       ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'].map((file =>
         <div className='label'>{file}</div>
       ))
     }
     </Row>;
+}
+
+function RankLabels(props: {position: string}) {
+  return <>
+    {
+      Array.from(new Array(8).keys()).map((file =>
+        <Row className={'rank-labels ' + props.position + ' m-0'}>
+          <div className='label'>{file}</div>
+        </Row>
+      ))
+    }
+  </>;
 }
 
 class MessageBox extends Component<{onMount: (setter: (msg: string) => void) => void}, {}> {
@@ -58,14 +70,20 @@ class App extends Component<{}, {}> {
       <Container fluid>
         <h1>Chusst</h1>
         <Row>
-          <Col className='px-0'></Col>
+          <Col className='px-0'>
+            <Row className='file-label-row' />
+            <RankLabels position='left' />
+          </Col>
           <Col className='p-0'>
             <FileLabels />
             <Board onMessage={this.onMessage} />
             <FileLabels />
             <MessageBox onMount={this.onMessageBoxMount} />
           </Col>
-          <Col className='px-0'></Col>
+          <Col className='px-0'>
+            <Row className='file-label-row' />
+            <RankLabels position='right' />
+          </Col>
         </Row>
       </Container>
     );

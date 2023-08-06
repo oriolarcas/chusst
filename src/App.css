@@ -2,13 +2,32 @@
   text-align: center;
 }
 
-.file-labels, .rank {
+.rank {
   justify-content: center;
   width: calc(60px * 8);
+}
+
+.file-label-row {
+  height: 30px;
 }
 
 .file-labels .label {
   display: table-cell;
   width: 60px;
+  padding: 0px 1px;
+}
+
+.rank-labels.left {
+  justify-content: right;
+}
+
+.rank-labels.right {
+  justify-content: left;
+}
+
+.rank-labels .label {
+  display: table-cell;
+  line-height: 60px;
+  width: 25px;
   padding: 0px 1px;
 }
