@@ -1,7 +1,7 @@
 [package]
 name = "chusst"
-version = "0.0.0"
-description = "A Tauri App"
+version = "0.1.0"
+description = "A simple chess engine in Rust"
 authors = ["you"]
 license = ""
 repository = ""
