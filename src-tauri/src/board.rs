@@ -137,7 +137,7 @@ pub type Rank<T> = [T; 8];
 pub type Row<T> = Rank<T>;
 pub type Rows<T> = Rank<Row<T>>;
 
-#[derive(Copy, Clone, Debug, PartialEq, Serialize)]
+#[derive(Copy, Clone, Debug, Default, PartialEq, Serialize)]
 pub struct Board {
     // rows[x][y], where x = 0..7 = rows 1..8, and y = 0..7 = columns a..h
     // for instance, e4 is Board.rows[2][4]

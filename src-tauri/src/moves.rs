@@ -109,9 +109,7 @@ struct BoardIter {
 
 impl Default for BoardIter {
     fn default() -> Self {
-        BoardIter {
-            position: pos!(a1),
-        }
+        BoardIter { position: pos!(0, 0) }
     }
 }
 
@@ -257,7 +255,8 @@ impl<'a> ReversableGame<'a> {
                     Player::Black => -1,
                 };
                 let passed =
-                    only_enemy(&board, try_move(&mv.target, &dir!(-direction, 0)), &player).unwrap();
+                    only_enemy(&board, try_move(&mv.target, &dir!(-direction, 0)), &player)
+                        .unwrap();
 
                 self.moves.push(ReversableMove {
                     mv: mv!(passed, passed),
@@ -660,18 +659,18 @@ fn get_piece_value(piece: PieceType) -> Score {
     }
 }
 
-fn get_best_move_recursive(
-    game: &mut Game,
-    search_depth: u32,
-) -> Option<Branch> {
-    let pieces_iter = player_pieces_iter!(board: &game.board, player: &game.player).collect::<Vec<Position>>();
+fn get_best_move_recursive(game: &mut Game, search_depth: u32) -> Option<Branch> {
+    let pieces_iter =
+        player_pieces_iter!(board: &game.board, player: &game.player).collect::<Vec<Position>>();
 
     let mut best_move: Option<Branch> = None;
 
     let mut searched_moves: u32 = 0;
 
     for player_piece_position in pieces_iter {
-        for possible_position in get_possible_moves(&game.board, &game.last_move, player_piece_position) {
+        for possible_position in
+            get_possible_moves(&game.board, &game.last_move, player_piece_position)
+        {
             searched_moves += 1;
 
             let local_score = match &game.board.square(possible_position) {
@@ -700,11 +699,8 @@ fn get_best_move_recursive(
                     mv.mv
                 );
 
-                let mut next_moves = get_best_move_recursive(
-                    &mut rev_game.game,
-                    search_depth - 1,
-                )
-                .unwrap();
+                let mut next_moves =
+                    get_best_move_recursive(&mut rev_game.game, search_depth - 1).unwrap();
 
                 rev_game.undo();
 
@@ -763,9 +759,7 @@ pub fn get_possible_captures(board: &Board, last_move: &Option<MoveInfo>) -> Boa
     board_captures
 }
 
-pub fn get_best_move(
-    game: &mut Game,
-) -> Option<Vec<Move>> {
+pub fn get_best_move(game: &mut Game) -> Option<Vec<Move>> {
     let start_time = Instant::now();
     let best_branch = get_best_move_recursive(game, 3);
     let duration = (Instant::now() - start_time).as_secs_f64();
@@ -815,31 +809,84 @@ pub fn do_move(game: &mut Game, mv: &Move) -> bool {
 mod tests {
     use super::*;
 
+    struct PiecePosition {
+        piece: Option<Piece>,
+        position: Position,
+    }
+
+    macro_rules! pp {
+        ($piece:ident @ $pos:ident) => {
+            PiecePosition {
+                piece: p!($piece),
+                position: pos!($pos),
+            }
+        };
+        ($pos:ident) => {
+            PiecePosition {
+                piece: None,
+                position: pos!($pos),
+            }
+        };
+    }
+
+    struct TestBoard {
+        initial_moves: Vec<Move>,
+        mv: Move,
+        checks: Vec<PiecePosition>,
+    }
+
     #[test]
     fn move_reversable() {
-        let mut game = Game {
-            board: initial_board!(),
-            player: Player::White,
-            turn: 0,
-            last_move: None,
-        };
-
-        let original_board = game.board.clone();
-
-        let mut rev_game = ReversableGame::from(&mut game);
-
-        let moves = [
-            (mv!(e2 => e3), [(pos!(e2), None), (pos!(e3), p!(pw))]),
-            (mv!(e2 => e4), [(pos!(e2), None), (pos!(e4), p!(pw))]),
+        let test_boards = [
+            // Advance pawn
+            TestBoard {
+                initial_moves: vec![],
+                mv: mv!(e2 => e3),
+                checks: vec![pp!(pw @ e3), pp!(e2)],
+            },
+            // Pass pawn
+            TestBoard {
+                initial_moves: vec![],
+                mv: mv!(e2 => e4),
+                checks: vec![pp!(pw @ e4), pp!(e2)],
+            },
+            // Pawn capturing
+            TestBoard {
+                initial_moves: vec![mv!(e2 => e4), mv!(d7 => d5)],
+                mv: mv!(e4 => d5),
+                checks: vec![pp!(pw @ d5), pp!(e4)],
+            },
+            // Pawn capturing en passant
+            TestBoard {
+                initial_moves: vec![mv!(e2 => e4), mv!(a7 => a6), mv!(e4 => e5), mv!(d7 => d5)],
+                mv: mv!(e5 => d6),
+                checks: vec![pp!(pw @ d6), pp!(e5), pp!(d5)],
+            },
         ];
 
-        for (mv, checks) in &moves {
-            assert_eq!(rev_game.game.board, original_board);
+        for test_board in &test_boards {
+            // Prepare board
+            let mut game = Game {
+                board: initial_board!(),
+                player: Player::White,
+                turn: 0,
+                last_move: None,
+            };
 
-            assert!(rev_game.do_move(&mv));
+            // Do setup moves
+            for mv in &test_board.initial_moves {
+                assert!(do_move(&mut game, &mv));
+            }
 
-            for (check_pos, check_piece) in checks {
-                assert_eq!(rev_game.game.board.square(*check_pos), check_piece);
+            let original_board = game.board.clone();
+
+            let mut rev_game = ReversableGame::from(&mut game);
+
+            // Do move
+            assert!(rev_game.do_move(&test_board.mv));
+
+            for check in &test_board.checks {
+                assert_eq!(*rev_game.game.board.square(check.position), check.piece);
             }
 
             rev_game.undo();
