@@ -11,35 +11,42 @@ use tauri::{LogicalSize, Manager, Size};
 
 use std::sync::Mutex;
 
-static GAME: Mutex<Game> = Mutex::new(Game {
-    board: initial_board!(),
-    player: Player::White,
-    turn: 1,
-    last_move: None,
+struct GameData {
+    game: Game,
+    history: Vec<(String, String)>,
+}
+
+static GAME: Mutex<GameData> = Mutex::new(GameData {
+    game: Game {
+        board: initial_board!(),
+        player: Player::White,
+        last_move: None,
+    },
+    history: vec![],
 });
 
 // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
 #[tauri::command]
 fn get_game() -> Game {
-    *GAME.lock().unwrap()
+    GAME.lock().unwrap().game
+}
+
+#[tauri::command]
+fn get_history() -> Vec<(String, String)> {
+    GAME.lock().unwrap().history.clone()
 }
 
 #[tauri::command]
 fn get_possible_moves(row: usize, col: usize) -> Vec<Position> {
     let position = Position { row, col };
-    let game = &mut GAME.lock().unwrap();
+    let game = &mut GAME.lock().unwrap().game;
     let possible_moves = moves::get_possible_moves(&game.board, &game.last_move, position);
-    // println!(
-    //     "Possible moves of {}: {} moves",
-    //     position,
-    //     possible_moves.len()
-    // );
     possible_moves
 }
 
 #[tauri::command]
 fn get_possible_captures() -> moves::BoardCaptures {
-    let game = &mut GAME.lock().unwrap();
+    let game = &mut GAME.lock().unwrap().game;
     moves::get_possible_captures(&game.board, &game.last_move)
 }
 
@@ -55,7 +62,8 @@ fn do_move(source_row: usize, source_col: usize, target_row: usize, target_col: 
             col: target_col,
         },
     };
-    let game = &mut GAME.lock().unwrap();
+    let game_data = &mut GAME.lock().unwrap();
+    let game = &mut game_data.game;
 
     let white_move = moves::move_name(&game.board, &game.last_move, &game.player, &mv);
 
@@ -64,22 +72,24 @@ fn do_move(source_row: usize, source_col: usize, target_row: usize, target_col: 
         return false;
     }
 
-    match moves::get_best_move(game) {
+    let black_move = match moves::get_best_move(game, 3) {
         Some(move_branch) => {
             let mv = move_branch.first().unwrap();
-            println!(
-                "{}. {} {}",
-                game.turn,
-                white_move,
-                moves::move_name(&game.board, &game.last_move, &game.player, &mv)
-            );
+            let description = moves::move_name(&game.board, &game.last_move, &game.player, &mv);
 
             assert!(moves::do_move(game, mv));
-        }
-        None => println!("{}: no move?!", game.turn),
-    }
 
-    game.turn += 1;
+            description
+        }
+        None => panic!("No move?!"),
+    };
+
+    let history = &mut game_data.history;
+    let turn = history.len() + 1;
+
+    println!("{}. {} {}", turn, white_move, black_move);
+
+    history.push((white_move, black_move));
 
     true
 }
@@ -96,6 +106,7 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             get_game,
+            get_history,
             get_possible_moves,
             get_possible_captures,
             do_move

@@ -176,7 +176,9 @@ impl fmt::Display for Board {
             let mut row_str = String::from(format!("{} ", 8 - rank));
             for square in row {
                 let piece = match square {
-                    Some(square_value) => get_unicode_piece(square_value.piece, square_value.player),
+                    Some(square_value) => {
+                        get_unicode_piece(square_value.piece, square_value.player)
+                    }
                     None => " ",
                 };
                 row_str += format!("[{}]", piece).as_str();
@@ -504,6 +506,5 @@ pub struct MoveInfo {
 pub struct Game {
     pub board: Board,
     pub player: Player,
-    pub turn: u32,
     pub last_move: Option<MoveInfo>,
 }

@@ -11,6 +11,10 @@
   height: 30px;
 }
 
+.file-labels {
+  width: calc(60px * 8);
+}
+
 .file-labels .label {
   display: table-cell;
   width: 60px;

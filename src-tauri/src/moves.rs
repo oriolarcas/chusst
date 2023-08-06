@@ -109,7 +109,9 @@ struct BoardIter {
 
 impl Default for BoardIter {
     fn default() -> Self {
-        BoardIter { position: pos!(0, 0) }
+        BoardIter {
+            position: pos!(0, 0),
+        }
     }
 }
 
@@ -633,7 +635,6 @@ pub fn move_branch_names(board: &Board, player: &Player, moves: &Vec<&Move>) -> 
     let mut game = Game {
         board: *board,
         player: *player,
-        turn: 0,
         last_move: None,
     };
 
@@ -759,9 +760,9 @@ pub fn get_possible_captures(board: &Board, last_move: &Option<MoveInfo>) -> Boa
     board_captures
 }
 
-pub fn get_best_move(game: &mut Game) -> Option<Vec<Move>> {
+pub fn get_best_move(game: &mut Game, search_depth: u32) -> Option<Vec<Move>> {
     let start_time = Instant::now();
-    let best_branch = get_best_move_recursive(game, 3);
+    let best_branch = get_best_move_recursive(game, search_depth);
     let duration = (Instant::now() - start_time).as_secs_f64();
 
     let total_score = best_branch
@@ -869,7 +870,6 @@ mod tests {
             let mut game = Game {
                 board: initial_board!(),
                 player: Player::White,
-                turn: 0,
                 last_move: None,
             };
 

@@ -92,6 +92,7 @@ function Square({color, squareExtraClasses, piece, onClick, onMouseEnter, onMous
 }
 
 interface BoardProps {
+  onMove?: (move: string) => void;
   onMessage?: (msg: string) => void;
 }
 
@@ -210,13 +211,16 @@ class Board extends Component<BoardProps, {}> {
 
     if (this.state.selected !== null && !already_selected && !this.isSquarePlayer(position, this.state.game.player)) {
       // Move
-      const result = await invoke('do_move', {source_row: this.state.selected?.row, source_col: this.state.selected?.col, target_row: rank, target_col: file});
+      const result: boolean = await invoke('do_move', {source_row: this.state.selected?.row, source_col: this.state.selected?.col, target_row: rank, target_col: file});
       if (!result) {
         console.log('Invalid move');
         return;
       }
 
       console.log('Move done');
+
+      const history: [string[]] = await invoke('get_history');
+      this.props.onMove?.(history[history.length - 1].join(" "));
 
       let hints = await this.highlightPieceMoves(position);
 
