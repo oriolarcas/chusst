@@ -14,45 +14,25 @@ macro_rules! dir {
     };
 }
 
-pub struct WalkPath<'a> {
-    board: &'a Board,
-    start: Position,
-    player: &'a Player,
-}
-
-impl<'a> WalkPath<'a> {
-    pub fn walk(&'a self, direction: Direction) -> impl Iterator<Item = Position> + 'a {
-        WalkPathIntoIter {
-            path: self,
-            position: self.start,
-            direction,
-            stop_walking: false,
-        }
-    }
-}
-
-struct WalkPathIntoIter<'a> {
-    path: &'a WalkPath<'a>,
+struct WalkPath {
     position: Position,
     direction: Direction,
     stop_walking: bool,
 }
 
-impl<'a> Iterator for WalkPathIntoIter<'a> {
-    type Item = Position;
+trait BoardIterator {
+    fn next(&mut self, board: &Board, player: &Player) -> Option<Position>;
+}
 
-    fn next(&mut self) -> Option<Self::Item> {
+impl BoardIterator for WalkPath {
+    fn next(&mut self, board: &Board, player: &Player) -> Option<Position> {
         if self.stop_walking {
             return None;
         }
-        match only_empty_or_enemy(
-            &self.path.board,
-            try_move(&self.position, &self.direction),
-            self.path.player,
-        ) {
+        match only_empty_or_enemy(&board, try_move(&self.position, &self.direction), player) {
             Some(new_position) => {
                 self.position = new_position;
-                match only_empty(&self.path.board, Some(new_position)) {
+                match only_empty(&board, Some(new_position)) {
                     Some(_) => Some(new_position),
                     None => {
                         self.stop_walking = true;
@@ -200,18 +180,45 @@ pub enum KnightIterStates {
     KnightIterEnd,
 }
 
-pub struct GenericPieceIter<'a, PieceStateEnum> {
+pub enum BishopIterStates {
+    BishopIter0,
+    BishopIter1,
+    BishopIter2,
+    BishopIter3,
+    BishopIterEnd,
+}
+
+pub struct PositionalPieceIter<'a, PieceStateEnum> {
     state: PieceStateEnum,
     board_state: PieceIterBoardState<'a>,
 }
 
-type PawnIter<'a> = GenericPieceIter<'a, PawnIterStates>;
-type KnightIter<'a> = GenericPieceIter<'a, KnightIterStates>;
+pub struct RollingPieceIter<'a, PieceStateEnum> {
+    state: PieceStateEnum,
+    board_state: PieceIterBoardState<'a>,
+    player: Player,
+    walker: Option<WalkPath>,
+}
+
+impl<'a, P> RollingPieceIter<'a, P> {
+    fn walk(&'a self, direction: Direction) -> WalkPath {
+        WalkPath {
+            position: self.board_state.position,
+            direction,
+            stop_walking: false,
+        }
+    }
+}
+
+type PawnIter<'a> = PositionalPieceIter<'a, PawnIterStates>;
+type KnightIter<'a> = PositionalPieceIter<'a, KnightIterStates>;
+type BishopIter<'a> = RollingPieceIter<'a, BishopIterStates>;
 
 pub enum PieceIter<'a> {
     EmptySquareIterType(std::iter::Empty<Position>),
     PawnIterType(PawnIter<'a>),
     KnightIterType(KnightIter<'a>),
+    BishopIterType(BishopIter<'a>),
 }
 
 pub fn piece_into_iter<'a>(
@@ -226,10 +233,11 @@ pub fn piece_into_iter<'a>(
     }
 
     let piece = &square.unwrap().piece;
+    let player = &square.unwrap().player;
 
     let board_state = PieceIterBoardState {
-        board,
-        last_move,
+        board: &board,
+        last_move: &last_move,
         position,
     };
 
@@ -242,7 +250,12 @@ pub fn piece_into_iter<'a>(
             board_state,
             state: KnightIterStates::KnightIter0,
         }),
-        PieceType::Bishop => todo!(),
+        PieceType::Bishop => PieceIter::BishopIterType(BishopIter {
+            board_state,
+            state: BishopIterStates::BishopIter0,
+            player: *player,
+            walker: None,
+        }),
         PieceType::Rook => todo!(),
         PieceType::Queen => todo!(),
         PieceType::King => todo!(),
@@ -257,6 +270,7 @@ impl<'a> Iterator for PieceIter<'a> {
             PieceIter::EmptySquareIterType(iter) => iter.next(),
             PieceIter::PawnIterType(iter) => iter.next(),
             PieceIter::KnightIterType(iter) => iter.next(),
+            PieceIter::BishopIterType(iter) => iter.next(),
         }
     }
 }
@@ -348,7 +362,7 @@ impl<'a> Iterator for KnightIter<'a> {
     type Item = Position;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let square = &self.board_state.board.square(self.board_state.position);
+        let square = self.board_state.board.square(self.board_state.position);
         let player = &square.unwrap().player;
         loop {
             let result = match self.state {
@@ -417,6 +431,56 @@ impl<'a> Iterator for KnightIter<'a> {
                     )
                 }
                 KnightIterStates::KnightIterEnd => return None,
+            };
+
+            match result {
+                Some(position) => return Some(position),
+                None => (),
+            }
+        }
+    }
+}
+
+macro_rules! iter_path {
+    ($self:ident, $dir:expr => $next_state:expr) => {{
+        if $self.walker.is_none() {
+            $self.walker = Some($self.walk($dir));
+        }
+
+        match $self
+            .walker
+            .as_mut()
+            .unwrap()
+            .next($self.board_state.board, &$self.player)
+        {
+            Some(position) => Some(position),
+            None => {
+                $self.state = $next_state;
+                None
+            }
+        }
+    }};
+}
+
+impl<'a> Iterator for BishopIter<'a> {
+    type Item = Position;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            let result = match self.state {
+                BishopIterStates::BishopIter0 => {
+                    iter_path!(self, dir!(-1, -1) => BishopIterStates::BishopIter1)
+                }
+                BishopIterStates::BishopIter1 => {
+                    iter_path!(self, dir!(-1, 1) => BishopIterStates::BishopIter2)
+                }
+                BishopIterStates::BishopIter2 => {
+                    iter_path!(self, dir!(1, -1) => BishopIterStates::BishopIter3)
+                }
+                BishopIterStates::BishopIter3 => {
+                    iter_path!(self, dir!(1, 1) => BishopIterStates::BishopIterEnd)
+                }
+                BishopIterStates::BishopIterEnd => return None,
             };
 
             match result {
