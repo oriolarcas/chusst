@@ -208,6 +208,18 @@ pub enum QueenIterStates {
     QueenIterEnd,
 }
 
+pub enum KingIterStates {
+    KingIter0,
+    KingIter1,
+    KingIter2,
+    KingIter3,
+    KingIter4,
+    KingIter5,
+    KingIter6,
+    KingIter7,
+    KingIterEnd,
+}
+
 pub struct PositionalPieceIter<'a, PieceStateEnum> {
     state: PieceStateEnum,
     board_state: PieceIterBoardState<'a>,
@@ -235,6 +247,7 @@ type KnightIter<'a> = PositionalPieceIter<'a, KnightIterStates>;
 type BishopIter<'a> = RollingPieceIter<'a, BishopIterStates>;
 type RookIter<'a> = RollingPieceIter<'a, RookIterStates>;
 type QueenIter<'a> = RollingPieceIter<'a, QueenIterStates>;
+type KingIter<'a> = RollingPieceIter<'a, KingIterStates>;
 
 pub enum PieceIter<'a> {
     EmptySquareIterType(std::iter::Empty<Position>),
@@ -243,6 +256,7 @@ pub enum PieceIter<'a> {
     BishopIterType(BishopIter<'a>),
     RookIterType(RookIter<'a>),
     QueenIterType(QueenIter<'a>),
+    KingIterType(KingIter<'a>),
 }
 
 pub fn piece_into_iter<'a>(
@@ -292,7 +306,12 @@ pub fn piece_into_iter<'a>(
             player: *player,
             walker: None,
         }),
-        PieceType::King => todo!(),
+        PieceType::King => PieceIter::KingIterType(KingIter {
+            board_state,
+            state: KingIterStates::KingIter0,
+            player: *player,
+            walker: None,
+        }),
     }
 }
 
@@ -307,6 +326,7 @@ impl<'a> Iterator for PieceIter<'a> {
             PieceIter::BishopIterType(iter) => iter.next(),
             PieceIter::RookIterType(iter) => iter.next(),
             PieceIter::QueenIterType(iter) => iter.next(),
+            PieceIter::KingIterType(iter) => iter.next(),
         }
     }
 }
@@ -394,6 +414,17 @@ impl<'a> Iterator for PawnIter<'a> {
     }
 }
 
+macro_rules! positional_state {
+    ($self:ident, $player:expr, $dir:expr => $next_state:expr) => {{
+        $self.state = $next_state;
+        only_empty_or_enemy(
+            &$self.board_state.board,
+            try_move(&$self.board_state.position, &$dir),
+            $player,
+        )
+    }};
+}
+
 impl<'a> Iterator for KnightIter<'a> {
     type Item = Position;
 
@@ -403,68 +434,28 @@ impl<'a> Iterator for KnightIter<'a> {
         loop {
             let result = match self.state {
                 KnightIterStates::KnightIter0 => {
-                    self.state = KnightIterStates::KnightIter1;
-                    only_empty_or_enemy(
-                        &self.board_state.board,
-                        try_move(&self.board_state.position, &dir!(-1, -2)),
-                        player,
-                    )
+                    positional_state!(self, player, dir!(-1, -2) => KnightIterStates::KnightIter1)
                 }
                 KnightIterStates::KnightIter1 => {
-                    self.state = KnightIterStates::KnightIter2;
-                    only_empty_or_enemy(
-                        &self.board_state.board,
-                        try_move(&self.board_state.position, &dir!(-1, 2)),
-                        player,
-                    )
+                    positional_state!(self, player, dir!(-1, 2) => KnightIterStates::KnightIter2)
                 }
                 KnightIterStates::KnightIter2 => {
-                    self.state = KnightIterStates::KnightIter3;
-                    only_empty_or_enemy(
-                        &self.board_state.board,
-                        try_move(&self.board_state.position, &dir!(-2, -1)),
-                        player,
-                    )
+                    positional_state!(self, player, dir!(-2, -1) => KnightIterStates::KnightIter3)
                 }
                 KnightIterStates::KnightIter3 => {
-                    self.state = KnightIterStates::KnightIter4;
-                    only_empty_or_enemy(
-                        &self.board_state.board,
-                        try_move(&self.board_state.position, &dir!(-2, 1)),
-                        player,
-                    )
+                    positional_state!(self, player, dir!(-2, 1) => KnightIterStates::KnightIter4)
                 }
                 KnightIterStates::KnightIter4 => {
-                    self.state = KnightIterStates::KnightIter5;
-                    only_empty_or_enemy(
-                        &self.board_state.board,
-                        try_move(&self.board_state.position, &dir!(2, -1)),
-                        player,
-                    )
+                    positional_state!(self, player, dir!(2, -1) => KnightIterStates::KnightIter5)
                 }
                 KnightIterStates::KnightIter5 => {
-                    self.state = KnightIterStates::KnightIter6;
-                    only_empty_or_enemy(
-                        &self.board_state.board,
-                        try_move(&self.board_state.position, &dir!(2, 1)),
-                        player,
-                    )
+                    positional_state!(self, player, dir!(2, 1) => KnightIterStates::KnightIter6)
                 }
                 KnightIterStates::KnightIter6 => {
-                    self.state = KnightIterStates::KnightIter7;
-                    only_empty_or_enemy(
-                        &self.board_state.board,
-                        try_move(&self.board_state.position, &dir!(1, -2)),
-                        player,
-                    )
+                    positional_state!(self, player, dir!(1, -2) => KnightIterStates::KnightIter7)
                 }
                 KnightIterStates::KnightIter7 => {
-                    self.state = KnightIterStates::KnightIterEnd;
-                    only_empty_or_enemy(
-                        &self.board_state.board,
-                        try_move(&self.board_state.position, &dir!(1, 2)),
-                        player,
-                    )
+                    positional_state!(self, player, dir!(1, 2) => KnightIterStates::KnightIterEnd)
                 }
                 KnightIterStates::KnightIterEnd => return None,
             };
@@ -587,6 +578,49 @@ impl<'a> Iterator for QueenIter<'a> {
                     iter_path!(self, dir!(1, 0) => QueenIterStates::QueenIterEnd)
                 }
                 QueenIterStates::QueenIterEnd => return None,
+            };
+
+            match result {
+                Some(position) => return Some(position),
+                None => (),
+            }
+        }
+    }
+}
+
+impl<'a> Iterator for KingIter<'a> {
+    type Item = Position;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let square = self.board_state.board.square(self.board_state.position);
+        let player = &square.unwrap().player;
+        loop {
+            let result = match self.state {
+                KingIterStates::KingIter0 => {
+                    positional_state!(self, player, dir!(-1, -1) => KingIterStates::KingIter1)
+                }
+                KingIterStates::KingIter1 => {
+                    positional_state!(self, player, dir!(-1, 1) => KingIterStates::KingIter2)
+                }
+                KingIterStates::KingIter2 => {
+                    positional_state!(self, player, dir!(-1, -1) => KingIterStates::KingIter3)
+                }
+                KingIterStates::KingIter3 => {
+                    positional_state!(self, player, dir!(-1, 1) => KingIterStates::KingIter4)
+                }
+                KingIterStates::KingIter4 => {
+                    positional_state!(self, player, dir!(1, -1) => KingIterStates::KingIter5)
+                }
+                KingIterStates::KingIter5 => {
+                    positional_state!(self, player, dir!(1, 1) => KingIterStates::KingIter6)
+                }
+                KingIterStates::KingIter6 => {
+                    positional_state!(self, player, dir!(1, -1) => KingIterStates::KingIter7)
+                }
+                KingIterStates::KingIter7 => {
+                    positional_state!(self, player, dir!(1, 1) => KingIterStates::KingIterEnd)
+                }
+                KingIterStates::KingIterEnd => return None,
             };
 
             match result {
