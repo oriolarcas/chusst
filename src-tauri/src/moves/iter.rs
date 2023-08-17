@@ -178,7 +178,7 @@ struct PieceIterBoardState<'a> {
     position: Position,
 }
 
-enum PawnIterStates {
+pub enum PawnIterStates {
     PawnIterNormal,
     PawnIterPass,
     PawnIterCaptureLeft,
@@ -188,12 +188,7 @@ enum PawnIterStates {
     PawnIterEnd,
 }
 
-struct PawnIter<'a> {
-    state: PawnIterStates,
-    board_state: PieceIterBoardState<'a>,
-}
-
-enum KnightIterStates {
+pub enum KnightIterStates {
     KnightIter0,
     KnightIter1,
     KnightIter2,
@@ -205,32 +200,29 @@ enum KnightIterStates {
     KnightIterEnd,
 }
 
-struct KnightIter<'a> {
-    state: KnightIterStates,
+pub struct GenericPieceIter<'a, PieceStateEnum> {
+    state: PieceStateEnum,
     board_state: PieceIterBoardState<'a>,
 }
 
-enum PieceIterType<'a> {
+type PawnIter<'a> = GenericPieceIter<'a, PawnIterStates>;
+type KnightIter<'a> = GenericPieceIter<'a, KnightIterStates>;
+
+pub enum PieceIter<'a> {
     EmptySquareIterType(std::iter::Empty<Position>),
     PawnIterType(PawnIter<'a>),
     KnightIterType(KnightIter<'a>),
-}
-
-pub struct PieceIter<'a> {
-    piece: PieceIterType<'a>,
 }
 
 pub fn piece_into_iter<'a>(
     board: &'a Board,
     last_move: &'a Option<MoveInfo>,
     position: Position,
-) -> PieceIter<'a> {
-    let square = &board.square(position);
+) -> impl Iterator<Item = Position> + 'a {
+    let square = board.square(position);
     if square.is_none() {
         // println!("Square {} is empty", position);
-        return PieceIter {
-            piece: PieceIterType::EmptySquareIterType(std::iter::empty()),
-        };
+        return PieceIter::EmptySquareIterType(std::iter::empty());
     }
 
     let piece = &square.unwrap().piece;
@@ -242,18 +234,14 @@ pub fn piece_into_iter<'a>(
     };
 
     match piece {
-        PieceType::Pawn => PieceIter {
-            piece: PieceIterType::PawnIterType(PawnIter {
-                board_state,
-                state: PawnIterStates::PawnIterNormal,
-            }),
-        },
-        PieceType::Knight => PieceIter {
-            piece: PieceIterType::KnightIterType(KnightIter {
-                board_state,
-                state: KnightIterStates::KnightIter0,
-            }),
-        },
+        PieceType::Pawn => PieceIter::PawnIterType(PawnIter {
+            board_state,
+            state: PawnIterStates::PawnIterNormal,
+        }),
+        PieceType::Knight => PieceIter::KnightIterType(KnightIter {
+            board_state,
+            state: KnightIterStates::KnightIter0,
+        }),
         PieceType::Bishop => todo!(),
         PieceType::Rook => todo!(),
         PieceType::Queen => todo!(),
@@ -265,10 +253,10 @@ impl<'a> Iterator for PieceIter<'a> {
     type Item = Position;
 
     fn next(&mut self) -> Option<Self::Item> {
-        match &mut self.piece {
-            PieceIterType::EmptySquareIterType(iter) => iter.next(),
-            PieceIterType::PawnIterType(iter) => iter.next(),
-            PieceIterType::KnightIterType(iter) => iter.next(),
+        match self {
+            PieceIter::EmptySquareIterType(iter) => iter.next(),
+            PieceIter::PawnIterType(iter) => iter.next(),
+            PieceIter::KnightIterType(iter) => iter.next(),
         }
     }
 }
