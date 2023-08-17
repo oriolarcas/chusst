@@ -649,7 +649,11 @@ mod tests {
 
             rev_game.undo();
 
-            assert_eq!(rev_game.game.board, original_board);
+            assert_eq!(
+                rev_game.game.board, original_board,
+                "after move {},\nmodified board:\n{}\noriginal board:\n{}",
+                test_board.mv, rev_game.game.board, original_board
+            );
         }
     }
 }
