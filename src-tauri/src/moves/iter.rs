@@ -196,6 +196,18 @@ pub enum RookIterStates {
     RookIterEnd,
 }
 
+pub enum QueenIterStates {
+    QueenIter0,
+    QueenIter1,
+    QueenIter2,
+    QueenIter3,
+    QueenIter4,
+    QueenIter5,
+    QueenIter6,
+    QueenIter7,
+    QueenIterEnd,
+}
+
 pub struct PositionalPieceIter<'a, PieceStateEnum> {
     state: PieceStateEnum,
     board_state: PieceIterBoardState<'a>,
@@ -222,6 +234,7 @@ type PawnIter<'a> = PositionalPieceIter<'a, PawnIterStates>;
 type KnightIter<'a> = PositionalPieceIter<'a, KnightIterStates>;
 type BishopIter<'a> = RollingPieceIter<'a, BishopIterStates>;
 type RookIter<'a> = RollingPieceIter<'a, RookIterStates>;
+type QueenIter<'a> = RollingPieceIter<'a, QueenIterStates>;
 
 pub enum PieceIter<'a> {
     EmptySquareIterType(std::iter::Empty<Position>),
@@ -229,6 +242,7 @@ pub enum PieceIter<'a> {
     KnightIterType(KnightIter<'a>),
     BishopIterType(BishopIter<'a>),
     RookIterType(RookIter<'a>),
+    QueenIterType(QueenIter<'a>),
 }
 
 pub fn piece_into_iter<'a>(
@@ -272,7 +286,12 @@ pub fn piece_into_iter<'a>(
             player: *player,
             walker: None,
         }),
-        PieceType::Queen => todo!(),
+        PieceType::Queen => PieceIter::QueenIterType(QueenIter {
+            board_state,
+            state: QueenIterStates::QueenIter0,
+            player: *player,
+            walker: None,
+        }),
         PieceType::King => todo!(),
     }
 }
@@ -287,6 +306,7 @@ impl<'a> Iterator for PieceIter<'a> {
             PieceIter::KnightIterType(iter) => iter.next(),
             PieceIter::BishopIterType(iter) => iter.next(),
             PieceIter::RookIterType(iter) => iter.next(),
+            PieceIter::QueenIterType(iter) => iter.next(),
         }
     }
 }
@@ -526,6 +546,47 @@ impl<'a> Iterator for RookIter<'a> {
                     iter_path!(self, dir!(1, 0) => RookIterStates::RookIterEnd)
                 }
                 RookIterStates::RookIterEnd => return None,
+            };
+
+            match result {
+                Some(position) => return Some(position),
+                None => (),
+            }
+        }
+    }
+}
+
+impl<'a> Iterator for QueenIter<'a> {
+    type Item = Position;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            let result = match self.state {
+                QueenIterStates::QueenIter0 => {
+                    iter_path!(self, dir!(-1, -1) => QueenIterStates::QueenIter1)
+                }
+                QueenIterStates::QueenIter1 => {
+                    iter_path!(self, dir!(-1, 1) => QueenIterStates::QueenIter2)
+                }
+                QueenIterStates::QueenIter2 => {
+                    iter_path!(self, dir!(1, -1) => QueenIterStates::QueenIter3)
+                }
+                QueenIterStates::QueenIter3 => {
+                    iter_path!(self, dir!(1, 1) => QueenIterStates::QueenIter4)
+                }
+                QueenIterStates::QueenIter4 => {
+                    iter_path!(self, dir!(0, -1) => QueenIterStates::QueenIter5)
+                }
+                QueenIterStates::QueenIter5 => {
+                    iter_path!(self, dir!(0, 1) => QueenIterStates::QueenIter6)
+                }
+                QueenIterStates::QueenIter6 => {
+                    iter_path!(self, dir!(-1, 0) => QueenIterStates::QueenIter7)
+                }
+                QueenIterStates::QueenIter7 => {
+                    iter_path!(self, dir!(1, 0) => QueenIterStates::QueenIterEnd)
+                }
+                QueenIterStates::QueenIterEnd => return None,
             };
 
             match result {
