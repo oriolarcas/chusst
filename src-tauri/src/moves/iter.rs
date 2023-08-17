@@ -188,6 +188,14 @@ pub enum BishopIterStates {
     BishopIterEnd,
 }
 
+pub enum RookIterStates {
+    RookIter0,
+    RookIter1,
+    RookIter2,
+    RookIter3,
+    RookIterEnd,
+}
+
 pub struct PositionalPieceIter<'a, PieceStateEnum> {
     state: PieceStateEnum,
     board_state: PieceIterBoardState<'a>,
@@ -213,12 +221,14 @@ impl<'a, P> RollingPieceIter<'a, P> {
 type PawnIter<'a> = PositionalPieceIter<'a, PawnIterStates>;
 type KnightIter<'a> = PositionalPieceIter<'a, KnightIterStates>;
 type BishopIter<'a> = RollingPieceIter<'a, BishopIterStates>;
+type RookIter<'a> = RollingPieceIter<'a, RookIterStates>;
 
 pub enum PieceIter<'a> {
     EmptySquareIterType(std::iter::Empty<Position>),
     PawnIterType(PawnIter<'a>),
     KnightIterType(KnightIter<'a>),
     BishopIterType(BishopIter<'a>),
+    RookIterType(RookIter<'a>),
 }
 
 pub fn piece_into_iter<'a>(
@@ -256,7 +266,12 @@ pub fn piece_into_iter<'a>(
             player: *player,
             walker: None,
         }),
-        PieceType::Rook => todo!(),
+        PieceType::Rook => PieceIter::RookIterType(RookIter {
+            board_state,
+            state: RookIterStates::RookIter0,
+            player: *player,
+            walker: None,
+        }),
         PieceType::Queen => todo!(),
         PieceType::King => todo!(),
     }
@@ -271,6 +286,7 @@ impl<'a> Iterator for PieceIter<'a> {
             PieceIter::PawnIterType(iter) => iter.next(),
             PieceIter::KnightIterType(iter) => iter.next(),
             PieceIter::BishopIterType(iter) => iter.next(),
+            PieceIter::RookIterType(iter) => iter.next(),
         }
     }
 }
@@ -481,6 +497,35 @@ impl<'a> Iterator for BishopIter<'a> {
                     iter_path!(self, dir!(1, 1) => BishopIterStates::BishopIterEnd)
                 }
                 BishopIterStates::BishopIterEnd => return None,
+            };
+
+            match result {
+                Some(position) => return Some(position),
+                None => (),
+            }
+        }
+    }
+}
+
+impl<'a> Iterator for RookIter<'a> {
+    type Item = Position;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            let result = match self.state {
+                RookIterStates::RookIter0 => {
+                    iter_path!(self, dir!(0, -1) => RookIterStates::RookIter1)
+                }
+                RookIterStates::RookIter1 => {
+                    iter_path!(self, dir!(0, 1) => RookIterStates::RookIter2)
+                }
+                RookIterStates::RookIter2 => {
+                    iter_path!(self, dir!(-1, 0) => RookIterStates::RookIter3)
+                }
+                RookIterStates::RookIter3 => {
+                    iter_path!(self, dir!(1, 0) => RookIterStates::RookIterEnd)
+                }
+                RookIterStates::RookIterEnd => return None,
             };
 
             match result {
