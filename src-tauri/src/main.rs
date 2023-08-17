@@ -5,7 +5,7 @@
 mod board;
 mod moves;
 
-use board::{Board, Game, Move, Piece, PieceType, Player, Position};
+use board::{Game, Move, Piece, Player, Position, initial_board};
 
 use serde::Serialize;
 use tauri::{LogicalSize, Manager, Size};
@@ -31,7 +31,7 @@ struct GameData {
 
 static GAME: Mutex<GameData> = Mutex::new(GameData {
     game: Game {
-        board: initial_board!(),
+        board: *initial_board(),
         player: Player::White,
         last_move: None,
     },
@@ -88,7 +88,7 @@ fn do_move(source_row: usize, source_col: usize, target_row: usize, target_col: 
         }
     };
 
-    let (black_move, black_captures) = match moves::get_best_move(game, 3) {
+    let (black_move, black_captures) = match moves::get_best_move(game, 4) {
         Some(move_branch) => {
             let mv = move_branch.first().unwrap();
             let description = moves::move_name(&game.board, &game.last_move, &game.player, &mv);

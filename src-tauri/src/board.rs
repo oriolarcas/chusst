@@ -141,12 +141,21 @@ pub type Rows<T> = Rank<Row<T>>;
 pub struct Board {
     // rows[x][y], where x = 0..7 = rows 1..8, and y = 0..7 = columns a..h
     // for instance, e4 is Board.rows[2][4]
-    pub rows: Rows<Square>,
+    pub(self) rows: Rows<Square>,
 }
 
 impl Board {
-    pub fn square(&self, pos: Position) -> &Square {
+    pub fn square(&self, pos: &Position) -> &Square {
         &self.rows[pos.row][pos.col]
+    }
+
+    pub fn update(&mut self, pos: &Position, value: Square) {
+        self.rows[pos.row][pos.col] = value;
+    }
+
+    pub fn move_piece(&mut self, source: &Position, target: &Position) {
+        self.rows[target.row][target.col] = self.rows[source.row][source.col];
+        self.rows[source.row][source.col] = None;
     }
 }
 
@@ -189,59 +198,59 @@ impl fmt::Display for Board {
     }
 }
 
-macro_rules! initial_board {
-    () => {
-        Board {
-            // Initial board
-            // Note that white pieces are at the top, because arrays are defined top-down, while chess rows go bottom-up
-            rows: [
-                [
-                    p!(rw),
-                    p!(nw),
-                    p!(bw),
-                    p!(qw),
-                    p!(kw),
-                    p!(bw),
-                    p!(nw),
-                    p!(rw),
-                ],
-                [
-                    p!(pw),
-                    p!(pw),
-                    p!(pw),
-                    p!(pw),
-                    p!(pw),
-                    p!(pw),
-                    p!(pw),
-                    p!(pw),
-                ],
-                [p!(); 8],
-                [p!(); 8],
-                [p!(); 8],
-                [p!(); 8],
-                [
-                    p!(pb),
-                    p!(pb),
-                    p!(pb),
-                    p!(pb),
-                    p!(pb),
-                    p!(pb),
-                    p!(pb),
-                    p!(pb),
-                ],
-                [
-                    p!(rb),
-                    p!(nb),
-                    p!(bb),
-                    p!(qb),
-                    p!(kb),
-                    p!(bb),
-                    p!(nb),
-                    p!(rb),
-                ],
-            ],
-        }
-    }
+const INITIAL_BOARD: Board = Board {
+    // Initial board
+    // Note that white pieces are at the top, because arrays are defined top-down, while chess rows go bottom-up
+    rows: [
+        [
+            p!(rw),
+            p!(nw),
+            p!(bw),
+            p!(qw),
+            p!(kw),
+            p!(bw),
+            p!(nw),
+            p!(rw),
+        ],
+        [
+            p!(pw),
+            p!(pw),
+            p!(pw),
+            p!(pw),
+            p!(pw),
+            p!(pw),
+            p!(pw),
+            p!(pw),
+        ],
+        [p!(); 8],
+        [p!(); 8],
+        [p!(); 8],
+        [p!(); 8],
+        [
+            p!(pb),
+            p!(pb),
+            p!(pb),
+            p!(pb),
+            p!(pb),
+            p!(pb),
+            p!(pb),
+            p!(pb),
+        ],
+        [
+            p!(rb),
+            p!(nb),
+            p!(bb),
+            p!(qb),
+            p!(kb),
+            p!(bb),
+            p!(nb),
+            p!(rb),
+        ],
+    ],
+};
+
+pub const fn initial_board() -> &'static Board {
+    &INITIAL_BOARD
 }
 
 #[derive(Copy, Clone, PartialEq, Serialize)]

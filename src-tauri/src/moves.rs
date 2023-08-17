@@ -98,7 +98,7 @@ impl<'a> Iterator for PlayerPiecesIter<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             match self.board_iter.next() {
-                Some(position) => match self.board.square(position) {
+                Some(position) => match self.board.square(&position) {
                     Some(piece) => {
                         if piece.player == *self.player {
                             return Some(position);
@@ -145,7 +145,7 @@ impl<'a> ReversableGame<'a> {
 
         let board = &mut self.game.board;
 
-        match board.square(mv.source) {
+        match board.square(&mv.source) {
             Some(piece) => {
                 if piece.player != self.game.player {
                     return false;
@@ -166,13 +166,13 @@ impl<'a> ReversableGame<'a> {
             return false;
         }
 
-        let player = board.square(mv.source).unwrap().player;
-        let moved_piece = board.square(mv.source).unwrap().piece;
+        let player = board.square(&mv.source).unwrap().player;
+        let moved_piece = board.square(&mv.source).unwrap().piece;
         let move_info = match moved_piece {
             PieceType::Pawn => {
                 if mv.source.row.abs_diff(mv.target.row) == 2 {
                     MoveExtraInfo::Passed
-                } else if mv.source.col != mv.target.col && board.square(mv.target).is_none() {
+                } else if mv.source.col != mv.target.col && board.square(&mv.target).is_none() {
                     MoveExtraInfo::EnPassant
                 } else {
                     MoveExtraInfo::Other
@@ -183,11 +183,10 @@ impl<'a> ReversableGame<'a> {
 
         self.moves.push(ReversableMove {
             mv: *mv,
-            previous_piece: board.square(mv.target).map(|piece| piece.piece),
+            previous_piece: board.square(&mv.target).map(|piece| piece.piece),
         });
 
-        board.rows[mv.target.row][mv.target.col] = board.rows[mv.source.row][mv.source.col];
-        board.rows[mv.source.row][mv.source.col] = None;
+        board.move_piece(&mv.source, &mv.target);
 
         match move_info {
             MoveExtraInfo::EnPassant => {
@@ -202,10 +201,10 @@ impl<'a> ReversableGame<'a> {
 
                 self.moves.push(ReversableMove {
                     mv: mv!(passed, passed),
-                    previous_piece: board.square(passed).map(|piece| piece.piece),
+                    previous_piece: board.square(&passed).map(|piece| piece.piece),
                 });
 
-                board.rows[passed.row][passed.col] = None;
+                board.update(&passed, None);
             }
             _ => (),
         }
@@ -226,17 +225,17 @@ impl<'a> ReversableGame<'a> {
         for rev_move in self.moves.iter().rev() {
             let mv = &rev_move.mv;
 
-            self.game.board.rows[mv.source.row][mv.source.col] =
-                self.game.board.rows[mv.target.row][mv.target.col];
+            self.game.board.move_piece(&mv.target, &mv.source);
 
             match rev_move.previous_piece {
-                Some(piece) => {
-                    self.game.board.rows[mv.target.row][mv.target.col] = Some(Piece {
+                Some(piece) => self.game.board.update(
+                    &mv.target,
+                    Some(Piece {
                         piece,
                         player: enemy(&self.move_player),
-                    })
-                }
-                None => self.game.board.rows[mv.target.row][mv.target.col] = None,
+                    }),
+                ),
+                None => self.game.board.update(&mv.target, None),
             }
         }
 
@@ -247,12 +246,20 @@ impl<'a> ReversableGame<'a> {
     }
 }
 
-pub fn get_possible_moves<'a>(
+fn get_possible_moves_iter<'a>(
+    board: &'a Board,
+    last_move: &'a Option<MoveInfo>,
+    position: Position,
+) -> impl Iterator<Item = Position> + 'a {
+    piece_into_iter(board, last_move, position)
+}
+
+pub fn get_possible_moves(
     board: &Board,
     last_move: &Option<MoveInfo>,
     position: Position,
 ) -> Vec<Position> {
-    piece_into_iter(board, last_move, position).collect::<Vec<Position>>()
+    get_possible_moves_iter(board, last_move, position).collect::<Vec<Position>>()
 }
 
 pub fn move_name(
@@ -262,8 +269,8 @@ pub fn move_name(
     mv: &Move,
 ) -> String {
     let mut name = String::new();
-    let src_piece = board.square(mv.source).unwrap();
-    let tgt_piece_opt = board.square(mv.target);
+    let src_piece = board.square(&mv.source).unwrap();
+    let tgt_piece_opt = board.square(&mv.target);
 
     let pieces_iter = player_pieces_iter!(board: board, player: player);
 
@@ -278,7 +285,7 @@ pub fn move_name(
 
     let is_en_passant = src_piece.piece == PieceType::Pawn
         && mv.source.col != mv.target.col
-        && board.square(mv.target).is_none();
+        && board.square(&mv.target).is_none();
 
     let mut piece_in_same_file = false;
     let mut piece_in_same_rank = false;
@@ -288,7 +295,7 @@ pub fn move_name(
             continue;
         }
 
-        match board.square(player_piece_position) {
+        match board.square(&player_piece_position) {
             Some(player_piece) => {
                 if player_piece.piece != src_piece.piece {
                     continue;
@@ -297,9 +304,8 @@ pub fn move_name(
             None => {}
         }
 
-        if get_possible_moves(board, last_move, player_piece_position)
-            .iter()
-            .find(|possible_position| **possible_position == mv.target)
+        if get_possible_moves_iter(board, last_move, player_piece_position)
+            .find(|possible_position| *possible_position == mv.target)
             .is_some()
         {
             if player_piece_position.row == mv.source.row {
@@ -376,7 +382,7 @@ fn get_best_move_recursive(game: &mut Game, search_depth: u32) -> Option<Branch>
         {
             searched_moves += 1;
 
-            let local_score = match &game.board.square(possible_position) {
+            let local_score = match &game.board.square(&possible_position) {
                 Some(piece) => get_piece_value(piece.piece),
                 None => 0,
             };
@@ -442,10 +448,11 @@ pub fn get_possible_captures(board: &Board, last_move: &Option<MoveInfo>) -> Boa
     let mut board_captures: BoardCaptures = Default::default();
 
     for source_position in board_iter.into_iter() {
-        match board.square(source_position) {
+        match board.square(&source_position) {
             Some(square) => {
-                for possible_position in get_possible_moves(&board, last_move, source_position) {
-                    let is_capture = board.square(possible_position).is_some();
+                for possible_position in get_possible_moves_iter(&board, last_move, source_position)
+                {
+                    let is_capture = board.square(&possible_position).is_some();
 
                     if is_capture {
                         board_captures[possible_position.row][possible_position.col]
@@ -508,7 +515,7 @@ pub fn do_move(game: &mut Game, mv: &Move) -> Option<Vec<Piece>> {
     let mut enemy_army: HashMap<PieceType, u32> = HashMap::new();
 
     for piece in player_pieces_iter!(board: &game.board, player: &enemy_player)
-        .map(|position| game.board.square(position).unwrap().piece)
+        .map(|position| game.board.square(&position).unwrap().piece)
     {
         match enemy_army.get_mut(&piece) {
             Some(piece_count) => {
@@ -525,7 +532,7 @@ pub fn do_move(game: &mut Game, mv: &Move) -> Option<Vec<Piece>> {
 
     if result {
         for piece in player_pieces_iter!(board: &game.board, player: &enemy_player)
-            .map(|position| game.board.square(position).unwrap().piece)
+            .map(|position| game.board.square(&position).unwrap().piece)
         {
             match enemy_army.get_mut(&piece) {
                 Some(piece_count) => {
@@ -559,6 +566,7 @@ pub fn do_move(game: &mut Game, mv: &Move) -> Option<Vec<Piece>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::board::initial_board;
 
     struct PiecePosition {
         piece: Option<Piece>,
@@ -618,7 +626,7 @@ mod tests {
         for test_board in &test_boards {
             // Prepare board
             let mut game = Game {
-                board: initial_board!(),
+                board: *initial_board(),
                 player: Player::White,
                 last_move: None,
             };
@@ -636,7 +644,7 @@ mod tests {
             assert!(rev_game.do_move(&test_board.mv));
 
             for check in &test_board.checks {
-                assert_eq!(*rev_game.game.board.square(check.position), check.piece);
+                assert_eq!(*rev_game.game.board.square(&check.position), check.piece);
             }
 
             rev_game.undo();

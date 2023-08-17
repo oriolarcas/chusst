@@ -64,14 +64,14 @@ pub fn try_move(position: &Position, direction: &Direction) -> Option<Position> 
 }
 
 fn only_empty(board: &Board, position: Option<Position>) -> Option<Position> {
-    match board.square(position?) {
+    match board.square(&position?) {
         Some(_) => None,
         None => position,
     }
 }
 
 fn only_player(board: &Board, position: Option<Position>, player: Player) -> Option<Position> {
-    match board.square(position?) {
+    match board.square(&position?) {
         Some(square) => {
             if square.player == player {
                 position
@@ -100,7 +100,7 @@ fn only_empty_or_enemy(
     player: &Player,
 ) -> Option<Position> {
     match position {
-        Some(position_value) => match board.square(position_value) {
+        Some(position_value) => match board.square(&position_value) {
             // Occupied square
             Some(piece) => {
                 if piece.player != *player {
@@ -264,7 +264,7 @@ pub fn piece_into_iter<'a>(
     last_move: &'a Option<MoveInfo>,
     position: Position,
 ) -> impl Iterator<Item = Position> + 'a {
-    let square = board.square(position);
+    let square = board.square(&position);
     if square.is_none() {
         // println!("Square {} is empty", position);
         return PieceIter::EmptySquareIterType(std::iter::empty());
@@ -335,7 +335,7 @@ impl<'a> Iterator for PawnIter<'a> {
     type Item = Position;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let square = self.board_state.board.square(self.board_state.position);
+        let square = self.board_state.board.square(&self.board_state.position);
         let player = &square.unwrap().player;
         let direction = match player {
             Player::White => 1,
@@ -451,7 +451,7 @@ impl<'a> Iterator for KnightIter<'a> {
     type Item = Position;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let square = self.board_state.board.square(self.board_state.position);
+        let square = self.board_state.board.square(&self.board_state.position);
         let player = &square.unwrap().player;
         loop {
             let result = match self.state {
@@ -593,7 +593,7 @@ impl<'a> Iterator for KingIter<'a> {
     type Item = Position;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let square = self.board_state.board.square(self.board_state.position);
+        let square = self.board_state.board.square(&self.board_state.position);
         let player = &square.unwrap().player;
         loop {
             let result = match self.state {
