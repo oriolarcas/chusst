@@ -425,6 +425,28 @@ macro_rules! positional_state {
     }};
 }
 
+macro_rules! walk_state {
+    ($self:ident, $dir:expr => $next_state:expr) => {{
+        if $self.walker.is_none() {
+            $self.walker = Some($self.walk($dir));
+        }
+
+        match $self
+            .walker
+            .as_mut()
+            .unwrap()
+            .next($self.board_state.board, &$self.player)
+        {
+            Some(position) => Some(position),
+            None => {
+                $self.state = $next_state;
+                $self.walker = None;
+                None
+            }
+        }
+    }};
+}
+
 impl<'a> Iterator for KnightIter<'a> {
     type Item = Position;
 
@@ -468,27 +490,6 @@ impl<'a> Iterator for KnightIter<'a> {
     }
 }
 
-macro_rules! iter_path {
-    ($self:ident, $dir:expr => $next_state:expr) => {{
-        if $self.walker.is_none() {
-            $self.walker = Some($self.walk($dir));
-        }
-
-        match $self
-            .walker
-            .as_mut()
-            .unwrap()
-            .next($self.board_state.board, &$self.player)
-        {
-            Some(position) => Some(position),
-            None => {
-                $self.state = $next_state;
-                None
-            }
-        }
-    }};
-}
-
 impl<'a> Iterator for BishopIter<'a> {
     type Item = Position;
 
@@ -496,16 +497,16 @@ impl<'a> Iterator for BishopIter<'a> {
         loop {
             let result = match self.state {
                 BishopIterStates::BishopIter0 => {
-                    iter_path!(self, dir!(-1, -1) => BishopIterStates::BishopIter1)
+                    walk_state!(self, dir!(-1, -1) => BishopIterStates::BishopIter1)
                 }
                 BishopIterStates::BishopIter1 => {
-                    iter_path!(self, dir!(-1, 1) => BishopIterStates::BishopIter2)
+                    walk_state!(self, dir!(-1, 1) => BishopIterStates::BishopIter2)
                 }
                 BishopIterStates::BishopIter2 => {
-                    iter_path!(self, dir!(1, -1) => BishopIterStates::BishopIter3)
+                    walk_state!(self, dir!(1, -1) => BishopIterStates::BishopIter3)
                 }
                 BishopIterStates::BishopIter3 => {
-                    iter_path!(self, dir!(1, 1) => BishopIterStates::BishopIterEnd)
+                    walk_state!(self, dir!(1, 1) => BishopIterStates::BishopIterEnd)
                 }
                 BishopIterStates::BishopIterEnd => return None,
             };
@@ -525,16 +526,16 @@ impl<'a> Iterator for RookIter<'a> {
         loop {
             let result = match self.state {
                 RookIterStates::RookIter0 => {
-                    iter_path!(self, dir!(0, -1) => RookIterStates::RookIter1)
+                    walk_state!(self, dir!(0, -1) => RookIterStates::RookIter1)
                 }
                 RookIterStates::RookIter1 => {
-                    iter_path!(self, dir!(0, 1) => RookIterStates::RookIter2)
+                    walk_state!(self, dir!(0, 1) => RookIterStates::RookIter2)
                 }
                 RookIterStates::RookIter2 => {
-                    iter_path!(self, dir!(-1, 0) => RookIterStates::RookIter3)
+                    walk_state!(self, dir!(-1, 0) => RookIterStates::RookIter3)
                 }
                 RookIterStates::RookIter3 => {
-                    iter_path!(self, dir!(1, 0) => RookIterStates::RookIterEnd)
+                    walk_state!(self, dir!(1, 0) => RookIterStates::RookIterEnd)
                 }
                 RookIterStates::RookIterEnd => return None,
             };
@@ -554,28 +555,28 @@ impl<'a> Iterator for QueenIter<'a> {
         loop {
             let result = match self.state {
                 QueenIterStates::QueenIter0 => {
-                    iter_path!(self, dir!(-1, -1) => QueenIterStates::QueenIter1)
+                    walk_state!(self, dir!(-1, -1) => QueenIterStates::QueenIter1)
                 }
                 QueenIterStates::QueenIter1 => {
-                    iter_path!(self, dir!(-1, 1) => QueenIterStates::QueenIter2)
+                    walk_state!(self, dir!(-1, 1) => QueenIterStates::QueenIter2)
                 }
                 QueenIterStates::QueenIter2 => {
-                    iter_path!(self, dir!(1, -1) => QueenIterStates::QueenIter3)
+                    walk_state!(self, dir!(1, -1) => QueenIterStates::QueenIter3)
                 }
                 QueenIterStates::QueenIter3 => {
-                    iter_path!(self, dir!(1, 1) => QueenIterStates::QueenIter4)
+                    walk_state!(self, dir!(1, 1) => QueenIterStates::QueenIter4)
                 }
                 QueenIterStates::QueenIter4 => {
-                    iter_path!(self, dir!(0, -1) => QueenIterStates::QueenIter5)
+                    walk_state!(self, dir!(0, -1) => QueenIterStates::QueenIter5)
                 }
                 QueenIterStates::QueenIter5 => {
-                    iter_path!(self, dir!(0, 1) => QueenIterStates::QueenIter6)
+                    walk_state!(self, dir!(0, 1) => QueenIterStates::QueenIter6)
                 }
                 QueenIterStates::QueenIter6 => {
-                    iter_path!(self, dir!(-1, 0) => QueenIterStates::QueenIter7)
+                    walk_state!(self, dir!(-1, 0) => QueenIterStates::QueenIter7)
                 }
                 QueenIterStates::QueenIter7 => {
-                    iter_path!(self, dir!(1, 0) => QueenIterStates::QueenIterEnd)
+                    walk_state!(self, dir!(1, 0) => QueenIterStates::QueenIterEnd)
                 }
                 QueenIterStates::QueenIterEnd => return None,
             };
@@ -600,22 +601,22 @@ impl<'a> Iterator for KingIter<'a> {
                     positional_state!(self, player, dir!(-1, -1) => KingIterStates::KingIter1)
                 }
                 KingIterStates::KingIter1 => {
-                    positional_state!(self, player, dir!(-1, 1) => KingIterStates::KingIter2)
+                    positional_state!(self, player, dir!(-1, 0) => KingIterStates::KingIter2)
                 }
                 KingIterStates::KingIter2 => {
-                    positional_state!(self, player, dir!(-1, -1) => KingIterStates::KingIter3)
+                    positional_state!(self, player, dir!(-1, 1) => KingIterStates::KingIter3)
                 }
                 KingIterStates::KingIter3 => {
-                    positional_state!(self, player, dir!(-1, 1) => KingIterStates::KingIter4)
+                    positional_state!(self, player, dir!(0, -1) => KingIterStates::KingIter4)
                 }
                 KingIterStates::KingIter4 => {
-                    positional_state!(self, player, dir!(1, -1) => KingIterStates::KingIter5)
+                    positional_state!(self, player, dir!(0, 1) => KingIterStates::KingIter5)
                 }
                 KingIterStates::KingIter5 => {
-                    positional_state!(self, player, dir!(1, 1) => KingIterStates::KingIter6)
+                    positional_state!(self, player, dir!(1, -1) => KingIterStates::KingIter6)
                 }
                 KingIterStates::KingIter6 => {
-                    positional_state!(self, player, dir!(1, -1) => KingIterStates::KingIter7)
+                    positional_state!(self, player, dir!(1, 0) => KingIterStates::KingIter7)
                 }
                 KingIterStates::KingIter7 => {
                     positional_state!(self, player, dir!(1, 1) => KingIterStates::KingIterEnd)
@@ -630,103 +631,3 @@ impl<'a> Iterator for KingIter<'a> {
         }
     }
 }
-
-/*
-pub fn get_possible_moves<'a>(
-    board: &Board,
-    last_move: &Option<MoveInfo>,
-    position: Position,
-) -> impl Iterator<Item = &'a Position> {
-    let square = &board.square(position);
-    if square.is_none() {
-        // println!("Square {} is empty", position);
-        return std::iter::empty();
-    }
-
-    let piece = &square.unwrap().piece;
-    let player = &square.unwrap().player;
-
-    // println!("Square has a {} {}", player, piece);
-
-    match piece {
-        PieceType::Pawn => PawnIter {
-            board,
-            last_move,
-            position,
-            state: PawnIterStates::PawnIterNormal,
-        },
-
-        PieceType::Knight => collect_valid_moves([
-            only_empty_or_enemy(&board, try_move(&position, &dir!(-1, -2)), player),
-            only_empty_or_enemy(&board, try_move(&position, &dir!(-1, 2)), player),
-            only_empty_or_enemy(&board, try_move(&position, &dir!(-2, -1)), player),
-            only_empty_or_enemy(&board, try_move(&position, &dir!(-2, 1)), player),
-            only_empty_or_enemy(&board, try_move(&position, &dir!(2, -1)), player),
-            only_empty_or_enemy(&board, try_move(&position, &dir!(2, 1)), player),
-            only_empty_or_enemy(&board, try_move(&position, &dir!(1, -2)), player),
-            only_empty_or_enemy(&board, try_move(&position, &dir!(1, 2)), player),
-        ]),
-
-        PieceType::Bishop => {
-            let walker = WalkPath {
-                board: &board,
-                start: position,
-                player: &player,
-            };
-
-            walker
-                .walk(dir!(-1, -1))
-                .chain(walker.walk(dir!(-1, 1)))
-                .chain(walker.walk(dir!(1, -1)))
-                .chain(walker.walk(dir!(1, 1)))
-                .collect()
-        }
-
-        PieceType::Rook => {
-            let walker = WalkPath {
-                board: &board,
-                start: position,
-                player: &player,
-            };
-
-            walker
-                .walk(dir!(0, -1))
-                .chain(walker.walk(dir!(0, 1)))
-                .chain(walker.walk(dir!(-1, 0)))
-                .chain(walker.walk(dir!(1, 0)))
-                .collect()
-        }
-
-        PieceType::Queen => {
-            let walker = WalkPath {
-                board: &board,
-                start: position,
-                player: &player,
-            };
-
-            walker
-                .walk(dir!(-1, -1))
-                .chain(walker.walk(dir!(-1, 1)))
-                .chain(walker.walk(dir!(1, -1)))
-                .chain(walker.walk(dir!(1, 1)))
-                .chain(walker.walk(dir!(0, -1)))
-                .chain(walker.walk(dir!(0, 1)))
-                .chain(walker.walk(dir!(-1, 0)))
-                .chain(walker.walk(dir!(1, 0)))
-                .collect()
-        }
-
-        // TODO: castle
-        PieceType::King => collect_valid_moves([
-            only_empty_or_enemy(&board, try_move(&position, &dir!(-1, -1)), player),
-            only_empty_or_enemy(&board, try_move(&position, &dir!(-1, 0)), player),
-            only_empty_or_enemy(&board, try_move(&position, &dir!(-1, 1)), player),
-            only_empty_or_enemy(&board, try_move(&position, &dir!(0, -1)), player),
-            only_empty_or_enemy(&board, try_move(&position, &dir!(0, 1)), player),
-            only_empty_or_enemy(&board, try_move(&position, &dir!(1, -1)), player),
-            only_empty_or_enemy(&board, try_move(&position, &dir!(1, 0)), player),
-            only_empty_or_enemy(&board, try_move(&position, &dir!(1, 1)), player),
-        ]),
-    }
-}
-*/
