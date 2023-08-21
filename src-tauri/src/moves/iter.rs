@@ -1,4 +1,5 @@
 use crate::board::{Board, MoveExtraInfo, MoveInfo, PieceType, Player, Position};
+use crate::pos;
 
 pub struct Direction {
     pub row_inc: i8,

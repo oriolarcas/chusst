@@ -4,6 +4,7 @@ mod iter;
 use crate::board::{
     Board, Game, Move, MoveExtraInfo, MoveInfo, Piece, PieceType, Player, Position, Rows,
 };
+use crate::{mv, pos};
 use iter::{enemy, only_enemy, piece_into_iter, try_move, Direction};
 
 use std::collections::HashMap;
@@ -15,13 +16,13 @@ pub type BoardCaptures = Rows<Vec<Position>>;
 type Score = i32;
 
 #[derive(PartialEq)]
-struct WeightedMove {
+pub struct WeightedMove {
     pub mv: Move,
     pub score: Score,
 }
 
 #[derive(Default)]
-struct Branch {
+pub struct Branch {
     pub moves: Vec<WeightedMove>,
     pub score: Score,
     pub searched: u32,
@@ -368,7 +369,7 @@ fn get_piece_value(piece: PieceType) -> Score {
     }
 }
 
-fn get_best_move_recursive(game: &mut Game, search_depth: u32) -> Option<Branch> {
+pub fn get_best_move_recursive(game: &mut Game, search_depth: u32) -> Option<Branch> {
     let pieces_iter =
         player_pieces_iter!(board: &game.board, player: &game.player).collect::<Vec<Position>>();
 
@@ -567,6 +568,7 @@ pub fn do_move(game: &mut Game, mv: &Move) -> Option<Vec<Piece>> {
 mod tests {
     use super::*;
     use crate::board::initial_board;
+    use crate::p;
 
     struct PiecePosition {
         piece: Option<Piece>,

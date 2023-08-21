@@ -2,7 +2,7 @@
 name = "chusst"
 version = "0.1.0"
 description = "A simple chess engine in Rust"
-authors = ["you"]
+authors = ["Oriol Arcas"]
 license = ""
 repository = ""
 edition = "2021"
@@ -17,7 +17,14 @@ tauri = { version = "1.4", features = ["shell-open"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
+[dev-dependencies]
+bencher = "0.1.5"
+
 [features]
 # this feature is used for production builds or when `devPath` points to the filesystem
 # DO NOT REMOVE!!
 custom-protocol = ["tauri/custom-protocol"]
+
+[[bench]]
+name = "search"
+harness = false

@@ -1,11 +1,8 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-#[macro_use]
-mod board;
-mod moves;
-
-use board::{Game, Move, Piece, Player, Position, initial_board};
+use chusst::board::{Game, Move, Piece, Player, Position, initial_board};
+use chusst::moves;
 
 use serde::Serialize;
 use tauri::{LogicalSize, Manager, Size};

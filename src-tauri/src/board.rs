@@ -53,6 +53,7 @@ pub struct Piece {
     pub player: Player,
 }
 
+#[macro_export]
 macro_rules! p {
     (pw) => {
         Some(Piece {
@@ -267,6 +268,7 @@ impl fmt::Display for Position {
     }
 }
 
+#[macro_export]
 macro_rules! pos {
     (a1) => {
         Position { row: 0, col: 0 }
@@ -481,6 +483,7 @@ impl fmt::Display for Move {
     }
 }
 
+#[macro_export]
 macro_rules! mv {
     ($src:ident, $tgt:ident) => {
         Move {
