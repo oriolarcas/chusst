@@ -3,7 +3,7 @@
     "beforeBuildCommand": "npm run build",
     "beforeDevCommand": "npm run start",
     "devPath": "http://localhost:3000",
-    "distDir": "../src",
+    "distDir": "../dist",
     "withGlobalTauri": true
   },
   "package": {
@@ -21,7 +21,7 @@
     "bundle": {
       "active": true,
       "targets": "all",
-      "identifier": "com.tauri.dev",
+      "identifier": "cat.chusst",
       "icon": [
         "icons/32x32.png",
         "icons/128x128.png",

@@ -3,7 +3,7 @@ import './Pieces.css';
 
 import Board from './Board';
 
-import { Component, ErrorInfo, ReactNode, RefObject, createRef } from 'react';
+import { Component, ReactNode, RefObject, createRef } from 'react';
 import { Container, Row, Col } from 'react-bootstrap';
 import Form from 'react-bootstrap/Form';
 
@@ -124,7 +124,7 @@ class ScoreBoard extends Component<{onMount: (setter: (white_captures: string[],
     const black_total_score = this.getPlayerScore(this.state.black_captures);
 
     const white_score = white_total_score - black_total_score;
-    const black_score = black_total_score - black_total_score;
+    const black_score = black_total_score - white_total_score;
 
     return <Row className='score-board'>
         <Col style={{textAlign: 'left'}}>

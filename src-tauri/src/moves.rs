@@ -502,7 +502,7 @@ pub fn get_best_move_recursive(game: &mut Game, search_depth: u32) -> Option<Bra
                     {
                         Box::new(ReversableGame::from_game(game))
                     }
-                    #[cfg(feature = "search-by-copy")]
+                    #[cfg(not(feature = "search-by-rollback"))]
                     {
                         Box::new(ClonedGame::from_game(game))
                     }
