@@ -10,6 +10,9 @@ use iter::{enemy, only_enemy, piece_into_iter, try_move, Direction};
 use std::collections::HashMap;
 use std::time::Instant;
 
+#[cfg(all(feature = "search-by-copy", feature = "search-by-rollback"))]
+compile_error!("feature \"search-by-copy\" and feature \"search-by-rollback\" cannot be enabled at the same time");
+
 // List of pieces that can capture each square
 pub type BoardCaptures = Rows<Vec<Position>>;
 
@@ -123,6 +126,15 @@ struct ReversableMove {
     previous_piece: Option<PieceType>,
 }
 
+trait SearchableGame<'a> {
+    fn from_game(game: &'a mut Game) -> Self
+    where
+        Self: Sized;
+    fn as_mut(&mut self) -> &mut Game;
+    fn do_move(&mut self, mv: &Move) -> bool;
+    fn undo(&mut self);
+}
+
 struct ReversableGame<'a> {
     game: &'a mut Game,
     moves: Vec<ReversableMove>,
@@ -130,8 +142,8 @@ struct ReversableGame<'a> {
     move_player: Player,
 }
 
-impl<'a> ReversableGame<'a> {
-    fn from(game: &mut Game) -> ReversableGame {
+impl<'a> SearchableGame<'a> for ReversableGame<'a> {
+    fn from_game(game: &'a mut Game) -> Self {
         let player = game.player;
         ReversableGame {
             game,
@@ -139,6 +151,10 @@ impl<'a> ReversableGame<'a> {
             last_move: None,
             move_player: player,
         }
+    }
+
+    fn as_mut(&mut self) -> &mut Game {
+        &mut self.game
     }
 
     fn do_move(&mut self, mv: &Move) -> bool {
@@ -245,6 +261,86 @@ impl<'a> ReversableGame<'a> {
         self.game.last_move = self.last_move;
         self.last_move = None;
     }
+}
+
+struct ClonedGame(Game);
+
+impl<'a> SearchableGame<'a> for ClonedGame {
+    fn from_game(game: &mut Game) -> Self {
+        ClonedGame(*game)
+    }
+
+    fn as_mut(&mut self) -> &mut Game {
+        &mut self.0
+    }
+
+    fn do_move(&mut self, mv: &Move) -> bool {
+        let board = &mut self.0.board;
+
+        match board.square(&mv.source) {
+            Some(piece) => {
+                if piece.player != self.0.player {
+                    return false;
+                }
+            }
+            None => {
+                return false;
+            }
+        }
+
+        let possible_moves = get_possible_moves(&board, &self.0.last_move, mv.source);
+
+        if possible_moves
+            .iter()
+            .find(|possible_position| mv.target == **possible_position)
+            .is_none()
+        {
+            return false;
+        }
+
+        let player = board.square(&mv.source).unwrap().player;
+        let moved_piece = board.square(&mv.source).unwrap().piece;
+        let move_info = match moved_piece {
+            PieceType::Pawn => {
+                if mv.source.row.abs_diff(mv.target.row) == 2 {
+                    MoveExtraInfo::Passed
+                } else if mv.source.col != mv.target.col && board.square(&mv.target).is_none() {
+                    MoveExtraInfo::EnPassant
+                } else {
+                    MoveExtraInfo::Other
+                }
+            }
+            _ => MoveExtraInfo::Other,
+        };
+
+        board.move_piece(&mv.source, &mv.target);
+
+        match move_info {
+            MoveExtraInfo::EnPassant => {
+                // Capture passed pawn
+                let direction: i8 = match player {
+                    Player::White => 1,
+                    Player::Black => -1,
+                };
+                let passed =
+                    only_enemy(&board, try_move(&mv.target, &dir!(-direction, 0)), &player)
+                        .unwrap();
+
+                board.update(&passed, None);
+            }
+            _ => (),
+        }
+
+        self.0.player = enemy(&self.0.player);
+        self.0.last_move = Some(MoveInfo {
+            mv: *mv,
+            info: move_info,
+        });
+
+        return true;
+    }
+
+    fn undo(&mut self) {}
 }
 
 fn get_possible_moves_iter<'a>(
@@ -401,7 +497,16 @@ pub fn get_best_move_recursive(game: &mut Game, search_depth: u32) -> Option<Bra
 
             // Recursion
             if search_depth > 0 {
-                let mut rev_game = ReversableGame::from(game);
+                let mut rev_game: Box<dyn SearchableGame> = {
+                    #[cfg(feature = "search-by-rollback")]
+                    {
+                        Box::new(ReversableGame::from_game(game))
+                    }
+                    #[cfg(feature = "search-by-copy")]
+                    {
+                        Box::new(ClonedGame::from_game(game))
+                    }
+                };
 
                 assert!(
                     rev_game.do_move(&mv.mv),
@@ -410,7 +515,7 @@ pub fn get_best_move_recursive(game: &mut Game, search_depth: u32) -> Option<Bra
                 );
 
                 let mut next_moves =
-                    get_best_move_recursive(&mut rev_game.game, search_depth - 1).unwrap();
+                    get_best_move_recursive(rev_game.as_mut().as_mut(), search_depth - 1).unwrap();
 
                 rev_game.undo();
 
@@ -419,6 +524,8 @@ pub fn get_best_move_recursive(game: &mut Game, search_depth: u32) -> Option<Bra
                 branch.searched = next_moves.searched;
 
                 searched_moves += branch.searched;
+
+                drop(rev_game);
             };
 
             match &best_move {
@@ -528,7 +635,7 @@ pub fn do_move(game: &mut Game, mv: &Move) -> Option<Vec<Piece>> {
         }
     }
 
-    let rev_game = &mut ReversableGame::from(game);
+    let rev_game = &mut ReversableGame::from_game(game);
     let result = rev_game.do_move(mv);
 
     if result {
@@ -640,7 +747,7 @@ mod tests {
 
             let original_board = game.board.clone();
 
-            let mut rev_game = ReversableGame::from(&mut game);
+            let mut rev_game = ReversableGame::from_game(&mut game);
 
             // Do move
             assert!(rev_game.do_move(&test_board.mv));
