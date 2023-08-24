@@ -18,35 +18,32 @@ jobs:
 
     steps:
     - uses: actions/checkout@v3
-    # - name: Install build dependencies
-    #   run: sudo apt-get update && sudo apt-get install -y
-    #     libwebkit2gtk-4.0-dev
-    #     build-essential
-    #     curl
-    #     wget
-    #     file
-    #     libssl-dev
-    #     libgtk-3-dev
-    #     libayatana-appindicator3-dev
-    #     librsvg2-dev
-    # - name: Build
-    #   working-directory: ./src-tauri
-    #   run: cargo build --verbose
-    # - name: Run tests
-    #   working-directory: ./src-tauri
-    #   run: cargo test --verbose
-    # - name: Install React dependencies
-    #   run: npm install
-    #   if: startsWith(github.ref, 'refs/tags/')
-    # - name: Install Rust dependencies
-    #   run: cargo install tauri-cli
-    #   if: startsWith(github.ref, 'refs/tags/')
-    # - name: Build
-    #   working-directory: ./src-tauri
-    #   run: cargo tauri build -b deb
-    #   if: startsWith(github.ref, 'refs/tags/')
-    - name: Create fake artifact
-      run: mkdir -p ./src-tauri/target/release/bundle/deb/ && touch ./src-tauri/target/release/bundle/deb/chusst_0.1.0_amd64.deb
+    - name: Install build dependencies
+      run: sudo apt-get update && sudo apt-get install -y
+        libwebkit2gtk-4.0-dev
+        build-essential
+        curl
+        wget
+        file
+        libssl-dev
+        libgtk-3-dev
+        libayatana-appindicator3-dev
+        librsvg2-dev
+    - name: Build
+      working-directory: ./src-tauri
+      run: cargo build --verbose
+    - name: Run tests
+      working-directory: ./src-tauri
+      run: cargo test --verbose
+    - name: Install React dependencies
+      run: npm install
+      if: startsWith(github.ref, 'refs/tags/')
+    - name: Install Rust dependencies
+      run: cargo install tauri-cli
+      if: startsWith(github.ref, 'refs/tags/')
+    - name: Build
+      working-directory: ./src-tauri
+      run: cargo tauri build -b deb
       if: startsWith(github.ref, 'refs/tags/')
     - name: Upload artifact
       uses: actions/upload-artifact@v3
@@ -62,24 +59,21 @@ jobs:
 
     steps:
     - uses: actions/checkout@v3
-    # - name: Build
-    #   working-directory: ./src-tauri
-    #   run: cargo build --verbose
-    # - name: Run tests
-    #   working-directory: ./src-tauri
-    #   run: cargo test --verbose
-    # - name: Install React dependencies
-    #   run: npm install
-    #   if: startsWith(github.ref, 'refs/tags/')
-    # - name: Install Rust dependencies
-    #   run: cargo install tauri-cli
-    #   if: startsWith(github.ref, 'refs/tags/')
-    # - name: Build
-    #   working-directory: ./src-tauri
-    #   run: cargo tauri build -b dmg
-    #   if: startsWith(github.ref, 'refs/tags/')
-    - name: Create fake artifact
-      run: mkdir -p ./src-tauri/target/release/bundle/dmg/ && touch ./src-tauri/target/release/bundle/dmg/chusst_0.1.0_x64.dmg
+    - name: Build
+      working-directory: ./src-tauri
+      run: cargo build --verbose
+    - name: Run tests
+      working-directory: ./src-tauri
+      run: cargo test --verbose
+    - name: Install React dependencies
+      run: npm install
+      if: startsWith(github.ref, 'refs/tags/')
+    - name: Install Rust dependencies
+      run: cargo install tauri-cli
+      if: startsWith(github.ref, 'refs/tags/')
+    - name: Build
+      working-directory: ./src-tauri
+      run: cargo tauri build -b dmg
       if: startsWith(github.ref, 'refs/tags/')
     - name: Upload artifact
       uses: actions/upload-artifact@v3
@@ -101,8 +95,6 @@ jobs:
     steps:
     - name: Download artifacts
       uses: actions/download-artifact@v3
-    - name: List
-      run: ls -R
     - name: Release
       uses: softprops/action-gh-release@v1
       if: startsWith(github.ref, 'refs/tags/')
