@@ -37,6 +37,9 @@ jobs:
     - name: Install React dependencies
       run: npm install
       if: startsWith(github.ref, 'refs/tags/')
+    - name: Install Rust dependencies
+      run: cargo install tauri-cli
+      if: startsWith(github.ref, 'refs/tags/')
     - name: Build
       working-directory: ./src-tauri
       run: cargo tauri build -b deb
