@@ -28,14 +28,15 @@ jobs:
         libgtk-3-dev
         libayatana-appindicator3-dev
         librsvg2-dev
-    - name: Install Rust dependencies
-      run: cargo install tauri-cli
     - name: Build
       working-directory: ./src-tauri
       run: cargo build --verbose
     - name: Run tests
       working-directory: ./src-tauri
       run: cargo test --verbose
+    - name: Install React dependencies
+      run: npm install
+      if: startsWith(github.ref, 'refs/tags/')
     - name: Build
       working-directory: ./src-tauri
       run: cargo tauri build -b deb
