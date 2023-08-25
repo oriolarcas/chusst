@@ -59,6 +59,7 @@ trait SearchableGame<'a> {
     fn as_ref(&self) -> &Game;
     fn as_mut(&mut self) -> &mut Game;
     fn do_move(&mut self, mv: &Move) -> bool;
+    fn do_move_no_checks(&mut self, mv: &Move) -> bool;
     fn undo(&mut self);
 }
 
@@ -88,32 +89,8 @@ impl<'a> SearchableGame<'a> for ReversableGame<'a> {
         &mut self.game
     }
 
-    fn do_move(&mut self, mv: &Move) -> bool {
-        assert!(self.moves.is_empty());
-
+    fn do_move_no_checks(&mut self, mv: &Move) -> bool {
         let board = &mut self.game.board;
-
-        match board.square(&mv.source) {
-            Some(piece) => {
-                if piece.player != self.game.player {
-                    return false;
-                }
-            }
-            None => {
-                return false;
-            }
-        }
-
-        let possible_moves = get_possible_moves(&board, &self.game.last_move, mv.source);
-
-        if possible_moves
-            .iter()
-            .find(|possible_position| mv.target == **possible_position)
-            .is_none()
-        {
-            return false;
-        }
-
         let player = board.square(&mv.source).unwrap().player;
         let moved_piece = board.square(&mv.source).unwrap().piece;
         let move_info = match moved_piece {
@@ -167,6 +144,35 @@ impl<'a> SearchableGame<'a> for ReversableGame<'a> {
         return true;
     }
 
+    fn do_move(&mut self, mv: &Move) -> bool {
+        assert!(self.moves.is_empty());
+
+        let board = &self.game.board;
+
+        match board.square(&mv.source) {
+            Some(piece) => {
+                if piece.player != self.game.player {
+                    return false;
+                }
+            }
+            None => {
+                return false;
+            }
+        }
+
+        let possible_moves = get_possible_moves(&board, &self.game.last_move, mv.source);
+
+        if possible_moves
+            .iter()
+            .find(|possible_position| mv.target == **possible_position)
+            .is_none()
+        {
+            return false;
+        }
+
+        self.do_move_no_checks(mv)
+    }
+
     fn undo(&mut self) {
         assert!(!self.moves.is_empty());
 
@@ -209,30 +215,8 @@ impl<'a> SearchableGame<'a> for ClonedGame {
         &mut self.0
     }
 
-    fn do_move(&mut self, mv: &Move) -> bool {
+    fn do_move_no_checks(&mut self, mv: &Move) -> bool {
         let board = &mut self.0.board;
-
-        match board.square(&mv.source) {
-            Some(piece) => {
-                if piece.player != self.0.player {
-                    return false;
-                }
-            }
-            None => {
-                return false;
-            }
-        }
-
-        let possible_moves = get_possible_moves(&board, &self.0.last_move, mv.source);
-
-        if possible_moves
-            .iter()
-            .find(|possible_position| mv.target == **possible_position)
-            .is_none()
-        {
-            return false;
-        }
-
         let player = board.square(&mv.source).unwrap().player;
         let moved_piece = board.square(&mv.source).unwrap().piece;
         let move_info = match moved_piece {
@@ -273,6 +257,33 @@ impl<'a> SearchableGame<'a> for ClonedGame {
         });
 
         return true;
+    }
+
+    fn do_move(&mut self, mv: &Move) -> bool {
+        let board = &self.0.board;
+
+        match board.square(&mv.source) {
+            Some(piece) => {
+                if piece.player != self.0.player {
+                    return false;
+                }
+            }
+            None => {
+                return false;
+            }
+        }
+
+        let possible_moves = get_possible_moves(&board, &self.0.last_move, mv.source);
+
+        if possible_moves
+            .iter()
+            .find(|possible_position| mv.target == **possible_position)
+            .is_none()
+        {
+            return false;
+        }
+
+        self.do_move_no_checks(mv)
     }
 
     fn undo(&mut self) {}
@@ -446,7 +457,7 @@ pub fn get_best_move_recursive(game: &mut Game, search_depth: u32) -> Option<Bra
             };
 
             assert!(
-                rev_game.do_move(&mv.mv),
+                rev_game.do_move_no_checks(&mv.mv),
                 "Unexpected invalid move {}",
                 mv.mv
             );
