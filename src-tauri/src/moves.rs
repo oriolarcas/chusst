@@ -5,6 +5,7 @@ mod iter;
 use crate::board::{
     Board, Game, Move, MoveExtraInfo, MoveInfo, Piece, PieceType, Player, Position, Rows,
 };
+use crate::moves::check::{player_in_check, find_player_king};
 use crate::mv;
 use conditions::{enemy, only_enemy, try_move, Direction};
 use iter::{dir, piece_into_iter, player_pieces_iter, BoardIter, PlayerPiecesIter};
@@ -55,6 +56,7 @@ trait SearchableGame<'a> {
     fn from_game(game: &'a mut Game) -> Self
     where
         Self: Sized;
+    fn as_ref(&self) -> &Game;
     fn as_mut(&mut self) -> &mut Game;
     fn do_move(&mut self, mv: &Move) -> bool;
     fn undo(&mut self);
@@ -76,6 +78,10 @@ impl<'a> SearchableGame<'a> for ReversableGame<'a> {
             last_move: None,
             move_player: player,
         }
+    }
+
+    fn as_ref(&self) -> &Game {
+        &self.game
     }
 
     fn as_mut(&mut self) -> &mut Game {
@@ -193,6 +199,10 @@ struct ClonedGame(Game);
 impl<'a> SearchableGame<'a> for ClonedGame {
     fn from_game(game: &mut Game) -> Self {
         ClonedGame(*game)
+    }
+
+    fn as_ref(&self) -> &Game {
+        &self.0
     }
 
     fn as_mut(&mut self) -> &mut Game {
@@ -398,7 +408,11 @@ pub fn get_best_move_recursive(game: &mut Game, search_depth: u32) -> Option<Bra
 
     let mut searched_moves: u32 = 0;
 
+    let king_position = find_player_king(&game.board, &game.player);
+
     for player_piece_position in pieces_iter {
+        let current_piece = &game.board.square(&player_piece_position).unwrap().piece;
+
         for possible_position in
             get_possible_moves(&game.board, &game.last_move, player_piece_position)
         {
@@ -436,6 +450,17 @@ pub fn get_best_move_recursive(game: &mut Game, search_depth: u32) -> Option<Bra
                 "Unexpected invalid move {}",
                 mv.mv
             );
+
+            let current_king_position = if *current_piece == PieceType::King {
+                possible_position
+            } else {
+                king_position
+            };
+
+            // Check if this move is invalid because it leaves the king in check
+            if player_in_check(&rev_game.as_ref().as_ref().board, &current_king_position) {
+                continue;
+            }
 
             // Recursion
             if search_depth > 0 {
