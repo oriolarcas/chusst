@@ -1,9 +1,89 @@
-use crate::board::{Board, MoveExtraInfo, MoveInfo, PieceType, Player, Position};
+use crate::board::{Board, MoveInfo, PieceType, Player, Position};
+use crate::moves::conditions::{
+    only_empty, only_empty_or_enemy, only_en_passant, only_enemy, try_move, Direction,
+};
 use crate::pos;
 
-pub struct Direction {
-    pub row_inc: i8,
-    pub col_inc: i8,
+pub fn pawn_progress_direction(player: &Player) -> i8 {
+    match player {
+        Player::White => 1,
+        Player::Black => -1,
+    }
+}
+
+pub struct BoardIter {
+    position: Position,
+}
+
+impl Default for BoardIter {
+    fn default() -> Self {
+        BoardIter {
+            position: pos!(0, 0),
+        }
+    }
+}
+
+impl<'a> Iterator for BoardIter {
+    type Item = Position;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.position.row > 7 {
+            return None;
+        }
+
+        let current_position = self.position;
+
+        if self.position.col == 7 {
+            self.position.row += 1;
+            self.position.col = 0;
+        } else {
+            self.position.col += 1;
+        }
+
+        Some(current_position)
+    }
+}
+
+pub struct PlayerPiecesIter<'a> {
+    pub(super) board: &'a Board,
+    pub(super) player: &'a Player,
+    pub(super) board_iter: BoardIter,
+}
+
+macro_rules! player_pieces_iter {
+    (board: $board:expr, player: $player:expr) => {
+        PlayerPiecesIter {
+            board: $board,
+            player: $player,
+            board_iter: Default::default(),
+        }
+    };
+}
+pub(crate) use player_pieces_iter;
+
+impl<'a> Iterator for PlayerPiecesIter<'a> {
+    type Item = Position;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            match self.board_iter.next() {
+                Some(position) => match self.board.square(&position) {
+                    Some(piece) => {
+                        if piece.player == *self.player {
+                            return Some(position);
+                        }
+                        continue;
+                    }
+                    None => {
+                        continue;
+                    }
+                },
+                None => {
+                    return None;
+                }
+            }
+        }
+    }
 }
 
 macro_rules! dir {
@@ -14,6 +94,7 @@ macro_rules! dir {
         }
     };
 }
+pub(crate) use dir;
 
 struct WalkPath {
     position: Position,
@@ -43,113 +124,6 @@ impl BoardIterator for WalkPath {
             }
             None => None,
         }
-    }
-}
-
-pub fn try_move(position: &Position, direction: &Direction) -> Option<Position> {
-    let row = i8::try_from(position.row).unwrap() + direction.row_inc;
-    let col = i8::try_from(position.col).unwrap() + direction.col_inc;
-
-    if row < 0 || row >= 8 {
-        return None;
-    }
-
-    if col < 0 || col >= 8 {
-        return None;
-    }
-
-    match (usize::try_from(row), usize::try_from(col)) {
-        (Ok(urow), Ok(ucol)) => Some(pos!(urow, ucol)),
-        _ => None,
-    }
-}
-
-fn only_empty(board: &Board, position: Option<Position>) -> Option<Position> {
-    match board.square(&position?) {
-        Some(_) => None,
-        None => position,
-    }
-}
-
-fn only_player(board: &Board, position: Option<Position>, player: Player) -> Option<Position> {
-    match board.square(&position?) {
-        Some(square) => {
-            if square.player == player {
-                position
-            } else {
-                None
-            }
-        }
-        None => None,
-    }
-}
-
-pub fn enemy(player: &Player) -> Player {
-    match player {
-        Player::White => Player::Black,
-        Player::Black => Player::White,
-    }
-}
-
-pub fn only_enemy(board: &Board, position: Option<Position>, player: &Player) -> Option<Position> {
-    only_player(board, position, enemy(player))
-}
-
-fn only_empty_or_enemy(
-    board: &Board,
-    position: Option<Position>,
-    player: &Player,
-) -> Option<Position> {
-    match position {
-        Some(position_value) => match board.square(&position_value) {
-            // Occupied square
-            Some(piece) => {
-                if piece.player != *player {
-                    // Enemy piece
-                    Some(position_value)
-                } else {
-                    // Friend piece
-                    None
-                }
-            }
-            // Empty square
-            None => Some(position_value),
-        },
-        None => None,
-    }
-}
-
-fn only_en_passant(
-    board: &Board,
-    last_move: &Option<MoveInfo>,
-    position: Option<Position>,
-    player: &Player,
-    direction: i8,
-) -> Option<Position> {
-    match only_empty(board, position) {
-        Some(position_value) => {
-            let reverse_direction = Direction {
-                row_inc: -direction,
-                col_inc: 0,
-            };
-
-            match (
-                last_move,
-                only_enemy(board, try_move(&position_value, &reverse_direction), player),
-            ) {
-                (Some(last_move_info), Some(passed_position)) => {
-                    if passed_position == last_move_info.mv.target
-                        && last_move_info.info == MoveExtraInfo::Passed
-                    {
-                        position
-                    } else {
-                        None
-                    }
-                }
-                _ => None,
-            }
-        }
-        None => None,
     }
 }
 
@@ -338,10 +312,7 @@ impl<'a> Iterator for PawnIter<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         let square = self.board_state.board.square(&self.board_state.position);
         let player = &square.unwrap().player;
-        let direction = match player {
-            Player::White => 1,
-            Player::Black => -1,
-        };
+        let direction = pawn_progress_direction(player);
         let can_pass = match player {
             Player::White => self.board_state.position.row == 1,
             Player::Black => self.board_state.position.row == 6,

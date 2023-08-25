@@ -1,17 +1,16 @@
-#[macro_use]
+mod check;
+mod conditions;
 mod iter;
 
 use crate::board::{
     Board, Game, Move, MoveExtraInfo, MoveInfo, Piece, PieceType, Player, Position, Rows,
 };
-use crate::{mv, pos};
-use iter::{enemy, only_enemy, piece_into_iter, try_move, Direction};
+use crate::mv;
+use conditions::{enemy, only_enemy, try_move, Direction};
+use iter::{dir, piece_into_iter, player_pieces_iter, BoardIter, PlayerPiecesIter};
 
 use std::collections::HashMap;
 use std::time::Instant;
-
-#[cfg(all(feature = "search-by-copy", feature = "search-by-rollback"))]
-compile_error!("feature \"search-by-copy\" and feature \"search-by-rollback\" cannot be enabled at the same time");
 
 // List of pieces that can capture each square
 pub type BoardCaptures = Rows<Vec<Position>>;
@@ -44,80 +43,6 @@ impl PartialEq for Branch {
 impl PartialOrd for Branch {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         self.score.partial_cmp(&other.score)
-    }
-}
-
-struct BoardIter {
-    position: Position,
-}
-
-impl Default for BoardIter {
-    fn default() -> Self {
-        BoardIter {
-            position: pos!(0, 0),
-        }
-    }
-}
-
-impl<'a> Iterator for BoardIter {
-    type Item = Position;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.position.row > 7 {
-            return None;
-        }
-
-        let current_position = self.position;
-
-        if self.position.col == 7 {
-            self.position.row += 1;
-            self.position.col = 0;
-        } else {
-            self.position.col += 1;
-        }
-
-        Some(current_position)
-    }
-}
-
-struct PlayerPiecesIter<'a> {
-    board: &'a Board,
-    player: &'a Player,
-    board_iter: BoardIter,
-}
-
-macro_rules! player_pieces_iter {
-    (board: $board:expr, player: $player:expr) => {
-        PlayerPiecesIter {
-            board: $board,
-            player: $player,
-            board_iter: Default::default(),
-        }
-    };
-}
-
-impl<'a> Iterator for PlayerPiecesIter<'a> {
-    type Item = Position;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        loop {
-            match self.board_iter.next() {
-                Some(position) => match self.board.square(&position) {
-                    Some(piece) => {
-                        if piece.player == *self.player {
-                            return Some(position);
-                        }
-                        continue;
-                    }
-                    None => {
-                        continue;
-                    }
-                },
-                None => {
-                    return None;
-                }
-            }
-        }
     }
 }
 
@@ -495,38 +420,38 @@ pub fn get_best_move_recursive(game: &mut Game, search_depth: u32) -> Option<Bra
 
             let mv = branch.moves.first().unwrap();
 
+            let mut rev_game: Box<dyn SearchableGame> = {
+                #[cfg(feature = "search-by-rollback")]
+                {
+                    Box::new(ReversableGame::from_game(game))
+                }
+                #[cfg(not(feature = "search-by-rollback"))]
+                {
+                    Box::new(ClonedGame::from_game(game))
+                }
+            };
+
+            assert!(
+                rev_game.do_move(&mv.mv),
+                "Unexpected invalid move {}",
+                mv.mv
+            );
+
             // Recursion
             if search_depth > 0 {
-                let mut rev_game: Box<dyn SearchableGame> = {
-                    #[cfg(feature = "search-by-rollback")]
-                    {
-                        Box::new(ReversableGame::from_game(game))
-                    }
-                    #[cfg(not(feature = "search-by-rollback"))]
-                    {
-                        Box::new(ClonedGame::from_game(game))
-                    }
-                };
-
-                assert!(
-                    rev_game.do_move(&mv.mv),
-                    "Unexpected invalid move {}",
-                    mv.mv
-                );
-
                 let mut next_moves =
                     get_best_move_recursive(rev_game.as_mut().as_mut(), search_depth - 1).unwrap();
-
-                rev_game.undo();
 
                 branch.moves.append(&mut next_moves.moves);
                 branch.score = local_score.saturating_sub(next_moves.score);
                 branch.searched = next_moves.searched;
 
                 searched_moves += branch.searched;
-
-                drop(rev_game);
             };
+
+            rev_game.undo();
+
+            drop(rev_game);
 
             match &best_move {
                 Some(current_best_move) => {
@@ -675,7 +600,7 @@ pub fn do_move(game: &mut Game, mv: &Move) -> Option<Vec<Piece>> {
 mod tests {
     use super::*;
     use crate::board::initial_board;
-    use crate::p;
+    use crate::{p, pos};
 
     struct PiecePosition {
         piece: Option<Piece>,
