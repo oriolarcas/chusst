@@ -231,7 +231,12 @@ impl<'a> SearchableGame<'a> for ClonedGame {
     fn do_move_no_checks(&mut self, mv: &Move) -> bool {
         let board = &mut self.0.board;
         let source_square = board.square(&mv.source).as_ref();
-        assert!(source_square.is_some(), "invalid move {} in:\n{}", mv, board);
+        assert!(
+            source_square.is_some(),
+            "invalid move {} in:\n{}",
+            mv,
+            board
+        );
         let player = source_square.unwrap().player;
         let moved_piece = source_square.unwrap().piece;
         let move_info = match moved_piece {
@@ -341,7 +346,7 @@ pub fn get_possible_moves(
 
     let mut game = Game {
         board: *board,
-        player: Player::White,
+        player,
         last_move: None,
     };
     get_possible_moves_no_checks(board, last_move, position)
@@ -724,6 +729,16 @@ mod tests {
         checks: Vec<PiecePosition>,
     }
 
+    fn custom_board(initial_pieces: Vec<PiecePosition>) -> Board {
+        let mut board: Board = Default::default();
+
+        for piece_position in initial_pieces {
+            board.update(&piece_position.position, piece_position.piece);
+        }
+
+        board
+    }
+
     #[test]
     fn move_reversable() {
         let test_boards = [
@@ -783,6 +798,33 @@ mod tests {
                 rev_game.game.board, original_board,
                 "after move {},\nmodified board:\n{}\noriginal board:\n{}",
                 test_board.mv, rev_game.game.board, original_board
+            );
+        }
+    }
+
+    #[test]
+    fn check_mate() {
+        let test_boards = [
+            vec![pp!(kw @ a1), pp!(qb @ b2), pp!(qb @ c3)],
+            vec![
+                pp!(kw @ a1),
+                pp!(pb @ a2),
+                pp!(pb @ b2),
+                pp!(pb @ a3),
+                pp!(pb @ b3),
+            ],
+            vec![pp!(kw @ a1), pp!(rb @ a8), pp!(rb @ b8)],
+        ];
+
+        for test_board in test_boards {
+            let board = custom_board(test_board);
+
+            let possible_moves = get_possible_moves(&board, &None, pos!(a1));
+            assert!(
+                possible_moves.is_empty(),
+                "unexpected move {} in check mate:\n{}",
+                mv!(pos!(a1), *possible_moves.first().unwrap()),
+                board
             );
         }
     }

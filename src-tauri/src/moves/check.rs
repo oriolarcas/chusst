@@ -47,8 +47,8 @@ pub fn player_in_check(board: &Board, king_position: &Position) -> bool {
     // 1. Pawns
     let pd = -pawn_progress_direction(&enemy_player);
 
-    if is_player_piece(&try_move(&king_position, &dir!(-1, pd)), &PieceType::Pawn)
-        || is_player_piece(&try_move(&king_position, &dir!(1, pd)), &PieceType::Pawn)
+    if is_player_piece(&try_move(&king_position, &dir!(pd, -1)), &PieceType::Pawn)
+        || is_player_piece(&try_move(&king_position, &dir!(pd, 1)), &PieceType::Pawn)
     {
         return true;
     }
