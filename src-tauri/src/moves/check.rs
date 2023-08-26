@@ -95,14 +95,14 @@ pub fn player_in_check(board: &Board, king_position: &Position) -> bool {
     }
 
     // 6. King
-    if is_player_piece(&try_move(&king_position, &dir!(-1, -1)), &PieceType::Knight)
-        || is_player_piece(&try_move(&king_position, &dir!(-1, 0)), &PieceType::Knight)
-        || is_player_piece(&try_move(&king_position, &dir!(-1, 1)), &PieceType::Knight)
-        || is_player_piece(&try_move(&king_position, &dir!(0, -1)), &PieceType::Knight)
-        || is_player_piece(&try_move(&king_position, &dir!(0, 1)), &PieceType::Knight)
-        || is_player_piece(&try_move(&king_position, &dir!(1, -1)), &PieceType::Knight)
-        || is_player_piece(&try_move(&king_position, &dir!(1, 0)), &PieceType::Knight)
-        || is_player_piece(&try_move(&king_position, &dir!(1, 1)), &PieceType::Knight)
+    if is_player_piece(&try_move(&king_position, &dir!(-1, -1)), &PieceType::King)
+        || is_player_piece(&try_move(&king_position, &dir!(-1, 0)), &PieceType::King)
+        || is_player_piece(&try_move(&king_position, &dir!(-1, 1)), &PieceType::King)
+        || is_player_piece(&try_move(&king_position, &dir!(0, -1)), &PieceType::King)
+        || is_player_piece(&try_move(&king_position, &dir!(0, 1)), &PieceType::King)
+        || is_player_piece(&try_move(&king_position, &dir!(1, -1)), &PieceType::King)
+        || is_player_piece(&try_move(&king_position, &dir!(1, 0)), &PieceType::King)
+        || is_player_piece(&try_move(&king_position, &dir!(1, 1)), &PieceType::King)
     {
         return true;
     }

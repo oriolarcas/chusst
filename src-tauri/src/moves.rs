@@ -542,8 +542,18 @@ pub fn get_best_move_recursive(game: &mut Game, search_depth: u32) -> Option<Bra
 
             // Recursion
             if search_depth > 0 {
-                let mut next_moves =
-                    get_best_move_recursive(rev_game.as_mut().as_mut(), search_depth - 1).unwrap();
+                let mut next_moves_opt =
+                    get_best_move_recursive(rev_game.as_mut().as_mut(), search_depth - 1);
+
+                assert!(
+                    next_moves_opt.is_some(),
+                    "checkmate for player {} after {}:\n{}",
+                    rev_game.as_ref().as_ref().player,
+                    mv.mv,
+                    rev_game.as_ref().as_ref().board
+                );
+
+                let next_moves = next_moves_opt.as_mut().unwrap();
 
                 branch.moves.append(&mut next_moves.moves);
                 branch.score = local_score.saturating_sub(next_moves.score);
@@ -814,15 +824,19 @@ mod tests {
                 pp!(pb @ b3),
             ],
             vec![pp!(kw @ a1), pp!(rb @ a8), pp!(rb @ b8)],
+            vec![pp!(kw @ a1), pp!(bb @ h8), pp!(bb @ g8), pp!(pb @ c2)],
+            vec![pp!(kw @ a1), pp!(nb @ b3), pp!(nb @ c3), pp!(rb @ h2)],
         ];
 
         for test_board in test_boards {
             let board = custom_board(test_board);
 
             let possible_moves = get_possible_moves(&board, &None, pos!(a1));
+            let in_check = player_in_check(&board, &pos!(a1));
+            assert!(in_check, "king should be in check:\n{}", board);
             assert!(
                 possible_moves.is_empty(),
-                "unexpected move {} in check mate:\n{}",
+                "unexpected possible move {} in check mate:\n{}",
                 mv!(pos!(a1), *possible_moves.first().unwrap()),
                 board
             );
