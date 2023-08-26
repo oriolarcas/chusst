@@ -5,7 +5,7 @@ mod iter;
 use crate::board::{
     Board, Game, Move, MoveExtraInfo, MoveInfo, Piece, PieceType, Player, Position, Rows,
 };
-use crate::moves::check::{player_in_check, find_player_king};
+use crate::moves::check::{find_player_king, player_in_check};
 use crate::mv;
 use conditions::{enemy, only_enemy, try_move, Direction};
 use iter::{dir, piece_into_iter, player_pieces_iter, BoardIter, PlayerPiecesIter};
@@ -61,6 +61,19 @@ trait SearchableGame<'a> {
     fn do_move(&mut self, mv: &Move) -> bool;
     fn do_move_no_checks(&mut self, mv: &Move) -> bool;
     fn undo(&mut self);
+}
+
+impl<'a> dyn SearchableGame<'a> {
+    fn box_from_game(game: &'a mut Game) -> Box<dyn SearchableGame<'a>> {
+        #[cfg(feature = "search-by-rollback")]
+        {
+            Box::new(ReversableGame::from_game(game))
+        }
+        #[cfg(not(feature = "search-by-rollback"))]
+        {
+            Box::new(ClonedGame::from_game(game))
+        }
+    }
 }
 
 struct ReversableGame<'a> {
@@ -160,7 +173,7 @@ impl<'a> SearchableGame<'a> for ReversableGame<'a> {
             }
         }
 
-        let possible_moves = get_possible_moves(&board, &self.game.last_move, mv.source);
+        let possible_moves = get_possible_moves_no_checks(&board, &self.game.last_move, mv.source);
 
         if possible_moves
             .iter()
@@ -217,8 +230,10 @@ impl<'a> SearchableGame<'a> for ClonedGame {
 
     fn do_move_no_checks(&mut self, mv: &Move) -> bool {
         let board = &mut self.0.board;
-        let player = board.square(&mv.source).unwrap().player;
-        let moved_piece = board.square(&mv.source).unwrap().piece;
+        let source_square = board.square(&mv.source).as_ref();
+        assert!(source_square.is_some(), "invalid move {} in:\n{}", mv, board);
+        let player = source_square.unwrap().player;
+        let moved_piece = source_square.unwrap().piece;
         let move_info = match moved_piece {
             PieceType::Pawn => {
                 if mv.source.row.abs_diff(mv.target.row) == 2 {
@@ -273,7 +288,7 @@ impl<'a> SearchableGame<'a> for ClonedGame {
             }
         }
 
-        let possible_moves = get_possible_moves(&board, &self.0.last_move, mv.source);
+        let possible_moves = get_possible_moves_no_checks(&board, &self.0.last_move, mv.source);
 
         if possible_moves
             .iter()
@@ -297,12 +312,67 @@ fn get_possible_moves_iter<'a>(
     piece_into_iter(board, last_move, position)
 }
 
-pub fn get_possible_moves(
+pub fn get_possible_moves_no_checks(
     board: &Board,
     last_move: &Option<MoveInfo>,
     position: Position,
 ) -> Vec<Position> {
     get_possible_moves_iter(board, last_move, position).collect::<Vec<Position>>()
+}
+
+pub fn get_possible_moves(
+    board: &Board,
+    last_move: &Option<MoveInfo>,
+    position: Position,
+) -> Vec<Position> {
+    let square = board.square(&position).as_ref();
+    if square.is_none() {
+        return vec![];
+    }
+
+    let player = square.unwrap().player;
+    let is_king = square.unwrap().piece == PieceType::King;
+
+    let king_position = if is_king {
+        position
+    } else {
+        find_player_king(&board, &player)
+    };
+
+    let mut game = Game {
+        board: *board,
+        player: Player::White,
+        last_move: None,
+    };
+    get_possible_moves_no_checks(board, last_move, position)
+        .iter()
+        .filter(|possible_position| {
+            let mv = mv!(position, **possible_position);
+
+            let mut rev_game = <dyn SearchableGame>::box_from_game(&mut game);
+
+            assert!(
+                rev_game.do_move_no_checks(&mv),
+                "Unexpected invalid move {} in:\n{}",
+                mv,
+                &rev_game.as_ref().as_ref().board,
+            );
+
+            let current_king_position = if is_king {
+                *possible_position
+            } else {
+                &king_position
+            };
+
+            let is_check =
+                player_in_check(&rev_game.as_ref().as_ref().board, &current_king_position);
+
+            rev_game.undo();
+
+            !is_check
+        })
+        .copied()
+        .collect()
 }
 
 pub fn move_name(
@@ -425,7 +495,7 @@ pub fn get_best_move_recursive(game: &mut Game, search_depth: u32) -> Option<Bra
         let current_piece = &game.board.square(&player_piece_position).unwrap().piece;
 
         for possible_position in
-            get_possible_moves(&game.board, &game.last_move, player_piece_position)
+            get_possible_moves_no_checks(&game.board, &game.last_move, player_piece_position)
         {
             searched_moves += 1;
 
@@ -445,16 +515,7 @@ pub fn get_best_move_recursive(game: &mut Game, search_depth: u32) -> Option<Bra
 
             let mv = branch.moves.first().unwrap();
 
-            let mut rev_game: Box<dyn SearchableGame> = {
-                #[cfg(feature = "search-by-rollback")]
-                {
-                    Box::new(ReversableGame::from_game(game))
-                }
-                #[cfg(not(feature = "search-by-rollback"))]
-                {
-                    Box::new(ClonedGame::from_game(game))
-                }
-            };
+            let mut rev_game = <dyn SearchableGame>::box_from_game(game);
 
             assert!(
                 rev_game.do_move_no_checks(&mv.mv),
@@ -487,8 +548,6 @@ pub fn get_best_move_recursive(game: &mut Game, search_depth: u32) -> Option<Bra
             };
 
             rev_game.undo();
-
-            drop(rev_game);
 
             match &best_move {
                 Some(current_best_move) => {

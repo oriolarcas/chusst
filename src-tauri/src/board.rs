@@ -485,7 +485,7 @@ impl fmt::Display for Move {
 
 #[macro_export]
 macro_rules! mv {
-    ($src:ident, $tgt:ident) => {
+    ($src:expr, $tgt:expr) => {
         Move {
             source: $src,
             target: $tgt,
