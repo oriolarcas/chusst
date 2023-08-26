@@ -1,6 +1,7 @@
 use crate::board::{Board, MoveInfo, MoveExtraInfo, Position, Player};
 use crate::pos;
 
+#[derive(Copy, Clone)]
 pub struct Direction {
     pub row_inc: i8,
     pub col_inc: i8,

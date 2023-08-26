@@ -458,8 +458,9 @@ pub fn get_best_move_recursive(game: &mut Game, search_depth: u32) -> Option<Bra
 
             assert!(
                 rev_game.do_move_no_checks(&mv.mv),
-                "Unexpected invalid move {}",
-                mv.mv
+                "Unexpected invalid move {} in:\n{}",
+                mv.mv,
+                &rev_game.as_ref().as_ref().board,
             );
 
             let current_king_position = if *current_piece == PieceType::King {

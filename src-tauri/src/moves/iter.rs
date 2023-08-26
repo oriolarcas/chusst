@@ -103,10 +103,19 @@ struct WalkPath {
 }
 
 trait BoardIterator {
+    fn walk(position: Position, direction: Direction) -> WalkPath;
     fn next(&mut self, board: &Board, player: &Player) -> Option<Position>;
 }
 
 impl BoardIterator for WalkPath {
+    fn walk(position: Position, direction: Direction) -> WalkPath {
+        WalkPath {
+            position,
+            direction,
+            stop_walking: false,
+        }
+    }
+
     fn next(&mut self, board: &Board, player: &Player) -> Option<Position> {
         if self.stop_walking {
             return None;
@@ -124,6 +133,28 @@ impl BoardIterator for WalkPath {
             }
             None => None,
         }
+    }
+}
+
+pub struct BoardIteratorAdapter<'a> {
+    board: &'a Board,
+    player: Player,
+    walker: WalkPath,
+}
+
+impl<'a> Iterator for BoardIteratorAdapter<'a> {
+    type Item = Position;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.walker.next(&self.board, &self.player)
+    }
+}
+
+pub fn into_rolling_board_iterator<'a>(board: &'a Board, player: &Player, position: &Position, direction: &Direction) -> impl Iterator<Item = Position> + 'a {
+    BoardIteratorAdapter {
+        board,
+        player: *player,
+        walker: <WalkPath as BoardIterator>::walk(*position, *direction),
     }
 }
 
