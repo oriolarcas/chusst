@@ -1,4 +1,4 @@
-use crate::board::{Game, Move, MoveExtraInfo, MoveInfo, Piece, PieceType, Player};
+use crate::board::{Board, Game, Move, MoveExtraInfo, MoveInfo, Piece, PieceType, Player};
 use crate::moves::conditions::{enemy, only_enemy, try_move, Direction};
 use crate::moves::iter::dir;
 use crate::mv;
@@ -8,7 +8,7 @@ use super::get_possible_moves_no_checks;
 
 pub struct ReversableMove {
     mv: Move,
-    previous_piece: Option<PieceType>,
+    previous_piece: Option<Piece>,
 }
 
 pub trait PlayableGame<'a> {
@@ -56,6 +56,8 @@ pub trait PlayableGame<'a> {
                     MoveExtraInfo::Passed
                 } else if mv.source.col != mv.target.col && board.square(&mv.target).is_none() {
                     MoveExtraInfo::EnPassant
+                } else if mv.target.row == Board::promotion_rank(&player) {
+                    MoveExtraInfo::Promotion(PieceType::Queen)
                 } else {
                     MoveExtraInfo::Other
                 }
@@ -66,7 +68,7 @@ pub trait PlayableGame<'a> {
 
         moves.push(ReversableMove {
             mv: *mv,
-            previous_piece: board.square(&mv.target).map(|piece| piece.piece),
+            previous_piece: *board.square(&mv.target),
         });
 
         board.move_piece(&mv.source, &mv.target);
@@ -84,10 +86,17 @@ pub trait PlayableGame<'a> {
 
                 moves.push(ReversableMove {
                     mv: mv!(passed, passed),
-                    previous_piece: board.square(&passed).map(|piece| piece.piece),
+                    previous_piece: *board.square(&passed),
                 });
 
                 board.update(&passed, None);
+            }
+            MoveExtraInfo::Promotion(piece) => {
+                moves.push(ReversableMove {
+                    mv: mv!(mv.target, mv.target),
+                    previous_piece: *board.square(&mv.target),
+                });
+                board.update(&mv.target, Some(Piece { piece, player }));
             }
             _ => (),
         }
@@ -167,17 +176,7 @@ impl<'a> ReversableGame<'a> {
             let mv = &rev_move.mv;
 
             self.game.board.move_piece(&mv.target, &mv.source);
-
-            match rev_move.previous_piece {
-                Some(piece) => self.game.board.update(
-                    &mv.target,
-                    Some(Piece {
-                        piece,
-                        player: enemy(&self.move_player),
-                    }),
-                ),
-                None => self.game.board.update(&mv.target, None),
-            }
+            self.game.board.update(&mv.target, rev_move.previous_piece);
         }
 
         self.moves.clear();

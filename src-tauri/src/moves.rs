@@ -1,11 +1,11 @@
 mod check;
 mod conditions;
 mod iter;
-mod playable_game;
+mod play;
 
 use crate::board::{Board, Game, Move, MoveInfo, Piece, PieceType, Player, Position, Rows};
 use crate::moves::check::{find_player_king, player_in_check};
-use crate::moves::playable_game::SearchableGame;
+use crate::moves::play::SearchableGame;
 use crate::mv;
 use conditions::enemy;
 use iter::{piece_into_iter, player_pieces_iter, BoardIter, PlayerPiecesIter};
@@ -13,7 +13,7 @@ use iter::{piece_into_iter, player_pieces_iter, BoardIter, PlayerPiecesIter};
 use std::collections::HashMap;
 use std::time::Instant;
 
-use self::playable_game::{PlayableGame, ReversableGame};
+use self::play::{PlayableGame, ReversableGame};
 
 // List of pieces that can capture each square
 pub type BoardCaptures = Rows<Vec<Position>>;
@@ -247,6 +247,7 @@ pub fn get_best_move_recursive(game: &mut Game, search_depth: u32) -> Option<Bra
                     if *current_piece == PieceType::Pawn
                         && possible_position.row == Board::promotion_rank(&game.player)
                     {
+                        // Promotion
                         get_piece_value(PieceType::Queen)
                     } else {
                         0
@@ -454,7 +455,7 @@ pub fn do_move(game: &mut Game, mv: &Move) -> Option<Vec<Piece>> {
 mod tests {
     use super::*;
     use crate::board::initial_board;
-    use crate::moves::playable_game::ReversableGame;
+    use crate::moves::play::ReversableGame;
     use crate::{p, pos};
 
     struct PiecePosition {
@@ -520,6 +521,21 @@ mod tests {
                 mv: mv!(e5 => d6),
                 checks: vec![pp!(pw @ d6), pp!(e5), pp!(d5)],
             },
+            // Pawn promotion
+            TestBoard {
+                initial_moves: vec![
+                    mv!(h2 => h4),
+                    mv!(g7 => g6),
+                    mv!(h4 => h5),
+                    mv!(a7 => a6),
+                    mv!(h5 => g6),
+                    mv!(a6 => a5),
+                    mv!(g6 => g7),
+                    mv!(a5 => a4),
+                ],
+                mv: mv!(g7 => h8),
+                checks: vec![pp!(qw @ h8)],
+            },
         ];
 
         for test_board in &test_boards {
@@ -550,7 +566,12 @@ mod tests {
             for check in &test_board.checks {
                 assert_eq!(
                     *rev_game.as_ref().board.square(&check.position),
-                    check.piece
+                    check.piece,
+                    "expected {} in {}, found {}:\n{}",
+                    check.piece.map_or("nothing".to_string(), |piece| format!("{}", piece.piece)),
+                    check.position,
+                    rev_game.as_ref().board.square(&check.position).map_or("nothing".to_string(), |piece| format!("{}", piece.piece)),
+                    rev_game.as_ref().board,
                 );
             }
 

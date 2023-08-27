@@ -509,7 +509,7 @@ macro_rules! mv {
 #[derive(Copy, Clone, PartialEq, Serialize)]
 pub enum MoveExtraInfo {
     Other,
-    // Promotion(PieceType),
+    Promotion(PieceType),
     Passed,
     EnPassant,
     // Castle,
