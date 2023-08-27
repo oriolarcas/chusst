@@ -1,17 +1,19 @@
 mod check;
 mod conditions;
 mod iter;
+mod playable_game;
 
-use crate::board::{
-    Board, Game, Move, MoveExtraInfo, MoveInfo, Piece, PieceType, Player, Position, Rows,
-};
+use crate::board::{Board, Game, Move, MoveInfo, Piece, PieceType, Player, Position, Rows};
 use crate::moves::check::{find_player_king, player_in_check};
+use crate::moves::playable_game::SearchableGame;
 use crate::mv;
-use conditions::{enemy, only_enemy, try_move, Direction};
-use iter::{dir, piece_into_iter, player_pieces_iter, BoardIter, PlayerPiecesIter};
+use conditions::enemy;
+use iter::{piece_into_iter, player_pieces_iter, BoardIter, PlayerPiecesIter};
 
 use std::collections::HashMap;
 use std::time::Instant;
+
+use self::playable_game::{PlayableGame, ReversableGame};
 
 // List of pieces that can capture each square
 pub type BoardCaptures = Rows<Vec<Position>>;
@@ -45,268 +47,6 @@ impl PartialOrd for Branch {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         self.score.partial_cmp(&other.score)
     }
-}
-
-struct ReversableMove {
-    mv: Move,
-    previous_piece: Option<PieceType>,
-}
-
-trait SearchableGame<'a> {
-    fn from_game(game: &'a mut Game) -> Self
-    where
-        Self: Sized;
-    fn as_ref(&self) -> &Game;
-    fn as_mut(&mut self) -> &mut Game;
-    fn do_move(&mut self, mv: &Move) -> bool;
-    fn do_move_no_checks(&mut self, mv: &Move) -> bool;
-    fn undo(&mut self);
-}
-
-impl<'a> dyn SearchableGame<'a> {
-    fn box_from_game(game: &'a mut Game) -> Box<dyn SearchableGame<'a>> {
-        #[cfg(feature = "search-by-rollback")]
-        {
-            Box::new(ReversableGame::from_game(game))
-        }
-        #[cfg(not(feature = "search-by-rollback"))]
-        {
-            Box::new(ClonedGame::from_game(game))
-        }
-    }
-}
-
-struct ReversableGame<'a> {
-    game: &'a mut Game,
-    moves: Vec<ReversableMove>,
-    last_move: Option<MoveInfo>,
-    move_player: Player,
-}
-
-impl<'a> SearchableGame<'a> for ReversableGame<'a> {
-    fn from_game(game: &'a mut Game) -> Self {
-        let player = game.player;
-        ReversableGame {
-            game,
-            moves: vec![],
-            last_move: None,
-            move_player: player,
-        }
-    }
-
-    fn as_ref(&self) -> &Game {
-        &self.game
-    }
-
-    fn as_mut(&mut self) -> &mut Game {
-        &mut self.game
-    }
-
-    fn do_move_no_checks(&mut self, mv: &Move) -> bool {
-        let board = &mut self.game.board;
-        let player = board.square(&mv.source).unwrap().player;
-        let moved_piece = board.square(&mv.source).unwrap().piece;
-        let move_info = match moved_piece {
-            PieceType::Pawn => {
-                if mv.source.row.abs_diff(mv.target.row) == 2 {
-                    MoveExtraInfo::Passed
-                } else if mv.source.col != mv.target.col && board.square(&mv.target).is_none() {
-                    MoveExtraInfo::EnPassant
-                } else {
-                    MoveExtraInfo::Other
-                }
-            }
-            _ => MoveExtraInfo::Other,
-        };
-
-        self.moves.push(ReversableMove {
-            mv: *mv,
-            previous_piece: board.square(&mv.target).map(|piece| piece.piece),
-        });
-
-        board.move_piece(&mv.source, &mv.target);
-
-        match move_info {
-            MoveExtraInfo::EnPassant => {
-                // Capture passed pawn
-                let direction: i8 = match player {
-                    Player::White => 1,
-                    Player::Black => -1,
-                };
-                let passed =
-                    only_enemy(&board, try_move(&mv.target, &dir!(-direction, 0)), &player)
-                        .unwrap();
-
-                self.moves.push(ReversableMove {
-                    mv: mv!(passed, passed),
-                    previous_piece: board.square(&passed).map(|piece| piece.piece),
-                });
-
-                board.update(&passed, None);
-            }
-            _ => (),
-        }
-
-        self.game.player = enemy(&self.game.player);
-        self.last_move = self.game.last_move;
-        self.game.last_move = Some(MoveInfo {
-            mv: *mv,
-            info: move_info,
-        });
-
-        return true;
-    }
-
-    fn do_move(&mut self, mv: &Move) -> bool {
-        assert!(self.moves.is_empty());
-
-        let board = &self.game.board;
-
-        match board.square(&mv.source) {
-            Some(piece) => {
-                if piece.player != self.game.player {
-                    return false;
-                }
-            }
-            None => {
-                return false;
-            }
-        }
-
-        let possible_moves = get_possible_moves_no_checks(&board, &self.game.last_move, mv.source);
-
-        if possible_moves
-            .iter()
-            .find(|possible_position| mv.target == **possible_position)
-            .is_none()
-        {
-            return false;
-        }
-
-        self.do_move_no_checks(mv)
-    }
-
-    fn undo(&mut self) {
-        assert!(!self.moves.is_empty());
-
-        for rev_move in self.moves.iter().rev() {
-            let mv = &rev_move.mv;
-
-            self.game.board.move_piece(&mv.target, &mv.source);
-
-            match rev_move.previous_piece {
-                Some(piece) => self.game.board.update(
-                    &mv.target,
-                    Some(Piece {
-                        piece,
-                        player: enemy(&self.move_player),
-                    }),
-                ),
-                None => self.game.board.update(&mv.target, None),
-            }
-        }
-
-        self.moves.clear();
-        self.game.player = enemy(&self.game.player);
-        self.game.last_move = self.last_move;
-        self.last_move = None;
-    }
-}
-
-struct ClonedGame(Game);
-
-impl<'a> SearchableGame<'a> for ClonedGame {
-    fn from_game(game: &mut Game) -> Self {
-        ClonedGame(*game)
-    }
-
-    fn as_ref(&self) -> &Game {
-        &self.0
-    }
-
-    fn as_mut(&mut self) -> &mut Game {
-        &mut self.0
-    }
-
-    fn do_move_no_checks(&mut self, mv: &Move) -> bool {
-        let board = &mut self.0.board;
-        let source_square = board.square(&mv.source).as_ref();
-        assert!(
-            source_square.is_some(),
-            "invalid move {} in:\n{}",
-            mv,
-            board
-        );
-        let player = source_square.unwrap().player;
-        let moved_piece = source_square.unwrap().piece;
-        let move_info = match moved_piece {
-            PieceType::Pawn => {
-                if mv.source.row.abs_diff(mv.target.row) == 2 {
-                    MoveExtraInfo::Passed
-                } else if mv.source.col != mv.target.col && board.square(&mv.target).is_none() {
-                    MoveExtraInfo::EnPassant
-                } else {
-                    MoveExtraInfo::Other
-                }
-            }
-            _ => MoveExtraInfo::Other,
-        };
-
-        board.move_piece(&mv.source, &mv.target);
-
-        match move_info {
-            MoveExtraInfo::EnPassant => {
-                // Capture passed pawn
-                let direction: i8 = match player {
-                    Player::White => 1,
-                    Player::Black => -1,
-                };
-                let passed =
-                    only_enemy(&board, try_move(&mv.target, &dir!(-direction, 0)), &player)
-                        .unwrap();
-
-                board.update(&passed, None);
-            }
-            _ => (),
-        }
-
-        self.0.player = enemy(&self.0.player);
-        self.0.last_move = Some(MoveInfo {
-            mv: *mv,
-            info: move_info,
-        });
-
-        return true;
-    }
-
-    fn do_move(&mut self, mv: &Move) -> bool {
-        let board = &self.0.board;
-
-        match board.square(&mv.source) {
-            Some(piece) => {
-                if piece.player != self.0.player {
-                    return false;
-                }
-            }
-            None => {
-                return false;
-            }
-        }
-
-        let possible_moves = get_possible_moves_no_checks(&board, &self.0.last_move, mv.source);
-
-        if possible_moves
-            .iter()
-            .find(|possible_position| mv.target == **possible_position)
-            .is_none()
-        {
-            return false;
-        }
-
-        self.do_move_no_checks(mv)
-    }
-
-    fn undo(&mut self) {}
 }
 
 fn get_possible_moves_iter<'a>(
@@ -354,13 +94,13 @@ pub fn get_possible_moves(
         .filter(|possible_position| {
             let mv = mv!(position, **possible_position);
 
-            let mut rev_game = <dyn SearchableGame>::box_from_game(&mut game);
+            let mut rev_game = SearchableGame::from_game(&mut game);
 
             assert!(
                 rev_game.do_move_no_checks(&mv),
                 "Unexpected invalid move {} in:\n{}",
                 mv,
-                &rev_game.as_ref().as_ref().board,
+                &rev_game.as_ref().board,
             );
 
             let current_king_position = if is_king {
@@ -369,10 +109,7 @@ pub fn get_possible_moves(
                 &king_position
             };
 
-            let is_check =
-                player_in_check(&rev_game.as_ref().as_ref().board, &current_king_position);
-
-            rev_game.undo();
+            let is_check = player_in_check(&rev_game.as_ref().board, &current_king_position);
 
             !is_check
         })
@@ -506,7 +243,15 @@ pub fn get_best_move_recursive(game: &mut Game, search_depth: u32) -> Option<Bra
 
             let local_score = match &game.board.square(&possible_position) {
                 Some(piece) => get_piece_value(piece.piece),
-                None => 0,
+                None => {
+                    if *current_piece == PieceType::Pawn
+                        && possible_position.row == Board::promotion_rank(&game.player)
+                    {
+                        get_piece_value(PieceType::Queen)
+                    } else {
+                        0
+                    }
+                }
             };
 
             let mut branch = Branch {
@@ -520,13 +265,13 @@ pub fn get_best_move_recursive(game: &mut Game, search_depth: u32) -> Option<Bra
 
             let mv = branch.moves.first().unwrap();
 
-            let mut rev_game = <dyn SearchableGame>::box_from_game(game);
+            let mut rev_game = SearchableGame::from_game(game);
 
             assert!(
                 rev_game.do_move_no_checks(&mv.mv),
                 "Unexpected invalid move {} in:\n{}",
                 mv.mv,
-                &rev_game.as_ref().as_ref().board,
+                &rev_game.as_ref().board,
             );
 
             let current_king_position = if *current_piece == PieceType::King {
@@ -536,21 +281,21 @@ pub fn get_best_move_recursive(game: &mut Game, search_depth: u32) -> Option<Bra
             };
 
             // Check if this move is invalid because it leaves the king in check
-            if player_in_check(&rev_game.as_ref().as_ref().board, &current_king_position) {
+            if player_in_check(&rev_game.as_ref().board, &current_king_position) {
                 continue;
             }
 
             // Recursion
             if search_depth > 0 {
                 let mut next_moves_opt =
-                    get_best_move_recursive(rev_game.as_mut().as_mut(), search_depth - 1);
+                    get_best_move_recursive(rev_game.as_mut(), search_depth - 1);
 
                 assert!(
                     next_moves_opt.is_some(),
                     "checkmate for player {} after {}:\n{}",
-                    rev_game.as_ref().as_ref().player,
+                    rev_game.as_ref().player,
                     mv.mv,
-                    rev_game.as_ref().as_ref().board
+                    rev_game.as_ref().board
                 );
 
                 let next_moves = next_moves_opt.as_mut().unwrap();
@@ -561,8 +306,6 @@ pub fn get_best_move_recursive(game: &mut Game, search_depth: u32) -> Option<Bra
 
                 searched_moves += branch.searched;
             };
-
-            rev_game.undo();
 
             match &best_move {
                 Some(current_best_move) => {
@@ -671,7 +414,7 @@ pub fn do_move(game: &mut Game, mv: &Move) -> Option<Vec<Piece>> {
         }
     }
 
-    let rev_game = &mut ReversableGame::from_game(game);
+    let mut rev_game = <ReversableGame as PlayableGame>::from_game(game);
     let result = rev_game.do_move(mv);
 
     if result {
@@ -711,6 +454,7 @@ pub fn do_move(game: &mut Game, mv: &Move) -> Option<Vec<Piece>> {
 mod tests {
     use super::*;
     use crate::board::initial_board;
+    use crate::moves::playable_game::ReversableGame;
     use crate::{p, pos};
 
     struct PiecePosition {
@@ -788,26 +532,34 @@ mod tests {
 
             // Do setup moves
             for mv in &test_board.initial_moves {
-                assert!(do_move(&mut game, &mv).is_some());
+                assert!(
+                    do_move(&mut game, &mv).is_some(),
+                    "move {} failed:\n{}",
+                    mv,
+                    game.board
+                );
             }
 
             let original_board = game.board.clone();
 
-            let mut rev_game = ReversableGame::from_game(&mut game);
+            let mut rev_game = <ReversableGame as PlayableGame>::from_game(&mut game);
 
             // Do move
             assert!(rev_game.do_move(&test_board.mv));
 
             for check in &test_board.checks {
-                assert_eq!(*rev_game.game.board.square(&check.position), check.piece);
+                assert_eq!(
+                    *rev_game.as_ref().board.square(&check.position),
+                    check.piece
+                );
             }
 
             rev_game.undo();
 
             assert_eq!(
-                rev_game.game.board, original_board,
+                game.board, original_board,
                 "after move {},\nmodified board:\n{}\noriginal board:\n{}",
-                test_board.mv, rev_game.game.board, original_board
+                test_board.mv, game.board, original_board
             );
         }
     }

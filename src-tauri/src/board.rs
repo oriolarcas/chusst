@@ -158,6 +158,13 @@ impl Board {
         self.rows[target.row][target.col] = self.rows[source.row][source.col];
         self.rows[source.row][source.col] = None;
     }
+
+    pub fn promotion_rank(player: &Player) -> usize {
+        match player {
+            Player::White => 7,
+            Player::Black => 0,
+        }
+    }
 }
 
 fn get_unicode_piece(piece: PieceType, player: Player) -> &'static str {
