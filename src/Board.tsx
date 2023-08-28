@@ -25,9 +25,16 @@ type Game = {
   last_move: Position | null;
 };
 
+enum CheckTypes {
+  Check = "Check",
+  Checkmate = "Checkmate",
+  Stalemate = "Stalemate",
+}
+
 type MoveDescription = {
   mv: string,
   captures: Piece[],
+  check: string,
 }
 
 type TurnDescription = {
@@ -233,11 +240,20 @@ class Board extends Component<BoardProps, {}> {
       const history: TurnDescription[] = await invoke('get_history');
       const last_turn = history[history.length - 1];
 
-      this.props.onMove?.(
-        last_turn.white.mv + " " + last_turn.black.mv,
-        last_turn.white.captures.map((piece) => piece.piece),
-        last_turn.black.captures.map((piece) => piece.piece)
-      );
+      if (last_turn.black !== null) {
+        this.props.onMove?.(
+          last_turn.white.mv + " " + last_turn.black.mv,
+          last_turn.white.captures.map((piece) => piece.piece),
+          last_turn.black.captures.map((piece) => piece.piece)
+        );
+      } else {
+        // White checkmate
+        this.props.onMove?.(
+          last_turn.white.mv,
+          last_turn.white.captures.map((piece) => piece.piece),
+          []
+        );
+      }
 
       let hints = await this.highlightPieceMoves(position);
 

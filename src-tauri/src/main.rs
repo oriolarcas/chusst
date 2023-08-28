@@ -1,7 +1,7 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use chusst::board::{Game, Move, Piece, Player, Position, initial_board};
+use chusst::board::{check_mate_board, initial_board, Game, Move, Piece, Player, Position};
 use chusst::moves;
 
 use serde::Serialize;
@@ -9,16 +9,24 @@ use tauri::{LogicalSize, Manager, Size};
 
 use std::sync::Mutex;
 
+#[derive(Clone, PartialEq, Serialize)]
+enum MateType {
+    Check,
+    Checkmate,
+    Stalemate,
+}
+
 #[derive(Clone, Serialize)]
 struct MoveDescription {
     mv: String,
     captures: Vec<Piece>,
+    check: Option<MateType>,
 }
 
 #[derive(Clone, Serialize)]
 struct TurnDescription {
     white: MoveDescription,
-    black: MoveDescription,
+    black: Option<MoveDescription>,
 }
 
 struct GameData {
@@ -85,34 +93,60 @@ fn do_move(source_row: usize, source_col: usize, target_row: usize, target_col: 
         }
     };
 
-    let (black_move, black_captures) = match moves::get_best_move(game, 3) {
-        Some(move_branch) => {
-            let mv = move_branch.first().unwrap();
+    let (black_move_opt, black_captures, check) = match moves::get_best_move(game, 3) {
+        moves::GameMove::Normal(mv) => {
             let description = moves::move_name(&game.board, &game.last_move, &game.player, &mv);
 
-            let black_captures = moves::do_move(game, mv);
+            let black_captures = moves::do_move(game, &mv);
             assert!(black_captures.is_some());
 
-            (description, black_captures.unwrap())
+            (Some(description), black_captures.unwrap(), None)
         }
-        None => panic!("No move?!"),
+        moves::GameMove::Check(mv) => {
+            let description = moves::move_name(&game.board, &game.last_move, &game.player, &mv);
+
+            let black_captures = moves::do_move(game, &mv);
+            assert!(black_captures.is_some());
+
+            (Some(description), black_captures.unwrap(), Some(MateType::Check))
+        }
+        moves::GameMove::Stalemate => (None, vec![], Some(MateType::Stalemate)),
+        moves::GameMove::Checkmate => (None, vec![], Some(MateType::Checkmate)),
     };
 
     let history = &mut game_data.history;
     let turn = history.len() + 1;
 
-    println!("{}. {} {}", turn, white_move, black_move);
+    match black_move_opt {
+        Some(black_move) => {
+            println!("{}. {} {}", turn, white_move, black_move);
 
-    history.push(TurnDescription {
-        white: MoveDescription {
-            mv: white_move,
-            captures: white_captures,
-        },
-        black: MoveDescription {
-            mv: black_move,
-            captures: black_captures,
-        },
-    });
+            history.push(TurnDescription {
+                white: MoveDescription {
+                    mv: white_move,
+                    captures: white_captures,
+                    check,
+                },
+                black: Some(MoveDescription {
+                    mv: black_move,
+                    captures: black_captures,
+                    check: None,
+                }),
+            });
+        }
+        None => {
+            println!("{}. {}{}", turn, white_move, if check == Some(MateType::Checkmate) { "#" } else { "" });
+
+            history.push(TurnDescription {
+                white: MoveDescription {
+                    mv: white_move,
+                    captures: white_captures,
+                    check,
+                },
+                black: None,
+            });
+        }
+    }
 
     true
 }
