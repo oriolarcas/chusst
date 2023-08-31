@@ -1,7 +1,7 @@
 import './App.css';
 import './Pieces.css';
 
-import Board from './Board';
+import {Board, PlayerGameEnd, CheckType} from './Board';
 
 import { Component, ReactNode, RefObject, createRef } from 'react';
 import { Container, Row, Col } from 'react-bootstrap';
@@ -29,19 +29,45 @@ function RankLabels(props: {position: string}) {
   </>;
 }
 
-class GameRecord extends Component<{onMount: (setter: (msg: string) => void) => void}, {}> {
-  state: {moves: string[]} = {
+class GameRecord extends Component<{onMount: (setter: (msg: string, mate: PlayerGameEnd | null) => void) => void, onUpdate: () => void}, {}> {
+  state: {moves: string[], mate?: string} = {
     moves: [],
   };
 
-  addMove = (move: string) => {
+  addMove = (move: string, mate: PlayerGameEnd | null) => {
     let moves = this.state.moves;
     moves.push(move);
-    this.setState({moves});
+    let mate_state = undefined;
+    if (mate) {
+      if (mate.check === CheckType.Checkmate) {
+        switch (mate.player) {
+          case "white":
+            mate_state = "White wins";
+            break;
+          case "black":
+            mate_state = "Black wins";
+            break;
+        }
+      } else if (mate.check === CheckType.Stalemate) {
+        mate_state = "Stalemate";
+      }
+    }
+    this.setState({moves, mate: mate_state});
   }
 
   componentDidMount(): void {
     this.props.onMount(this.addMove);
+  }
+
+  componentDidUpdate(): void {
+    this.props.onUpdate();
+  }
+
+  endgameLine() {
+    if (this.state.mate) {
+      return <p>{this.state.mate}</p>
+    }
+    return null;
   }
 
   render(): ReactNode {
@@ -49,12 +75,12 @@ class GameRecord extends Component<{onMount: (setter: (msg: string) => void) => 
       return null;
     }
     return <>
-      <p>Game:</p>
       <ol>
       {this.state.moves.map((move) =>
         <li>{move}</li>
       )}
       </ol>
+      {this.endgameLine()}
     </>
   }
 }
@@ -144,11 +170,12 @@ class ScoreBoard extends Component<{onMount: (setter: (white_captures: string[],
 }
 
 class App extends Component<{}, {}> {
-  moveCallback?: (move: string) => void;
+  moveCallback?: (move: string, mate: PlayerGameEnd | null) => void;
   captureCallback?: (white_captures: string[], black_captures: string[]) => void;
   messageLogger?: (msg: string) => void;
+  gameHistoryRef?: RefObject<HTMLDivElement> = createRef();
 
-  onGameRecordMount = (setter: (move: string) => void) => {
+  onGameRecordMount = (setter: (move: string, mate: PlayerGameEnd | null) => void) => {
     this.moveCallback = setter;
   }
 
@@ -160,13 +187,20 @@ class App extends Component<{}, {}> {
     this.messageLogger = setter;
   }
 
-  onMove = (move: string, white_captures: string[], black_captures: string[]) => {
-    this.moveCallback?.(move);
+  onMove = (move: string, white_captures: string[], black_captures: string[], check: PlayerGameEnd | null) => {
+    this.moveCallback?.(move, check);
     this.captureCallback?.(white_captures, black_captures);
   }
 
   onMessage = (msg: string) => {
     this.messageLogger?.(msg);
+  }
+
+  onGameRecordUpdate = () => {
+    let gameRecord = this.gameHistoryRef?.current;
+    if (gameRecord) {
+      gameRecord.scrollTop = Math.pow(10, 10);
+    }
   }
 
   render() {
@@ -177,8 +211,8 @@ class App extends Component<{}, {}> {
           <Col className='px-0'>
             <Row className='file-label-row m-0' />
             <Row className='m-0'>
-              <Col><GameRecord onMount={this.onGameRecordMount} /></Col>
-              <Col className='m-0 p-0'><RankLabels position='left' /></Col>
+              <Col style={{height: "480px", overflowY: "auto"}} ref={this.gameHistoryRef}><GameRecord onMount={this.onGameRecordMount} onUpdate={this.onGameRecordUpdate} /></Col>
+              <Col className='col-md-auto m-0 p-0'><RankLabels position='left' /></Col>
             </Row>
           </Col>
           <Col className='p-0'>

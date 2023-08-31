@@ -25,16 +25,21 @@ type Game = {
   last_move: Position | null;
 };
 
-enum CheckTypes {
-  Check = "Check",
-  Checkmate = "Checkmate",
-  Stalemate = "Stalemate",
+export enum CheckType {
+  Check,
+  Checkmate,
+  Stalemate,
+}
+
+export type PlayerGameEnd = {
+  player: string;
+  check: CheckType;
 }
 
 type MoveDescription = {
   mv: string,
   captures: Piece[],
-  check: string,
+  check: string | null,
 }
 
 type TurnDescription = {
@@ -110,34 +115,36 @@ function Square({color, squareExtraClasses, piece, onClick, onMouseEnter, onMous
 }
 
 interface BoardProps {
-  onMove?: (move: string, white_captures: string[], black_captures: string[]) => void;
+  onMove?: (move: string, white_captures: string[], black_captures: string[], mate: PlayerGameEnd | null) => void;
   onMessage?: (msg: string) => void;
 }
 
-class Board extends Component<BoardProps, {}> {
+export class Board extends Component<BoardProps, {}> {
   state: {
     game?: Game,
     selected: Position | null,
     hints: Hints,
     captures: Position[][][],
+    finished: boolean,
   } = {
     selected: null,
     hints: newHintMatrix(),
     captures: newCaptureMatrix(),
+    finished: false,
   };
 
   onMessage(msg: string) {
     this.props.onMessage?.(msg);
   }
 
-  async reloadBoard(hints?: Hints) {
+  async reloadBoard(hints?: Hints, finished: boolean = false) {
     const game = await invoke('get_game');
     const captures = await invoke('get_possible_captures');
 
     if (hints === undefined) {
       hints = newHintMatrix();
     }
-    this.setState({game, hints, captures, selected: null});
+    this.setState({game, hints, captures, selected: null, finished});
   }
 
   async componentDidMount() {
@@ -224,6 +231,10 @@ class Board extends Component<BoardProps, {}> {
       return;
     }
 
+    if (this.state.finished) {
+      return;
+    }
+
     const position: Position = {row: rank, col: file};
     const already_selected = this.isSquareSelected(position);
 
@@ -239,25 +250,45 @@ class Board extends Component<BoardProps, {}> {
 
       const history: TurnDescription[] = await invoke('get_history');
       const last_turn = history[history.length - 1];
+      let finished = false;
+
+      console.log(last_turn);
 
       if (last_turn.black !== null) {
+        let black_check = last_turn.black.check ? CheckType[last_turn.black.check as keyof typeof CheckType] : null;
+
         this.props.onMove?.(
           last_turn.white.mv + " " + last_turn.black.mv,
           last_turn.white.captures.map((piece) => piece.piece),
-          last_turn.black.captures.map((piece) => piece.piece)
+          last_turn.black.captures.map((piece) => piece.piece),
+          black_check ? {
+            player: "black",
+            check: black_check,
+          } : null,
         );
+
+        if (black_check) {
+          finished = true;
+        }
       } else {
         // White checkmate
+        let white_check = CheckType[last_turn.white.check as keyof typeof CheckType];
         this.props.onMove?.(
           last_turn.white.mv,
           last_turn.white.captures.map((piece) => piece.piece),
-          []
+          [],
+          {
+            player: "white",
+            check: white_check,
+          }
         );
+
+        finished = true;
       }
 
       let hints = await this.highlightPieceMoves(position);
 
-      await this.reloadBoard(hints);
+      await this.reloadBoard(hints, finished);
 
       return;
     }
@@ -277,7 +308,9 @@ class Board extends Component<BoardProps, {}> {
     return (
       <Row className='rank m-0'>
         {Array.from(new Array(8).keys()).map((file_index) => {
-          const bg_color = (file_index + rank_index) % 2 === 0 ? 'dark' : 'light';
+          const bg_color = this.state.finished ?
+            ((file_index + rank_index) % 2 === 0 ? 'dark-endgame' : 'light-endgame') :
+            ((file_index + rank_index) % 2 === 0 ? 'dark' : 'light');
 
           let square = this.state.game?.board.rows[rank_index][file_index];
           let piece = square?.piece;

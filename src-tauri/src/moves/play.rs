@@ -1,10 +1,9 @@
+use super::get_possible_moves;
 use crate::board::{Board, Game, Move, MoveExtraInfo, MoveInfo, Piece, PieceType, Player};
 use crate::moves::conditions::{enemy, only_enemy, try_move, Direction};
 use crate::moves::iter::dir;
 use crate::mv;
 use std::marker::PhantomData;
-
-use super::get_possible_moves_no_checks;
 
 pub struct ReversableMove {
     mv: Move,
@@ -32,8 +31,7 @@ pub trait PlayableGame<'a> {
             }
         }
 
-        let possible_moves =
-            get_possible_moves_no_checks(&board, &self.as_ref().last_move, mv.source);
+        let possible_moves = get_possible_moves(&board, &self.as_ref().last_move, mv.source);
 
         if possible_moves
             .iter()

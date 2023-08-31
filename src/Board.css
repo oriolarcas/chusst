@@ -18,7 +18,16 @@
 .square.dark {
   background-color: darkseagreen;
   border: 1px solid darkseagreen;
-  position:relative;
+}
+
+.square.light-endgame {
+  background-color: white;
+  border: 1px solid white;
+}
+
+.square.dark-endgame {
+  background-color: lightgray;
+  border: 1px solid lightgray;
 }
 
 .square.highlighted-source {

@@ -10,6 +10,7 @@ use crate::{mv, pos};
 use conditions::enemy;
 use iter::{piece_into_iter, player_pieces_iter, BoardIter, PlayerPiecesIter};
 
+use serde::Serialize;
 use std::collections::HashMap;
 use std::time::Instant;
 
@@ -21,11 +22,15 @@ pub type BoardCaptures = Rows<Vec<Position>>;
 
 type Score = i32;
 
-pub enum GameMove {
-    Normal(Move),
-    Check(Move),
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub enum MateType {
     Checkmate,
     Stalemate,
+}
+
+pub enum GameMove {
+    Normal(Move),
+    Mate(MateType),
 }
 
 #[derive(PartialEq)]
@@ -39,22 +44,6 @@ pub struct Branch {
     pub moves: Vec<WeightedMove>,
     pub score: Score,
     pub searched: u32,
-}
-
-impl PartialEq for Branch {
-    fn eq(&self, other: &Self) -> bool {
-        match (self.moves.first(), other.moves.first()) {
-            (None, None) => true,
-            (Some(self_move), Some(other_move)) => self_move == other_move,
-            (_, _) => false,
-        }
-    }
-}
-
-impl PartialOrd for Branch {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        self.score.partial_cmp(&other.score)
-    }
 }
 
 fn get_possible_moves_iter<'a>(
@@ -130,9 +119,13 @@ pub fn move_name(
     last_move: &Option<MoveInfo>,
     player: &Player,
     mv: &Move,
-) -> String {
+) -> Option<String> {
     let mut name = String::new();
-    let src_piece = board.square(&mv.source).unwrap();
+    let src_piece_opt = board.square(&mv.source);
+    if src_piece_opt.is_none() {
+        return None;
+    }
+    let src_piece = src_piece_opt.unwrap();
     let tgt_piece_opt = board.square(&mv.target);
 
     let pieces_iter = player_pieces_iter!(board: board, player: player);
@@ -219,7 +212,7 @@ pub fn move_name(
         }
     }
 
-    name
+    Some(name)
 }
 
 pub fn move_branch_names(board: &Board, player: &Player, moves: &Vec<&Move>) -> Vec<String> {
@@ -232,7 +225,7 @@ pub fn move_branch_names(board: &Board, player: &Player, moves: &Vec<&Move>) -> 
     let mut move_names = vec![];
 
     for mv in moves {
-        move_names.push(move_name(&game.board, &game.last_move, &game.player, &mv));
+        move_names.push(move_name(&game.board, &game.last_move, &game.player, &mv).unwrap());
 
         assert!(do_move(&mut game, *mv).is_some());
     }
@@ -347,7 +340,10 @@ pub fn get_best_move_recursive(game: &mut Game, search_depth: u32) -> Option<Bra
 
             match &best_move {
                 Some(current_best_move) => {
-                    if &branch > current_best_move {
+                    if branch.score > current_best_move.score
+                        || (branch.score == current_best_move.score
+                            && branch.moves.len() < current_best_move.moves.len())
+                    {
                         best_move = Some(branch);
                     }
                 }
@@ -433,9 +429,9 @@ pub fn get_best_move(game: &mut Game, search_depth: u32) -> GameMove {
             println!("Stalemate caused by {}", enemy_player);
         }
         return if is_check_mate {
-            GameMove::Checkmate
+            GameMove::Mate(MateType::Checkmate)
         } else {
-            GameMove::Stalemate
+            GameMove::Mate(MateType::Stalemate)
         };
     }
 
@@ -473,6 +469,26 @@ pub fn get_best_move(game: &mut Game, search_depth: u32) -> GameMove {
     );
 
     GameMove::Normal(**branch_moves.first().unwrap())
+}
+
+pub fn is_mate(board: &Board, player: &Player, last_move: &Option<MoveInfo>) -> Option<MateType> {
+    // Is check?
+    let mut game = Game {
+        board: *board,
+        player: *player,
+        last_move: *last_move,
+    };
+
+    if get_best_move_recursive(&mut game, 0).is_none() {
+        let king_position = find_player_king(&board, &player);
+        return if player_in_check(&board, &king_position) {
+            Some(MateType::Checkmate)
+        } else {
+            Some(MateType::Stalemate)
+        };
+    }
+
+    None
 }
 
 pub fn do_move(game: &mut Game, mv: &Move) -> Option<Vec<Piece>> {
@@ -732,7 +748,8 @@ mod tests {
                 );
             }
 
-            let name = move_name(&game.board, &game.last_move, &game.player, &test_board.mv);
+            let name =
+                move_name(&game.board, &game.last_move, &game.player, &test_board.mv).unwrap();
             assert!(
                 name.ends_with("#"),
                 "notation {} doesn't show checkmate sign #",
