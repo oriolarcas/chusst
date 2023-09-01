@@ -1,3 +1,5 @@
+use atty;
+use colored::Colorize;
 use serde::Serialize;
 use std::fmt;
 
@@ -188,21 +190,54 @@ impl fmt::Display for Board {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut rows: Vec<String> = Default::default();
 
+        let square_dark = |rank: usize, file: usize| -> bool { (rank + file) % 2 == 0 };
+
+        let is_atty = atty::is(atty::Stream::Stdout) && atty::is(atty::Stream::Stderr);
+        let (left_square, right_square) = if is_atty { (" ", " ") } else { ("[", "]") };
+
         rows.push("   a  b  c  d  e  f  g  h ".to_owned());
         for (rank, row) in self.rows.iter().rev().enumerate() {
             let mut row_str = String::from(format!("{} ", 8 - rank));
-            for square in row {
+            for (file, square) in row.iter().enumerate() {
                 let piece = match square {
-                    Some(square_value) => {
-                        get_unicode_piece(square_value.piece, square_value.player)
-                    }
-                    None => " ",
+                    Some(square_value) => Some((
+                        get_unicode_piece(square_value.piece, square_value.player),
+                        square_value.player,
+                    )),
+                    None => None,
                 };
-                row_str += format!("[{}]", piece).as_str();
+
+                let is_dark_square = square_dark(rank, file);
+
+                let colored_piece_str = match piece {
+                    Some((piece_symbol, player)) => {
+                        let piece_str = format!("{}{}{}", left_square, piece_symbol, right_square);
+                        match player {
+                            Player::White => piece_str.black(),
+                            Player::Black => piece_str.red(),
+                        }
+                    }
+                    None => format!("{} {}", left_square, right_square).normal(),
+                };
+
+                let colored_square_str = if is_dark_square {
+                    colored_piece_str.on_black()
+                } else {
+                    colored_piece_str.on_white()
+                };
+
+                let square_str = if !is_atty {
+                    colored_square_str.clear()
+                } else {
+                    colored_square_str
+                };
+
+                row_str += format!("{}", square_str).as_str();
             }
             rows.push(row_str);
         }
-        write!(f, "{}", rows.join("\n"))
+
+        writeln!(f, "{}", rows.join("\n"))
     }
 }
 
@@ -257,8 +292,34 @@ const INITIAL_BOARD: Board = Board {
     ],
 };
 
+const CHECK_MATE_BOARD: Board = Board {
+    rows: [
+        [
+            p!(rw),
+            p!(nw),
+            p!(bw),
+            p!(qw),
+            p!(kw),
+            p!(bw),
+            p!(nw),
+            p!(rw),
+        ],
+        [p!(); 8],
+        [p!(); 8],
+        [p!(); 8],
+        [p!(); 8],
+        [p!(); 8],
+        [p!(); 8],
+        [p!(), p!(), p!(), p!(), p!(kb), p!(), p!(), p!()],
+    ],
+};
+
 pub const fn initial_board() -> &'static Board {
     &INITIAL_BOARD
+}
+
+pub const fn check_mate_board() -> &'static Board {
+    &CHECK_MATE_BOARD
 }
 
 #[derive(Copy, Clone, PartialEq, Serialize)]
