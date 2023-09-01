@@ -14,7 +14,7 @@ use std::sync::Mutex;
 struct MoveDescription {
     mv: String,
     captures: Vec<Piece>,
-    check: Option<moves::MateType>,
+    mate: Option<moves::MateType>,
 }
 
 #[derive(Clone, Serialize)]
@@ -93,16 +93,16 @@ fn do_move(source_row: usize, source_col: usize, target_row: usize, target_col: 
         }
     };
 
-    let (black_move_opt, black_captures, check) = match moves::get_best_move(game, 3) {
+    let (black_move_opt, black_captures, mate) = match moves::get_best_move(game, 3) {
         moves::GameMove::Normal(mv) => {
             let description = moves::move_name(&game.board, &game.last_move, &game.player, &mv);
 
             let black_captures = moves::do_move(game, &mv);
             assert!(black_captures.is_some());
 
-            let black_check = moves::is_mate(&game.board, &game.player, &game.last_move);
+            let black_mate = moves::is_mate(&game.board, &game.player, &game.last_move);
 
-            (description, black_captures.unwrap(), black_check)
+            (description, black_captures.unwrap(), black_mate)
         }
         moves::GameMove::Mate(mate) => match mate {
             MateType::Stalemate => (None, vec![], Some(MateType::Stalemate)),
@@ -121,12 +121,12 @@ fn do_move(source_row: usize, source_col: usize, target_row: usize, target_col: 
                 white: MoveDescription {
                     mv: white_move,
                     captures: white_captures,
-                    check: None,
+                    mate: None,
                 },
                 black: Some(MoveDescription {
                     mv: black_move,
                     captures: black_captures,
-                    check,
+                    mate,
                 }),
             });
         }
@@ -137,7 +137,7 @@ fn do_move(source_row: usize, source_col: usize, target_row: usize, target_col: 
                 white: MoveDescription {
                     mv: white_move,
                     captures: white_captures,
-                    check,
+                    mate,
                 },
                 black: None,
             });
@@ -145,6 +145,21 @@ fn do_move(source_row: usize, source_col: usize, target_row: usize, target_col: 
     }
 
     true
+}
+
+#[tauri::command]
+fn restart() {
+    let data = &mut GAME.lock().unwrap();
+
+    data.game = Game {
+        board: *initial_board(),
+        player: Player::White,
+        last_move: None,
+    };
+
+    data.history.clear();
+
+    println!("New game");
 }
 
 fn main() {
@@ -162,7 +177,8 @@ fn main() {
             get_history,
             get_possible_moves,
             get_possible_captures,
-            do_move
+            do_move,
+            restart,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

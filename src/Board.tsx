@@ -6,6 +6,10 @@ import { Row } from 'react-bootstrap';
 import Badge from 'react-bootstrap/Badge';
 import { invoke } from '@tauri-apps/api';
 
+export enum UserAction {
+  Restart,
+}
+
 type Piece = {
   piece: string;
   player: string;
@@ -25,21 +29,20 @@ type Game = {
   last_move: Position | null;
 };
 
-export enum CheckType {
-  Check,
+export enum MateType {
   Checkmate,
   Stalemate,
 }
 
 export type PlayerGameEnd = {
   player: string;
-  check: CheckType;
+  mate: MateType;
 }
 
 type MoveDescription = {
   mv: string,
   captures: Piece[],
-  check: string | null,
+  mate: string | null,
 }
 
 type TurnDescription = {
@@ -116,7 +119,7 @@ function Square({color, squareExtraClasses, piece, onClick, onMouseEnter, onMous
 
 interface BoardProps {
   onMove?: (move: string, white_captures: string[], black_captures: string[], mate: PlayerGameEnd | null) => void;
-  onMessage?: (msg: string) => void;
+  userActionSetter?: (setter: (action: UserAction) => void) => void;
 }
 
 export class Board extends Component<BoardProps, {}> {
@@ -133,10 +136,6 @@ export class Board extends Component<BoardProps, {}> {
     finished: false,
   };
 
-  onMessage(msg: string) {
-    this.props.onMessage?.(msg);
-  }
-
   async reloadBoard(hints?: Hints, finished: boolean = false) {
     const game = await invoke('get_game');
     const captures = await invoke('get_possible_captures');
@@ -147,8 +146,18 @@ export class Board extends Component<BoardProps, {}> {
     this.setState({game, hints, captures, selected: null, finished});
   }
 
+  onUserAction = async (action: UserAction) => {
+    switch (action) {
+      case UserAction.Restart:
+        await invoke('restart');
+        await this.reloadBoard(undefined, false);
+        return;
+    }
+  }
+
   async componentDidMount() {
     await this.reloadBoard();
+    this.props.userActionSetter?.(this.onUserAction);
   }
 
   isSquareSelected(position: Position) {
@@ -255,31 +264,31 @@ export class Board extends Component<BoardProps, {}> {
       console.log(last_turn);
 
       if (last_turn.black !== null) {
-        let black_check = last_turn.black.check ? CheckType[last_turn.black.check as keyof typeof CheckType] : null;
+        let black_mate = last_turn.black.mate ? MateType[last_turn.black.mate as keyof typeof MateType] : null;
 
         this.props.onMove?.(
           last_turn.white.mv + " " + last_turn.black.mv,
           last_turn.white.captures.map((piece) => piece.piece),
           last_turn.black.captures.map((piece) => piece.piece),
-          black_check ? {
+          black_mate !== null ? {
             player: "black",
-            check: black_check,
+            mate: black_mate,
           } : null,
         );
 
-        if (black_check) {
+        if (black_mate !== null) {
           finished = true;
         }
       } else {
-        // White checkmate
-        let white_check = CheckType[last_turn.white.check as keyof typeof CheckType];
+        // White mate
+        let white_mate = MateType[last_turn.white.mate as keyof typeof MateType];
         this.props.onMove?.(
           last_turn.white.mv,
           last_turn.white.captures.map((piece) => piece.piece),
           [],
           {
             player: "white",
-            check: white_check,
+            mate: white_mate,
           }
         );
 

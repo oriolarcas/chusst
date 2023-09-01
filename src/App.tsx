@@ -1,11 +1,11 @@
 import './App.css';
 import './Pieces.css';
 
-import {Board, PlayerGameEnd, CheckType} from './Board';
+import {Board, PlayerGameEnd, MateType, UserAction} from './Board';
 
 import { Component, ReactNode, RefObject, createRef } from 'react';
 import { Container, Row, Col } from 'react-bootstrap';
-import Form from 'react-bootstrap/Form';
+import Button from 'react-bootstrap/Button';
 
 function FileLabels() {
   return <Row className='file-label-row file-labels m-0'>
@@ -29,7 +29,13 @@ function RankLabels(props: {position: string}) {
   </>;
 }
 
-class GameRecord extends Component<{onMount: (setter: (msg: string, mate: PlayerGameEnd | null) => void) => void, onUpdate: () => void}, {}> {
+class GameRecord extends Component<{
+  onMount: (
+    onMoveSetter: (msg: string, mate: PlayerGameEnd | null) => void,
+    onRestartSetter: () => void,
+  ) => void,
+  onUpdate: () => void,
+}, {}> {
   state: {moves: string[], mate?: string} = {
     moves: [],
   };
@@ -39,7 +45,7 @@ class GameRecord extends Component<{onMount: (setter: (msg: string, mate: Player
     moves.push(move);
     let mate_state = undefined;
     if (mate) {
-      if (mate.check === CheckType.Checkmate) {
+      if (mate.mate === MateType.Checkmate) {
         switch (mate.player) {
           case "white":
             mate_state = "White wins";
@@ -48,15 +54,19 @@ class GameRecord extends Component<{onMount: (setter: (msg: string, mate: Player
             mate_state = "Black wins";
             break;
         }
-      } else if (mate.check === CheckType.Stalemate) {
+      } else if (mate.mate === MateType.Stalemate) {
         mate_state = "Stalemate";
       }
     }
     this.setState({moves, mate: mate_state});
   }
 
+  onRestart = () => {
+    this.setState({moves: []});
+  }
+
   componentDidMount(): void {
-    this.props.onMount(this.addMove);
+    this.props.onMount(this.addMove, this.onRestart);
   }
 
   componentDidUpdate(): void {
@@ -85,34 +95,12 @@ class GameRecord extends Component<{onMount: (setter: (msg: string, mate: Player
   }
 }
 
-class MessageBox extends Component<{onMount: (setter: (msg: string) => void) => void}, {}> {
-  state: {messages: string[]} = {
-    messages: [],
-  };
-  messageBoxRef: RefObject<any> = createRef();
-
-  logMessage = (msg: string) => {
-    let messages = this.state.messages;
-    messages.push(msg);
-    this.setState({messages});
-  }
-
-  componentDidMount(): void {
-    this.props.onMount(this.logMessage);
-  }
-
-  componentDidUpdate() {
-    this.messageBoxRef.current.scrollTop = this.messageBoxRef.current.scrollHeight;
-  }
-
-  render(): ReactNode {
-    return <Row>
-        <Form.Control as="textarea" rows={3} disabled ref={this.messageBoxRef} value={this.state.messages.join('\n')} />
-      </Row>;
-  }
-}
-
-class ScoreBoard extends Component<{onMount: (setter: (white_captures: string[], black_captures: string[]) => void) => void}, {}> {
+class ScoreBoard extends Component<{
+  onMount: (
+    captureCallback: (white_captures: string[], black_captures: string[]) => void,
+    restartCallback: () => void,
+  ) => void,
+}, {}> {
   state: {white_captures: string[], black_captures: string[]} = {
     white_captures: [],
     black_captures: [],
@@ -126,8 +114,12 @@ class ScoreBoard extends Component<{onMount: (setter: (white_captures: string[],
     this.setState({white_captures, black_captures})
   }
 
+  onRestart = () => {
+    this.setState({white_captures: [], black_captures: [],});
+  }
+
   componentDidMount(): void {
-    this.props.onMount(this.addCaptures);
+    this.props.onMount(this.addCaptures, this.onRestart);
   }
 
   getPieceScore(piece: string): number {
@@ -170,30 +162,36 @@ class ScoreBoard extends Component<{onMount: (setter: (white_captures: string[],
 }
 
 class App extends Component<{}, {}> {
+  state: {finished: boolean} = {finished: false};
   moveCallback?: (move: string, mate: PlayerGameEnd | null) => void;
+  recordRestartCallback?: () => void;
   captureCallback?: (white_captures: string[], black_captures: string[]) => void;
+  scoreboardRestartCallback?: () => void;
+  gameStatusChangeCallback?: (finished: boolean) => void;
   messageLogger?: (msg: string) => void;
   gameHistoryRef?: RefObject<HTMLDivElement> = createRef();
+  userActionCallback?: (action: UserAction) => void;
 
-  onGameRecordMount = (setter: (move: string, mate: PlayerGameEnd | null) => void) => {
-    this.moveCallback = setter;
+  onGameRecordMount = (moveCallback: (move: string, mate: PlayerGameEnd | null) => void, restartCallback: () => void) => {
+    this.moveCallback = moveCallback;
+    this.recordRestartCallback = restartCallback;
   }
 
-  onScoreBoardMount = (setter: (white_captures: string[], black_captures: string[]) => void) => {
-    this.captureCallback = setter;
+  onScoreBoardMount = (captureCallback: (white_captures: string[], black_captures: string[]) => void, restartCallback: () => void) => {
+    this.captureCallback = captureCallback;
+    this.scoreboardRestartCallback = restartCallback;
   }
 
-  onMessageBoxMount = (setter: (msg: string) => void) => {
-    this.messageLogger = setter;
+  onOptionBoxMount = (callback: (finished: boolean) => void) => {
+    this.gameStatusChangeCallback = callback;
   }
 
-  onMove = (move: string, white_captures: string[], black_captures: string[], check: PlayerGameEnd | null) => {
-    this.moveCallback?.(move, check);
+  onMove = (move: string, white_captures: string[], black_captures: string[], mate: PlayerGameEnd | null) => {
+    this.moveCallback?.(move, mate);
     this.captureCallback?.(white_captures, black_captures);
-  }
-
-  onMessage = (msg: string) => {
-    this.messageLogger?.(msg);
+    if (mate !== null) {
+      this.setState({finished: true});
+    }
   }
 
   onGameRecordUpdate = () => {
@@ -201,6 +199,17 @@ class App extends Component<{}, {}> {
     if (gameRecord) {
       gameRecord.scrollTop = Math.pow(10, 10);
     }
+  }
+
+  onUserActionCallbackSet = (setter: (action: UserAction) => void) => {
+    this.userActionCallback = setter;
+  }
+
+  onRestart() {
+    this.userActionCallback?.(UserAction.Restart);
+    this.recordRestartCallback?.();
+    this.scoreboardRestartCallback?.();
+    this.setState({finished: false});
   }
 
   render() {
@@ -211,16 +220,20 @@ class App extends Component<{}, {}> {
           <Col className='px-0'>
             <Row className='file-label-row m-0' />
             <Row className='m-0'>
-              <Col style={{height: "480px", overflowY: "auto"}} ref={this.gameHistoryRef}><GameRecord onMount={this.onGameRecordMount} onUpdate={this.onGameRecordUpdate} /></Col>
+              <Col style={{height: "480px", overflowY: "auto"}} ref={this.gameHistoryRef}>
+                <GameRecord onMount={this.onGameRecordMount} onUpdate={this.onGameRecordUpdate} />
+              </Col>
               <Col className='col-md-auto m-0 p-0'><RankLabels position='left' /></Col>
             </Row>
           </Col>
           <Col className='p-0'>
             <FileLabels />
-            <Board onMove={this.onMove} onMessage={this.onMessage} />
+            <Board onMove={this.onMove} userActionSetter={this.onUserActionCallbackSet} />
             <FileLabels />
             <ScoreBoard onMount={this.onScoreBoardMount} />
-            <MessageBox onMount={this.onMessageBoxMount} />
+            <Row>
+              <Button variant={this.state.finished ? "primary" : "secondary"} onClick={(ev) => this.onRestart()}>Restart</Button>
+            </Row>
           </Col>
           <Col className='px-0'>
             <Row className='file-label-row m-0' />
