@@ -699,31 +699,49 @@ mod tests {
     fn check_mate() {
         let test_boards = [
             TestBoard {
-                board: Some(vec![pp!(kw @ a1), pp!(qb @ b3), pp!(qb @ c2)]),
+                board: Some(vec![pp!(kw @ a1), pp!(qb @ b3), pp!(qb @ c2), pp!(kb @ h8)]),
                 initial_moves: vec![],
                 mv: mv!(b3 => b2),
                 checks: vec![],
             },
             TestBoard {
-                board: Some(vec![pp!(kw @ a1), pp!(pb @ b3), pp!(pb @ c2), pp!(qb @ a3)]),
+                board: Some(vec![
+                    pp!(kw @ a1),
+                    pp!(pb @ b3),
+                    pp!(pb @ c2),
+                    pp!(qb @ a3),
+                    pp!(kb @ h8),
+                ]),
                 initial_moves: vec![],
                 mv: mv!(b3 => b2),
                 checks: vec![],
             },
             TestBoard {
-                board: Some(vec![pp!(kw @ a1), pp!(rb @ b8), pp!(rb @ b7)]),
+                board: Some(vec![pp!(kw @ a1), pp!(rb @ b8), pp!(rb @ b7), pp!(kb @ h8)]),
                 initial_moves: vec![],
                 mv: mv!(b8 => a8),
                 checks: vec![],
             },
             TestBoard {
-                board: Some(vec![pp!(kw @ a1), pp!(bb @ f8), pp!(bb @ g8), pp!(pb @ c2)]),
+                board: Some(vec![
+                    pp!(kw @ a1),
+                    pp!(bb @ f8),
+                    pp!(bb @ g8),
+                    pp!(pb @ c2),
+                    pp!(kb @ h8),
+                ]),
                 initial_moves: vec![],
                 mv: mv!(f8 => g7),
                 checks: vec![],
             },
             TestBoard {
-                board: Some(vec![pp!(kw @ a1), pp!(nb @ a5), pp!(nb @ c3), pp!(rb @ h2)]),
+                board: Some(vec![
+                    pp!(kw @ a1),
+                    pp!(nb @ a5),
+                    pp!(nb @ c3),
+                    pp!(rb @ h2),
+                    pp!(kb @ h8),
+                ]),
                 initial_moves: vec![],
                 mv: mv!(a5 => b3),
                 checks: vec![],
