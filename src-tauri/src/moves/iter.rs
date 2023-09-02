@@ -1,4 +1,4 @@
-use crate::board::{Board, MoveInfo, PieceType, Player, Position};
+use crate::board::{Board, GameInfo, MoveInfo, PieceType, Player, Position};
 use crate::moves::conditions::{
     only_empty, only_empty_or_enemy, only_en_passant, only_enemy, try_move, Direction,
 };
@@ -150,7 +150,12 @@ impl<'a> Iterator for BoardIteratorAdapter<'a> {
     }
 }
 
-pub fn into_rolling_board_iterator<'a>(board: &'a Board, player: &Player, position: &Position, direction: &Direction) -> impl Iterator<Item = Position> + 'a {
+pub fn into_rolling_board_iterator<'a>(
+    board: &'a Board,
+    player: &Player,
+    position: &Position,
+    direction: &Direction,
+) -> impl Iterator<Item = Position> + 'a {
     BoardIteratorAdapter {
         board,
         player: *player,
@@ -161,6 +166,7 @@ pub fn into_rolling_board_iterator<'a>(board: &'a Board, player: &Player, positi
 struct PieceIterBoardState<'a> {
     board: &'a Board,
     last_move: &'a Option<MoveInfo>,
+    game_info: &'a GameInfo,
     position: Position,
 }
 
@@ -223,6 +229,8 @@ pub enum KingIterStates {
     KingIter5,
     KingIter6,
     KingIter7,
+    KingIterKingsideCastle,
+    KingIterQueensideCastle,
     KingIterEnd,
 }
 
@@ -253,7 +261,7 @@ type KnightIter<'a> = PositionalPieceIter<'a, KnightIterStates>;
 type BishopIter<'a> = RollingPieceIter<'a, BishopIterStates>;
 type RookIter<'a> = RollingPieceIter<'a, RookIterStates>;
 type QueenIter<'a> = RollingPieceIter<'a, QueenIterStates>;
-type KingIter<'a> = RollingPieceIter<'a, KingIterStates>;
+type KingIter<'a> = PositionalPieceIter<'a, KingIterStates>;
 
 pub enum PieceIter<'a> {
     EmptySquareIterType(std::iter::Empty<Position>),
@@ -268,6 +276,7 @@ pub enum PieceIter<'a> {
 pub fn piece_into_iter<'a>(
     board: &'a Board,
     last_move: &'a Option<MoveInfo>,
+    game_info: &'a GameInfo,
     position: Position,
 ) -> impl Iterator<Item = Position> + 'a {
     let square = board.square(&position);
@@ -280,8 +289,9 @@ pub fn piece_into_iter<'a>(
     let player = &square.unwrap().player;
 
     let board_state = PieceIterBoardState {
-        board: &board,
-        last_move: &last_move,
+        board,
+        last_move,
+        game_info,
         position,
     };
 
@@ -315,8 +325,6 @@ pub fn piece_into_iter<'a>(
         PieceType::King => PieceIter::KingIterType(KingIter {
             board_state,
             state: KingIterStates::KingIter0,
-            player: *player,
-            walker: None,
         }),
     }
 }
@@ -622,7 +630,50 @@ impl<'a> Iterator for KingIter<'a> {
                     positional_state!(self, player, dir!(1, 0) => KingIterStates::KingIter7)
                 }
                 KingIterStates::KingIter7 => {
-                    positional_state!(self, player, dir!(1, 1) => KingIterStates::KingIterEnd)
+                    positional_state!(self, player, dir!(1, 1) => KingIterStates::KingIterKingsideCastle)
+                }
+                KingIterStates::KingIterKingsideCastle => {
+                    self.state = KingIterStates::KingIterQueensideCastle;
+                    if !self.board_state.game_info.can_castle_kingside(player) {
+                        return None;
+                    }
+                    if only_empty(
+                        &self.board_state.board,
+                        try_move(&self.board_state.position, &dir!(0, 1)),
+                    )
+                    .is_some()
+                    {
+                        only_empty(
+                            &self.board_state.board,
+                            try_move(&self.board_state.position, &dir!(0, 2)),
+                        )
+                    } else {
+                        None
+                    }
+                }
+                KingIterStates::KingIterQueensideCastle => {
+                    self.state = KingIterStates::KingIterEnd;
+                    if !self.board_state.game_info.can_castle_queenside(player) {
+                        return None;
+                    }
+                    if only_empty(
+                        &self.board_state.board,
+                        try_move(&self.board_state.position, &dir!(0, -1)),
+                    )
+                    .is_some()
+                        && only_empty(
+                            &self.board_state.board,
+                            try_move(&self.board_state.position, &dir!(0, -3)),
+                        )
+                        .is_some()
+                    {
+                        only_empty(
+                            &self.board_state.board,
+                            try_move(&self.board_state.position, &dir!(0, -2)),
+                        )
+                    } else {
+                        None
+                    }
                 }
                 KingIterStates::KingIterEnd => return None,
             };

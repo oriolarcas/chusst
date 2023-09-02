@@ -161,6 +161,13 @@ impl Board {
         self.rows[source.row][source.col] = None;
     }
 
+    pub fn home_rank(player: &Player) -> usize {
+        match player {
+            Player::White => 0,
+            Player::Black => 7,
+        }
+    }
+
     pub fn promotion_rank(player: &Player) -> usize {
         match player {
             Player::White => 7,
@@ -169,20 +176,20 @@ impl Board {
     }
 }
 
-fn get_unicode_piece(piece: PieceType, player: Player) -> &'static str {
+fn get_unicode_piece(piece: PieceType, player: Player) -> char {
     match (player, piece) {
-        (Player::White, PieceType::Pawn) => "♙",
-        (Player::White, PieceType::Knight) => "♘",
-        (Player::White, PieceType::Bishop) => "♗",
-        (Player::White, PieceType::Rook) => "♖",
-        (Player::White, PieceType::Queen) => "♕",
-        (Player::White, PieceType::King) => "♔",
-        (Player::Black, PieceType::Pawn) => "♟︎",
-        (Player::Black, PieceType::Knight) => "♞",
-        (Player::Black, PieceType::Bishop) => "♝",
-        (Player::Black, PieceType::Rook) => "♜",
-        (Player::Black, PieceType::Queen) => "♛",
-        (Player::Black, PieceType::King) => "♚",
+        (Player::White, PieceType::Pawn) => '♙',
+        (Player::White, PieceType::Knight) => '♘',
+        (Player::White, PieceType::Bishop) => '♗',
+        (Player::White, PieceType::Rook) => '♖',
+        (Player::White, PieceType::Queen) => '♕',
+        (Player::White, PieceType::King) => '♔',
+        (Player::Black, PieceType::Pawn) => '♟',
+        (Player::Black, PieceType::Knight) => '♞',
+        (Player::Black, PieceType::Bishop) => '♝',
+        (Player::Black, PieceType::Rook) => '♜',
+        (Player::Black, PieceType::Queen) => '♛',
+        (Player::Black, PieceType::King) => '♚',
     }
 }
 
@@ -292,34 +299,8 @@ const INITIAL_BOARD: Board = Board {
     ],
 };
 
-const CHECK_MATE_BOARD: Board = Board {
-    rows: [
-        [
-            p!(rw),
-            p!(nw),
-            p!(bw),
-            p!(qw),
-            p!(kw),
-            p!(bw),
-            p!(nw),
-            p!(rw),
-        ],
-        [p!(); 8],
-        [p!(); 8],
-        [p!(); 8],
-        [p!(); 8],
-        [p!(); 8],
-        [p!(); 8],
-        [p!(), p!(), p!(), p!(), p!(kb), p!(), p!(), p!()],
-    ],
-};
-
 pub const fn initial_board() -> &'static Board {
     &INITIAL_BOARD
-}
-
-pub const fn check_mate_board() -> &'static Board {
-    &CHECK_MATE_BOARD
 }
 
 #[derive(Copy, Clone, PartialEq, Serialize)]
@@ -573,7 +554,8 @@ pub enum MoveExtraInfo {
     Promotion(PieceType),
     Passed,
     EnPassant,
-    // Castle,
+    CastleKingside,
+    CastleQueenside,
 }
 
 #[derive(Copy, Clone, Serialize)]
@@ -583,8 +565,75 @@ pub struct MoveInfo {
 }
 
 #[derive(Copy, Clone, Serialize)]
+pub struct GameInfo {
+    white_kingside_castling_allowed: bool,
+    white_queenside_castling_allowed: bool,
+    black_kingside_castling_allowed: bool,
+    black_queenside_castling_allowed: bool,
+}
+
+impl GameInfo {
+    pub const fn new() -> GameInfo {
+        Self {
+            white_kingside_castling_allowed: true,
+            white_queenside_castling_allowed: true,
+            black_kingside_castling_allowed: true,
+            black_queenside_castling_allowed: true,
+        }
+    }
+
+    pub fn can_castle_kingside(&self, player: &Player) -> bool {
+        match player {
+            Player::White => self.white_kingside_castling_allowed,
+            Player::Black => self.black_kingside_castling_allowed,
+        }
+    }
+
+    pub fn can_castle_queenside(&self, player: &Player) -> bool {
+        match player {
+            Player::White => self.white_queenside_castling_allowed,
+            Player::Black => self.black_queenside_castling_allowed,
+        }
+    }
+
+    pub fn disable_castle_kingside(&mut self, player: &Player) {
+        match player {
+            Player::White => self.white_kingside_castling_allowed = false,
+            Player::Black => self.black_kingside_castling_allowed = false,
+        }
+    }
+
+    pub fn disable_castle_queenside(&mut self, player: &Player) {
+        match player {
+            Player::White => self.white_queenside_castling_allowed = false,
+            Player::Black => self.black_queenside_castling_allowed = false,
+        }
+    }
+}
+
+impl fmt::Display for GameInfo {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{{white: {{kingside: {}, queenside: {}}}, black: {{kingside: {}, queenside: {}}}",
+            self.white_kingside_castling_allowed,
+            self.white_queenside_castling_allowed,
+            self.black_kingside_castling_allowed,
+            self.black_queenside_castling_allowed
+        )
+    }
+}
+
+impl Default for GameInfo {
+    fn default() -> Self {
+        GameInfo::new()
+    }
+}
+
+#[derive(Copy, Clone, Serialize)]
 pub struct Game {
     pub board: Board,
     pub player: Player,
     pub last_move: Option<MoveInfo>,
+    pub info: GameInfo,
 }

@@ -1,7 +1,7 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use chusst::board::{initial_board, Game, Move, Piece, Player, Position};
+use chusst::board::{initial_board, Game, GameInfo, Move, Piece, Player, Position};
 use chusst::moves;
 use chusst::moves::MateType;
 
@@ -33,6 +33,7 @@ static GAME: Mutex<GameData> = Mutex::new(GameData {
         board: *initial_board(),
         player: Player::White,
         last_move: None,
+        info: GameInfo::new(),
     },
     history: vec![],
 });
@@ -52,14 +53,15 @@ fn get_history() -> Vec<TurnDescription> {
 fn get_possible_moves(row: usize, col: usize) -> Vec<Position> {
     let position = Position { row, col };
     let game = &mut GAME.lock().unwrap().game;
-    let possible_moves = moves::get_possible_moves(&game.board, &game.last_move, position);
+    let possible_moves =
+        moves::get_possible_moves(&game.board, &game.last_move, &game.info, position);
     possible_moves
 }
 
 #[tauri::command]
 fn get_possible_captures() -> moves::BoardCaptures {
     let game = &mut GAME.lock().unwrap().game;
-    moves::get_possible_captures(&game.board, &game.last_move)
+    moves::get_possible_captures(&game.board, &game.last_move, &game.info)
 }
 
 #[tauri::command(rename_all = "snake_case")]
@@ -77,13 +79,14 @@ fn do_move(source_row: usize, source_col: usize, target_row: usize, target_col: 
     let game_data = &mut GAME.lock().unwrap();
     let game = &mut game_data.game;
 
-    let white_move = match moves::move_name(&game.board, &game.last_move, &game.player, &mv) {
-        Some(name) => name,
-        None => {
-            println!("Invalid move: {}", mv);
-            return false;
-        }
-    };
+    let white_move =
+        match moves::move_name(&game.board, &game.last_move, &game.info, &game.player, &mv) {
+            Some(name) => name,
+            None => {
+                println!("Invalid move: {}", mv);
+                return false;
+            }
+        };
 
     let white_captures = match moves::do_move(game, &mv) {
         Some(captures) => captures,
@@ -95,12 +98,13 @@ fn do_move(source_row: usize, source_col: usize, target_row: usize, target_col: 
 
     let (black_move_opt, black_captures, mate) = match moves::get_best_move(game, 3) {
         moves::GameMove::Normal(mv) => {
-            let description = moves::move_name(&game.board, &game.last_move, &game.player, &mv);
+            let description =
+                moves::move_name(&game.board, &game.last_move, &game.info, &game.player, &mv);
 
             let black_captures = moves::do_move(game, &mv);
             assert!(black_captures.is_some());
 
-            let black_mate = moves::is_mate(&game.board, &game.player, &game.last_move);
+            let black_mate = moves::is_mate(&game.board, &game.player, &game.last_move, &game.info);
 
             (description, black_captures.unwrap(), black_mate)
         }
@@ -155,6 +159,7 @@ fn restart() {
         board: *initial_board(),
         player: Player::White,
         last_move: None,
+        info: Default::default(),
     };
 
     data.history.clear();

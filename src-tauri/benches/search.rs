@@ -13,6 +13,7 @@ fn search(bench: &mut Bencher) {
             board: *initial_board(),
             player: Player::White,
             last_move: None,
+            info: Default::default(),
         };
 
         let best_branch = get_best_move_recursive(&mut game, 3).unwrap();
@@ -30,6 +31,7 @@ fn game_benchmark() -> u64 {
         board: *initial_board(),
         player: Player::White,
         last_move: None,
+        info: Default::default(),
     };
     let get_best_move_helper = |game: &mut Game| {
         let best_branch = get_best_move_recursive(game, 3).unwrap();

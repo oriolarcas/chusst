@@ -3,17 +3,21 @@ mod conditions;
 mod iter;
 mod play;
 
-use crate::board::{Board, Game, Move, MoveInfo, Piece, PieceType, Player, Position, Rows};
-use crate::moves::check::{find_player_king, player_in_check};
+use crate::board::{
+    Board, Game, GameInfo, Move, MoveInfo, Piece, PieceType, Player, Position, Rows,
+};
+use crate::moves::check::{find_player_king, only_empty_and_safe, piece_is_unsafe};
 use crate::moves::play::SearchableGame;
 use crate::{mv, pos};
-use conditions::enemy;
-use iter::{piece_into_iter, player_pieces_iter, BoardIter, PlayerPiecesIter};
+use conditions::{enemy, Direction};
+use iter::{dir, piece_into_iter, player_pieces_iter, BoardIter, PlayerPiecesIter};
 
+use core::panic;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::time::Instant;
 
+use self::conditions::try_move;
 use self::iter::pawn_progress_direction;
 use self::play::{PlayableGame, ReversableGame};
 
@@ -46,25 +50,70 @@ pub struct Branch {
     pub searched: u32,
 }
 
+fn move_with_checks(game: &mut SearchableGame, mv: &Move, king_position: &Position) -> bool {
+    let is_king = mv.source == *king_position;
+
+    // Before moving, check if it is a castling and it is valid
+    if is_king && mv.source.col.abs_diff(mv.target.col) == 2 {
+        let player = game.as_ref().board.square(king_position).unwrap().player;
+        let is_valid_castling_square = |direction: &Direction| {
+            only_empty_and_safe(
+                &game.as_ref().board,
+                try_move(&mv.source, &direction),
+                &player,
+            )
+            .is_some()
+        };
+        let castling_is_safe = match mv.target.col {
+            // Queenside
+            2 => is_valid_castling_square(&dir!(0, -1)) && is_valid_castling_square(&dir!(0, -2)),
+            // Kingside
+            6 => is_valid_castling_square(&dir!(0, 1)) && is_valid_castling_square(&dir!(0, 2)),
+            _ => panic!(
+                "invalid castling {} in:\n{}\n,game info is {}",
+                mv,
+                game.as_ref().board,
+                game.as_ref().info
+            ),
+        } && !piece_is_unsafe(&game.as_ref().board, king_position);
+
+        if !castling_is_safe {
+            return false;
+        }
+    }
+
+    // Move
+    game.do_move_no_checks(mv);
+
+    // After moving, check if the king is in check
+
+    let current_king_position = if is_king { &mv.target } else { king_position };
+
+    !piece_is_unsafe(&game.as_ref().board, &current_king_position)
+}
+
 fn get_possible_moves_iter<'a>(
     board: &'a Board,
     last_move: &'a Option<MoveInfo>,
+    game_info: &'a GameInfo,
     position: Position,
 ) -> impl Iterator<Item = Position> + 'a {
-    piece_into_iter(board, last_move, position)
+    piece_into_iter(board, last_move, game_info, position)
 }
 
-pub fn get_possible_moves_no_checks(
+fn get_possible_moves_no_checks(
     board: &Board,
     last_move: &Option<MoveInfo>,
+    game_info: &GameInfo,
     position: Position,
 ) -> Vec<Position> {
-    get_possible_moves_iter(board, last_move, position).collect::<Vec<Position>>()
+    get_possible_moves_iter(board, last_move, game_info, position).collect::<Vec<Position>>()
 }
 
 pub fn get_possible_moves(
     board: &Board,
     last_move: &Option<MoveInfo>,
+    game_info: &GameInfo,
     position: Position,
 ) -> Vec<Position> {
     let square = board.square(&position).as_ref();
@@ -84,31 +133,17 @@ pub fn get_possible_moves(
     let mut game = Game {
         board: *board,
         player,
-        last_move: None,
+        last_move: *last_move,
+        info: *game_info,
     };
-    get_possible_moves_no_checks(board, last_move, position)
+    get_possible_moves_no_checks(board, last_move, game_info, position)
         .iter()
         .filter(|possible_position| {
             let mv = mv!(position, **possible_position);
 
             let mut rev_game = SearchableGame::from_game(&mut game);
 
-            assert!(
-                rev_game.do_move_no_checks(&mv),
-                "Unexpected invalid move {} in:\n{}",
-                mv,
-                &rev_game.as_ref().board,
-            );
-
-            let current_king_position = if is_king {
-                *possible_position
-            } else {
-                &king_position
-            };
-
-            let is_check = player_in_check(&rev_game.as_ref().board, &current_king_position);
-
-            !is_check
+            move_with_checks(&mut rev_game, &mv, &king_position)
         })
         .copied()
         .collect()
@@ -117,6 +152,7 @@ pub fn get_possible_moves(
 pub fn move_name(
     board: &Board,
     last_move: &Option<MoveInfo>,
+    game_info: &GameInfo,
     player: &Player,
     mv: &Move,
 ) -> Option<String> {
@@ -126,85 +162,99 @@ pub fn move_name(
         return None;
     }
     let src_piece = src_piece_opt.unwrap();
-    let tgt_piece_opt = board.square(&mv.target);
 
-    let pieces_iter = player_pieces_iter!(board: board, player: player);
+    let is_castling =
+        src_piece.piece == PieceType::King && mv.source.col.abs_diff(mv.target.col) == 2;
 
-    match src_piece.piece {
-        PieceType::Pawn => {}
-        PieceType::Knight => name.push('N'),
-        PieceType::Bishop => name.push('B'),
-        PieceType::Rook => name.push('R'),
-        PieceType::Queen => name.push('Q'),
-        PieceType::King => name.push('K'),
-    }
+    if is_castling {
+        // Castling doesn't need piece or position
+        match mv.target.col {
+            2 => name.push_str("0-0-0"),
+            6 => name.push_str("0-0"),
+            _ => panic!("invalid castling {} in:\n{}", mv, board),
+        }
+    } else {
+        let tgt_piece_opt = board.square(&mv.target);
+        let pieces_iter = player_pieces_iter!(board: board, player: player);
 
-    let is_en_passant = src_piece.piece == PieceType::Pawn
-        && mv.source.col != mv.target.col
-        && board.square(&mv.target).is_none();
-
-    let mut piece_in_same_file = false;
-    let mut piece_in_same_rank = false;
-
-    for player_piece_position in pieces_iter {
-        if player_piece_position == mv.source {
-            continue;
+        match src_piece.piece {
+            PieceType::Pawn => {}
+            PieceType::Knight => name.push('N'),
+            PieceType::Bishop => name.push('B'),
+            PieceType::Rook => name.push('R'),
+            PieceType::Queen => name.push('Q'),
+            PieceType::King => name.push('K'),
         }
 
-        match board.square(&player_piece_position) {
-            Some(player_piece) => {
-                if player_piece.piece != src_piece.piece {
-                    continue;
+        let is_en_passant = src_piece.piece == PieceType::Pawn
+            && mv.source.col != mv.target.col
+            && board.square(&mv.target).is_none();
+
+        let mut piece_in_same_file = false;
+        let mut piece_in_same_rank = false;
+
+        for player_piece_position in pieces_iter {
+            if player_piece_position == mv.source {
+                continue;
+            }
+
+            match board.square(&player_piece_position) {
+                Some(player_piece) => {
+                    if player_piece.piece != src_piece.piece {
+                        continue;
+                    }
+                }
+                None => {}
+            }
+
+            if get_possible_moves_iter(board, last_move, game_info, player_piece_position)
+                .find(|possible_position| *possible_position == mv.target)
+                .is_some()
+            {
+                if player_piece_position.row == mv.source.row {
+                    piece_in_same_rank = true;
+                } else if player_piece_position.col == mv.source.col {
+                    piece_in_same_file = true;
                 }
             }
-            None => {}
         }
 
-        if get_possible_moves_iter(board, last_move, player_piece_position)
-            .find(|possible_position| *possible_position == mv.target)
-            .is_some()
-        {
-            if player_piece_position.row == mv.source.row {
-                piece_in_same_rank = true;
-            } else if player_piece_position.col == mv.source.col {
-                piece_in_same_file = true;
-            }
+        let source_suffix = format!("{}", mv.source);
+        if is_en_passant {
+            name.push(source_suffix.chars().nth(0).unwrap());
+        } else if piece_in_same_file && piece_in_same_rank {
+            // Same type of pieces in same rank and file: file and rank suffix
+            name.push_str(source_suffix.as_str());
+        } else if piece_in_same_rank {
+            // Same type of pieces in same rank but different file: file suffix
+            name.push(source_suffix.chars().nth(0).unwrap());
+        } else if piece_in_same_file {
+            // Same type of pieces in same file but different rank: rank suffix
+            name.push(source_suffix.chars().nth(1).unwrap());
         }
-    }
 
-    let source_suffix = format!("{}", mv.source);
-    if is_en_passant {
-        name.push(source_suffix.chars().nth(0).unwrap());
-    } else if piece_in_same_file && piece_in_same_rank {
-        // Same type of pieces in same rank and file: file and rank suffix
-        name.push_str(source_suffix.as_str());
-    } else if piece_in_same_rank {
-        // Same type of pieces in same rank but different file: file suffix
-        name.push(source_suffix.chars().nth(0).unwrap());
-    } else if piece_in_same_file {
-        // Same type of pieces in same file but different rank: rank suffix
-        name.push(source_suffix.chars().nth(1).unwrap());
-    }
+        if tgt_piece_opt.is_some() || is_en_passant {
+            name.push('x');
+        }
 
-    if tgt_piece_opt.is_some() || is_en_passant {
-        name.push('x');
+        name.push_str(format!("{}", mv.target).as_str());
     }
-
-    name.push_str(format!("{}", mv.target).as_str());
 
     // Is check?
     let mut game = Game {
         board: *board,
         player: src_piece.player,
         last_move: *last_move,
+        info: *game_info,
     };
 
     if do_move(&mut game, mv).is_some() {
         let enemy_king_position = find_player_king(&game.board, &enemy(player));
-        let causes_check = get_possible_captures_of_position(&game.board, last_move, &mv.target)
-            .iter()
-            .find(|position| **position == enemy_king_position)
-            .is_some();
+        let causes_check =
+            get_possible_captures_of_position(&game.board, last_move, game_info, &mv.target)
+                .iter()
+                .find(|position| **position == enemy_king_position)
+                .is_some();
         if causes_check {
             let is_checkmate = get_best_move_recursive(&mut game, 0).is_none();
 
@@ -215,17 +265,19 @@ pub fn move_name(
     Some(name)
 }
 
-pub fn move_branch_names(board: &Board, player: &Player, moves: &Vec<&Move>) -> Vec<String> {
+pub fn move_branch_names(board: &Board, player: &Player, game_info: &GameInfo, moves: &Vec<&Move>) -> Vec<String> {
     let mut game = Game {
         board: *board,
         player: *player,
         last_move: None,
+        info: *game_info,
     };
 
     let mut move_names = vec![];
 
     for mv in moves {
-        move_names.push(move_name(&game.board, &game.last_move, &game.player, &mv).unwrap());
+        move_names
+            .push(move_name(&game.board, &game.last_move, &game.info, &game.player, &mv).unwrap());
 
         assert!(do_move(&mut game, *mv).is_some());
     }
@@ -258,9 +310,12 @@ pub fn get_best_move_recursive(game: &mut Game, search_depth: u32) -> Option<Bra
     for player_piece_position in pieces_iter {
         let current_piece = &game.board.square(&player_piece_position).unwrap().piece;
 
-        for possible_position in
-            get_possible_moves_no_checks(&game.board, &game.last_move, player_piece_position)
-        {
+        for possible_position in get_possible_moves_no_checks(
+            &game.board,
+            &game.last_move,
+            &game.info,
+            player_piece_position,
+        ) {
             searched_moves += 1;
 
             let local_score = match &game.board.square(&possible_position) {
@@ -290,21 +345,7 @@ pub fn get_best_move_recursive(game: &mut Game, search_depth: u32) -> Option<Bra
 
             let mut rev_game = SearchableGame::from_game(game);
 
-            assert!(
-                rev_game.do_move_no_checks(&mv.mv),
-                "Unexpected invalid move {} in:\n{}",
-                mv.mv,
-                &rev_game.as_ref().board,
-            );
-
-            let current_king_position = if *current_piece == PieceType::King {
-                possible_position
-            } else {
-                king_position
-            };
-
-            // Check if this move is invalid because it leaves the king in check
-            if player_in_check(&rev_game.as_ref().board, &current_king_position) {
+            if !move_with_checks(&mut rev_game, &mv.mv, &king_position) {
                 continue;
             }
 
@@ -318,7 +359,7 @@ pub fn get_best_move_recursive(game: &mut Game, search_depth: u32) -> Option<Bra
                     let enemy_player_king_position =
                         find_player_king(&rev_game.as_ref().board, &enemy(&player));
 
-                    player_in_check(&rev_game.as_ref().board, &enemy_player_king_position)
+                    piece_is_unsafe(&rev_game.as_ref().board, &enemy_player_king_position)
                 } else {
                     false
                 };
@@ -367,13 +408,15 @@ pub fn get_best_move_recursive(game: &mut Game, search_depth: u32) -> Option<Bra
 fn get_possible_captures_of_position(
     board: &Board,
     last_move: &Option<MoveInfo>,
+    game_info: &GameInfo,
     position: &Position,
 ) -> Vec<Position> {
     let mut captures: Vec<Position> = Vec::new();
 
     match board.square(position) {
         Some(square) => {
-            for possible_position in get_possible_moves_iter(&board, last_move, *position) {
+            for possible_position in get_possible_moves_iter(board, last_move, game_info, *position)
+            {
                 let is_capture = board.square(&possible_position).is_some();
 
                 if is_capture {
@@ -397,12 +440,18 @@ fn get_possible_captures_of_position(
     captures
 }
 
-pub fn get_possible_captures(board: &Board, last_move: &Option<MoveInfo>) -> BoardCaptures {
+pub fn get_possible_captures(
+    board: &Board,
+    last_move: &Option<MoveInfo>,
+    game_info: &GameInfo,
+) -> BoardCaptures {
     let board_iter: BoardIter = Default::default();
     let mut board_captures: BoardCaptures = Default::default();
 
     for source_position in board_iter.into_iter() {
-        for capture in get_possible_captures_of_position(board, last_move, &source_position) {
+        for capture in
+            get_possible_captures_of_position(board, last_move, game_info, &source_position)
+        {
             board_captures[capture.row][capture.col].push(source_position);
         }
     }
@@ -419,7 +468,7 @@ pub fn get_best_move(game: &mut Game, search_depth: u32) -> GameMove {
     if best_branch.is_none() {
         // check or stale mate?
         let king_position = find_player_king(&game.board, &player);
-        let is_check_mate = player_in_check(&game.board, &king_position);
+        let is_check_mate = piece_is_unsafe(&game.board, &king_position);
 
         print!("  ({:.2} s.) ", duration);
         let enemy_player = enemy(&player);
@@ -461,7 +510,7 @@ pub fn get_best_move(game: &mut Game, search_depth: u32) -> GameMove {
         total_moves,
         std::iter::zip(
             &best_branch.as_ref().unwrap().moves,
-            move_branch_names(&game.board, &game.player, &branch_moves)
+            move_branch_names(&game.board, &game.player, &game.info, &branch_moves)
         )
         .map(|(move_info, move_name)| format!("{}{:+}", move_name, move_info.score))
         .collect::<Vec<String>>()
@@ -471,17 +520,23 @@ pub fn get_best_move(game: &mut Game, search_depth: u32) -> GameMove {
     GameMove::Normal(**branch_moves.first().unwrap())
 }
 
-pub fn is_mate(board: &Board, player: &Player, last_move: &Option<MoveInfo>) -> Option<MateType> {
+pub fn is_mate(
+    board: &Board,
+    player: &Player,
+    last_move: &Option<MoveInfo>,
+    game_info: &GameInfo,
+) -> Option<MateType> {
     // Is check?
     let mut game = Game {
         board: *board,
         player: *player,
         last_move: *last_move,
+        info: *game_info,
     };
 
     if get_best_move_recursive(&mut game, 0).is_none() {
         let king_position = find_player_king(&board, &player);
-        return if player_in_check(&board, &king_position) {
+        return if piece_is_unsafe(&board, &king_position) {
             Some(MateType::Checkmate)
         } else {
             Some(MateType::Stalemate)
@@ -546,9 +601,9 @@ pub fn do_move(game: &mut Game, mv: &Move) -> Option<Vec<Piece>> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::board::initial_board;
-    use crate::moves::play::ReversableGame;
+    use super::play::{PlayableGame, ReversableGame};
+    use super::{do_move, get_possible_moves, move_name, mv, piece_is_unsafe};
+    use crate::board::{initial_board, Board, Game, Move, Piece, PieceType, Player, Position};
     use crate::{p, pos};
 
     struct PiecePosition {
@@ -571,22 +626,58 @@ mod tests {
         };
     }
 
-    struct TestBoard {
-        board: Option<Vec<PiecePosition>>,
+    struct TestBoard<'a> {
+        board: Option<&'a str>,
         initial_moves: Vec<Move>,
         mv: Move,
         checks: Vec<PiecePosition>,
     }
 
-    fn custom_board(initial_pieces_opt: &Option<Vec<PiecePosition>>) -> Board {
-        match initial_pieces_opt {
-            Some(initial_pieces) => {
-                let mut board: Board = Default::default();
+    fn custom_board(board_opt: &Option<&str>) -> Board {
+        match board_opt {
+            Some(board_str) => {
+                let mut board = Board::default();
 
-                for piece_position in initial_pieces {
-                    board.update(&piece_position.position, piece_position.piece);
+                let mut rank = 8usize;
+                for line in board_str.lines() {
+                    match line.find("[") {
+                        Some(position) => {
+                            let mut file = 0usize;
+                            rank -= 1;
+
+                            for piece_char in line
+                                .chars()
+                                .skip(position)
+                                .filter(|c| *c != '[' && *c != ']')
+                            {
+                                let piece = match piece_char {
+                                    '♙' => p!(pw),
+                                    '♘' => p!(nw),
+                                    '♗' => p!(bw),
+                                    '♖' => p!(rw),
+                                    '♕' => p!(qw),
+                                    '♔' => p!(kw),
+                                    '♟' => p!(pb),
+                                    '♞' => p!(nb),
+                                    '♝' => p!(bb),
+                                    '♜' => p!(rb),
+                                    '♛' => p!(qb),
+                                    '♚' => p!(kb),
+                                    ' ' => p!(),
+                                    _ => {
+                                        panic!(
+                                            "unexpected character '\\u{:x}' in board line: {}",
+                                            piece_char as u32, line
+                                        )
+                                    }
+                                };
+                                board.update(&pos!(rank, file), piece);
+                                file += 1;
+                            }
+                        }
+                        None => continue,
+                    }
                 }
-
                 board
             }
             None => *initial_board(),
@@ -640,6 +731,20 @@ mod tests {
                 mv: mv!(g7 => h8),
                 checks: vec![pp!(qw @ h8)],
             },
+            // Kingside castling
+            TestBoard {
+                board: None,
+                initial_moves: vec![
+                    mv!(e2 => e3),
+                    mv!(a7 => a6),
+                    mv!(f1 => e2),
+                    mv!(b7 => b6),
+                    mv!(g1 => h3),
+                    mv!(c7 => c6),
+                ],
+                mv: mv!(e1 => g1),
+                checks: vec![pp!(kw @ g1), pp!(rw @ f1)],
+            },
         ];
 
         for test_board in &test_boards {
@@ -648,6 +753,7 @@ mod tests {
                 board: custom_board(&test_board.board),
                 player: Player::White,
                 last_move: None,
+                info: Default::default(),
             };
 
             // Do setup moves
@@ -665,7 +771,12 @@ mod tests {
             let mut rev_game = <ReversableGame as PlayableGame>::from_game(&mut game);
 
             // Do move
-            assert!(rev_game.do_move(&test_board.mv));
+            assert!(
+                rev_game.do_move(&test_board.mv),
+                "failed to make legal move {} in:\n{}",
+                test_board.mv,
+                game.board
+            );
 
             for check in &test_board.checks {
                 assert_eq!(
@@ -697,51 +808,85 @@ mod tests {
 
     #[test]
     fn check_mate() {
+        // White: ♙ ♘ ♗ ♖ ♕ ♔
+        // Black: ♟ ♞ ♝ ♜ ♛ ♚
         let test_boards = [
             TestBoard {
-                board: Some(vec![pp!(kw @ a1), pp!(qb @ b3), pp!(qb @ c2), pp!(kb @ h8)]),
+                board: Some(
+                    "  a  b  c  d  e  f  g  h \n\
+                    8 [ ][ ][ ][ ][ ][ ][ ][♚]\n\
+                    7 [ ][ ][ ][ ][ ][ ][ ][ ]\n\
+                    6 [ ][ ][ ][ ][ ][ ][ ][ ]\n\
+                    5 [ ][ ][ ][ ][ ][ ][ ][ ]\n\
+                    4 [ ][ ][ ][ ][ ][ ][ ][ ]\n\
+                    3 [ ][♛][ ][ ][ ][ ][ ][ ]\n\
+                    2 [ ][ ][♛][ ][ ][ ][ ][ ]\n\
+                    1 [♔][ ][ ][ ][ ][ ][ ][ ]",
+                ),
                 initial_moves: vec![],
                 mv: mv!(b3 => b2),
                 checks: vec![],
             },
             TestBoard {
-                board: Some(vec![
-                    pp!(kw @ a1),
-                    pp!(pb @ b3),
-                    pp!(pb @ c2),
-                    pp!(qb @ a3),
-                    pp!(kb @ h8),
-                ]),
+                board: Some(
+                    "  a  b  c  d  e  f  g  h \n\
+                    8 [♜][♜][ ][ ][ ][ ][ ][♚]\n\
+                    7 [ ][ ][ ][ ][ ][ ][ ][ ]\n\
+                    6 [ ][ ][ ][ ][ ][ ][ ][ ]\n\
+                    5 [ ][ ][ ][ ][ ][ ][ ][ ]\n\
+                    4 [ ][ ][ ][ ][ ][ ][ ][ ]\n\
+                    3 [ ][♟][ ][ ][ ][ ][ ][ ]\n\
+                    2 [♟][ ][ ][ ][ ][ ][ ][ ]\n\
+                    1 [♔][ ][ ][ ][ ][ ][ ][ ]",
+                ),
                 initial_moves: vec![],
                 mv: mv!(b3 => b2),
                 checks: vec![],
             },
             TestBoard {
-                board: Some(vec![pp!(kw @ a1), pp!(rb @ b8), pp!(rb @ b7), pp!(kb @ h8)]),
+                board: Some(
+                    "  a  b  c  d  e  f  g  h \n\
+                    8 [ ][♜][ ][ ][ ][ ][ ][♚]\n\
+                    7 [ ][♜][ ][ ][ ][ ][ ][ ]\n\
+                    6 [ ][ ][ ][ ][ ][ ][ ][ ]\n\
+                    5 [ ][ ][ ][ ][ ][ ][ ][ ]\n\
+                    4 [ ][ ][ ][ ][ ][ ][ ][ ]\n\
+                    3 [ ][ ][ ][ ][ ][ ][ ][ ]\n\
+                    2 [ ][ ][ ][ ][ ][ ][ ][ ]\n\
+                    1 [♔][ ][ ][ ][ ][ ][ ][ ]",
+                ),
                 initial_moves: vec![],
                 mv: mv!(b8 => a8),
                 checks: vec![],
             },
             TestBoard {
-                board: Some(vec![
-                    pp!(kw @ a1),
-                    pp!(bb @ f8),
-                    pp!(bb @ g8),
-                    pp!(pb @ c2),
-                    pp!(kb @ h8),
-                ]),
+                board: Some(
+                    "  a  b  c  d  e  f  g  h \n\
+                    8 [ ][ ][ ][ ][ ][♝][♝][♚]\n\
+                    7 [ ][ ][ ][ ][ ][ ][ ][ ]\n\
+                    6 [ ][ ][ ][ ][ ][ ][ ][ ]\n\
+                    5 [ ][ ][ ][ ][ ][ ][ ][ ]\n\
+                    4 [ ][ ][ ][ ][ ][ ][ ][ ]\n\
+                    3 [ ][ ][ ][ ][ ][ ][ ][ ]\n\
+                    2 [ ][ ][♟][ ][ ][ ][ ][ ]\n\
+                    1 [♔][ ][ ][ ][ ][ ][ ][ ]",
+                ),
                 initial_moves: vec![],
                 mv: mv!(f8 => g7),
                 checks: vec![],
             },
             TestBoard {
-                board: Some(vec![
-                    pp!(kw @ a1),
-                    pp!(nb @ a5),
-                    pp!(nb @ c3),
-                    pp!(rb @ h2),
-                    pp!(kb @ h8),
-                ]),
+                board: Some(
+                    "  a  b  c  d  e  f  g  h \n\
+                    8 [ ][ ][ ][ ][ ][ ][ ][♚]\n\
+                    7 [ ][ ][ ][ ][ ][ ][ ][ ]\n\
+                    6 [ ][ ][ ][ ][ ][ ][ ][ ]\n\
+                    5 [♞][ ][ ][ ][ ][ ][ ][ ]\n\
+                    4 [ ][ ][ ][ ][ ][ ][ ][ ]\n\
+                    3 [ ][ ][♞][ ][ ][ ][ ][ ]\n\
+                    2 [ ][ ][ ][ ][ ][ ][ ][♜]\n\
+                    1 [♔][ ][ ][ ][ ][ ][ ][ ]",
+                ),
                 initial_moves: vec![],
                 mv: mv!(a5 => b3),
                 checks: vec![],
@@ -754,7 +899,13 @@ mod tests {
                 board: custom_board(&test_board.board),
                 player: Player::Black,
                 last_move: None,
+                info: Default::default(),
             };
+
+            game.info.disable_castle_kingside(&Player::White);
+            game.info.disable_castle_kingside(&Player::Black);
+            game.info.disable_castle_queenside(&Player::White);
+            game.info.disable_castle_queenside(&Player::Black);
 
             // Do setup moves
             for mv in &test_board.initial_moves {
@@ -766,12 +917,20 @@ mod tests {
                 );
             }
 
-            let name =
-                move_name(&game.board, &game.last_move, &game.player, &test_board.mv).unwrap();
+            let name = move_name(
+                &game.board,
+                &game.last_move,
+                &game.info,
+                &game.player,
+                &test_board.mv,
+            )
+            .unwrap();
             assert!(
                 name.ends_with("#"),
-                "notation {} doesn't show checkmate sign #",
-                name
+                "notation {} for move {} doesn't show checkmate sign # in:\n{}",
+                name,
+                test_board.mv,
+                game.board
             );
 
             // Do move
@@ -784,8 +943,8 @@ mod tests {
                 rev_game.as_ref().board
             );
 
-            let possible_moves = get_possible_moves(&game.board, &None, pos!(a1));
-            let in_check = player_in_check(&game.board, &pos!(a1));
+            let possible_moves = get_possible_moves(&game.board, &None, &game.info, pos!(a1));
+            let in_check = piece_is_unsafe(&game.board, &pos!(a1));
             assert!(in_check, "king should be in check:\n{}", game.board);
             assert!(
                 possible_moves.is_empty(),

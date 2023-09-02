@@ -1,5 +1,7 @@
 use super::get_possible_moves;
-use crate::board::{Board, Game, Move, MoveExtraInfo, MoveInfo, Piece, PieceType, Player};
+use crate::board::{
+    Board, Game, GameInfo, Move, MoveExtraInfo, MoveInfo, Piece, PieceType, Player,
+};
 use crate::moves::conditions::{enemy, only_enemy, try_move, Direction};
 use crate::moves::iter::dir;
 use crate::mv;
@@ -31,7 +33,12 @@ pub trait PlayableGame<'a> {
             }
         }
 
-        let possible_moves = get_possible_moves(&board, &self.as_ref().last_move, mv.source);
+        let possible_moves = get_possible_moves(
+            &board,
+            &self.as_ref().last_move,
+            &self.as_ref().info,
+            mv.source,
+        );
 
         if possible_moves
             .iter()
@@ -41,13 +48,20 @@ pub trait PlayableGame<'a> {
             return false;
         }
 
-        self.do_move_no_checks(mv)
+        self.do_move_no_checks(mv);
+
+        true
     }
 
-    fn do_move_no_checks(&mut self, mv: &Move) -> bool {
+    fn do_move_no_checks(&mut self, mv: &Move) {
         let board = &mut self.as_mut().board;
-        let player = board.square(&mv.source).unwrap().player;
-        let moved_piece = board.square(&mv.source).unwrap().piece;
+
+        let square_opt = board.square(&mv.source).as_ref();
+        assert!(square_opt.is_some(), "move {} from empty square:\n{}", mv, board);
+        let square = square_opt.unwrap();
+
+        let player = square.player;
+        let moved_piece = square.piece;
         let move_info = match moved_piece {
             PieceType::Pawn => {
                 if mv.source.row.abs_diff(mv.target.row) == 2 {
@@ -56,6 +70,17 @@ pub trait PlayableGame<'a> {
                     MoveExtraInfo::EnPassant
                 } else if mv.target.row == Board::promotion_rank(&player) {
                     MoveExtraInfo::Promotion(PieceType::Queen)
+                } else {
+                    MoveExtraInfo::Other
+                }
+            }
+            PieceType::King => {
+                if mv.source.col.abs_diff(mv.target.col) == 2 {
+                    match mv.target.col {
+                        2 => MoveExtraInfo::CastleQueenside,
+                        6 => MoveExtraInfo::CastleKingside,
+                        _ => panic!("invalid castling {} in:\n{}", mv, board),
+                    }
                 } else {
                     MoveExtraInfo::Other
                 }
@@ -96,7 +121,36 @@ pub trait PlayableGame<'a> {
                 });
                 board.update(&mv.target, Some(Piece { piece, player }));
             }
+            MoveExtraInfo::CastleKingside => {
+                let rook_source = try_move(&mv.source, &dir!(0, 3)).unwrap();
+                let rook_target = try_move(&mv.source, &dir!(0, 1)).unwrap();
+                moves.push(ReversableMove {
+                    mv: mv!(rook_source, rook_target),
+                    previous_piece: None,
+                });
+                board.move_piece(&rook_source, &rook_target);
+            }
+            MoveExtraInfo::CastleQueenside => {
+                let rook_source = try_move(&mv.source, &dir!(0, -4)).unwrap();
+                let rook_target = try_move(&mv.source, &dir!(0, -1)).unwrap();
+                moves.push(ReversableMove {
+                    mv: mv!(rook_source, rook_target),
+                    previous_piece: None,
+                });
+                board.move_piece(&rook_source, &rook_target);
+            }
             _ => (),
+        }
+
+        if moved_piece == PieceType::King {
+            self.as_mut().info.disable_castle_kingside(&player);
+            self.as_mut().info.disable_castle_queenside(&player);
+        } else if moved_piece == PieceType::Rook && mv.source.row == Board::home_rank(&player) {
+            match mv.source.col {
+                0 => self.as_mut().info.disable_castle_queenside(&player),
+                7 => self.as_mut().info.disable_castle_kingside(&player),
+                _ => (),
+            }
         }
 
         self.as_mut().player = enemy(&self.as_ref().player);
@@ -105,8 +159,6 @@ pub trait PlayableGame<'a> {
             mv: *mv,
             info: move_info,
         });
-
-        true
     }
 }
 
@@ -138,17 +190,20 @@ pub struct ReversableGame<'a> {
     game: &'a mut Game,
     moves: Vec<ReversableMove>,
     last_move: Option<MoveInfo>,
+    info: Option<GameInfo>,
     move_player: Player,
 }
 
 impl<'a> PlayableGame<'a> for ReversableGame<'a> {
     fn from_game(game: &'a mut Game) -> Self {
         let last_move = game.last_move;
+        let game_info = game.info;
         let player = game.player;
         ReversableGame {
             game,
             moves: vec![],
-            last_move: last_move,
+            last_move,
+            info: Some(game_info),
             move_player: player,
         }
     }
@@ -180,6 +235,8 @@ impl<'a> ReversableGame<'a> {
         self.moves.clear();
         self.game.player = enemy(&self.game.player);
         self.game.last_move = self.last_move;
+        self.game.info = self.info.unwrap();
         self.last_move = None;
+        self.info = None;
     }
 }

@@ -1,5 +1,5 @@
 use crate::board::{Board, PieceType, Player, Position};
-use crate::moves::conditions::{enemy, try_move, Direction};
+use crate::moves::conditions::{enemy, only_empty, try_move, Direction};
 use crate::moves::iter::{
     dir, into_rolling_board_iterator, pawn_progress_direction, player_pieces_iter, PlayerPiecesIter,
 };
@@ -25,10 +25,8 @@ pub fn find_player_king(board: &Board, player: &Player) -> Position {
     *king_pos_option.first().unwrap()
 }
 
-pub fn player_in_check(board: &Board, king_position: &Position) -> bool {
-    let king_square = board.square(king_position);
-    let king_player = king_square.unwrap().player;
-    let enemy_player = enemy(&king_player);
+fn position_is_unsafe(board: &Board, position: &Position, player: &Player) -> bool {
+    let enemy_player = enemy(&player);
 
     let is_player_piece = |position: &Option<Position>, piece: &PieceType| match position {
         Some(pos) => match board.square(pos) {
@@ -39,7 +37,7 @@ pub fn player_in_check(board: &Board, king_position: &Position) -> bool {
     };
 
     let enemy_in_direction = |direction: &Direction| {
-        into_rolling_board_iterator(&board, &king_player, &king_position, direction)
+        into_rolling_board_iterator(&board, &player, &position, direction)
             .find_map(|pos| board.square(&pos).as_ref())
             .map(|piece| piece.piece)
     };
@@ -47,21 +45,21 @@ pub fn player_in_check(board: &Board, king_position: &Position) -> bool {
     // 1. Pawns
     let pd = -pawn_progress_direction(&enemy_player);
 
-    if is_player_piece(&try_move(&king_position, &dir!(pd, -1)), &PieceType::Pawn)
-        || is_player_piece(&try_move(&king_position, &dir!(pd, 1)), &PieceType::Pawn)
+    if is_player_piece(&try_move(&position, &dir!(pd, -1)), &PieceType::Pawn)
+        || is_player_piece(&try_move(&position, &dir!(pd, 1)), &PieceType::Pawn)
     {
         return true;
     }
 
     // 2. Knights
-    if is_player_piece(&try_move(&king_position, &dir!(-1, -2)), &PieceType::Knight)
-        || is_player_piece(&try_move(&king_position, &dir!(-1, 2)), &PieceType::Knight)
-        || is_player_piece(&try_move(&king_position, &dir!(-2, -1)), &PieceType::Knight)
-        || is_player_piece(&try_move(&king_position, &dir!(-2, 1)), &PieceType::Knight)
-        || is_player_piece(&try_move(&king_position, &dir!(2, -1)), &PieceType::Knight)
-        || is_player_piece(&try_move(&king_position, &dir!(2, 1)), &PieceType::Knight)
-        || is_player_piece(&try_move(&king_position, &dir!(1, -2)), &PieceType::Knight)
-        || is_player_piece(&try_move(&king_position, &dir!(1, 2)), &PieceType::Knight)
+    if is_player_piece(&try_move(&position, &dir!(-1, -2)), &PieceType::Knight)
+        || is_player_piece(&try_move(&position, &dir!(-1, 2)), &PieceType::Knight)
+        || is_player_piece(&try_move(&position, &dir!(-2, -1)), &PieceType::Knight)
+        || is_player_piece(&try_move(&position, &dir!(-2, 1)), &PieceType::Knight)
+        || is_player_piece(&try_move(&position, &dir!(2, -1)), &PieceType::Knight)
+        || is_player_piece(&try_move(&position, &dir!(2, 1)), &PieceType::Knight)
+        || is_player_piece(&try_move(&position, &dir!(1, -2)), &PieceType::Knight)
+        || is_player_piece(&try_move(&position, &dir!(1, 2)), &PieceType::Knight)
     {
         return true;
     }
@@ -95,17 +93,40 @@ pub fn player_in_check(board: &Board, king_position: &Position) -> bool {
     }
 
     // 6. King
-    if is_player_piece(&try_move(&king_position, &dir!(-1, -1)), &PieceType::King)
-        || is_player_piece(&try_move(&king_position, &dir!(-1, 0)), &PieceType::King)
-        || is_player_piece(&try_move(&king_position, &dir!(-1, 1)), &PieceType::King)
-        || is_player_piece(&try_move(&king_position, &dir!(0, -1)), &PieceType::King)
-        || is_player_piece(&try_move(&king_position, &dir!(0, 1)), &PieceType::King)
-        || is_player_piece(&try_move(&king_position, &dir!(1, -1)), &PieceType::King)
-        || is_player_piece(&try_move(&king_position, &dir!(1, 0)), &PieceType::King)
-        || is_player_piece(&try_move(&king_position, &dir!(1, 1)), &PieceType::King)
+    if is_player_piece(&try_move(&position, &dir!(-1, -1)), &PieceType::King)
+        || is_player_piece(&try_move(&position, &dir!(-1, 0)), &PieceType::King)
+        || is_player_piece(&try_move(&position, &dir!(-1, 1)), &PieceType::King)
+        || is_player_piece(&try_move(&position, &dir!(0, -1)), &PieceType::King)
+        || is_player_piece(&try_move(&position, &dir!(0, 1)), &PieceType::King)
+        || is_player_piece(&try_move(&position, &dir!(1, -1)), &PieceType::King)
+        || is_player_piece(&try_move(&position, &dir!(1, 0)), &PieceType::King)
+        || is_player_piece(&try_move(&position, &dir!(1, 1)), &PieceType::King)
     {
         return true;
     }
 
     false
+}
+
+pub fn piece_is_unsafe(board: &Board, position: &Position) -> bool {
+    let square = board.square(position);
+    let player = square.unwrap().player;
+    position_is_unsafe(board, position, &player)
+}
+
+pub fn only_empty_and_safe(
+    board: &Board,
+    position: Option<Position>,
+    player: &Player,
+) -> Option<Position> {
+    match &only_empty(board, position) {
+        Some(position_value) => {
+            if position_is_unsafe(board, position_value, player) {
+                None
+            } else {
+                position
+            }
+        }
+        None => None,
+    }
 }
