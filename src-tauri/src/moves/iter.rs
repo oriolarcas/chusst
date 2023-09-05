@@ -635,9 +635,8 @@ impl<'a> Iterator for KingIter<'a> {
                 KingIterStates::KingIterKingsideCastle => {
                     self.state = KingIterStates::KingIterQueensideCastle;
                     if !self.board_state.game_info.can_castle_kingside(player) {
-                        return None;
-                    }
-                    if only_empty(
+                        None
+                    } else if only_empty(
                         &self.board_state.board,
                         try_move(&self.board_state.position, &dir!(0, 1)),
                     )
@@ -654,9 +653,8 @@ impl<'a> Iterator for KingIter<'a> {
                 KingIterStates::KingIterQueensideCastle => {
                     self.state = KingIterStates::KingIterEnd;
                     if !self.board_state.game_info.can_castle_queenside(player) {
-                        return None;
-                    }
-                    if only_empty(
+                        None
+                    } else if only_empty(
                         &self.board_state.board,
                         try_move(&self.board_state.position, &dir!(0, -1)),
                     )

@@ -1,8 +1,6 @@
-# License
+# Chusst, a simple chess engine in Rust.
 
-Chusst, a simple chess engine in Rust.
-
-## License of the software
+## Copyright of the software
 
 Copyright (C) 2023 Oriol Arcas
 
@@ -16,9 +14,9 @@ but WITHOUT ANY WARRANTY; without even the implied warranty of
 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 GNU General Public License for more details.
 
-You should have received a copy of the GNU General Public License
+You should have received a [copy of the GNU General Public License](LICENSE.txt)
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-## License of the chess piece artwork
+## Copyright of the chess piece artwork
 
-The icon and the chess piece set used in this software have been created by [Colin M.L. Burnett](https://en.wikipedia.org/wiki/User:Cburnett).
+The icon and the chess piece set used in this software have been created by [Colin M. L. Burnett](https://en.wikipedia.org/wiki/User:Cburnett).

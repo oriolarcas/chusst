@@ -745,6 +745,22 @@ mod tests {
                 mv: mv!(e1 => g1),
                 checks: vec![pp!(kw @ g1), pp!(rw @ f1)],
             },
+            // Queenside castling
+            TestBoard {
+                board: None,
+                initial_moves: vec![
+                    mv!(d2 => d4),
+                    mv!(a7 => a6),
+                    mv!(d1 => d3),
+                    mv!(b7 => b6),
+                    mv!(c1 => d2),
+                    mv!(c7 => c6),
+                    mv!(b1 => c3),
+                    mv!(d7 => d6),
+                ],
+                mv: mv!(e1 => c1),
+                checks: vec![pp!(kw @ c1), pp!(rw @ d1)],
+            },
         ];
 
         for test_board in &test_boards {
@@ -951,6 +967,65 @@ mod tests {
                 "unexpected possible move {} in check mate:\n{}",
                 mv!(pos!(a1), *possible_moves.first().unwrap()),
                 game.board
+            );
+        }
+    }
+
+    // Template to quickly test a specific board/move
+    #[test]
+    #[ignore]
+    fn quick_test() {
+        // White: ♙ ♘ ♗ ♖ ♕ ♔
+        // Black: ♟ ♞ ♝ ♜ ♛ ♚
+        let test_boards = [
+            TestBoard {
+                board: Some(
+                    "  a  b  c  d  e  f  g  h \n\
+                    8 [♜][♞][ ][♛][♚][♝][♞][ ]\n\
+                    7 [ ][♝][♟][♟][♟][♟][♟][♜]\n\
+                    6 [ ][♟][ ][ ][ ][ ][ ][ ]\n\
+                    5 [♟][ ][ ][ ][ ][ ][ ][ ]\n\
+                    4 [♙][ ][ ][♙][♙][ ][ ][♙]\n\
+                    3 [ ][♙][♘][ ][♗][♘][♙][ ]\n\
+                    2 [ ][ ][♙][♕][ ][ ][ ][ ]\n\
+                    1 [♖][ ][ ][ ][♔][ ][ ][♖]",
+                ),
+                initial_moves: vec![],
+                mv: mv!(e1 => c1),
+                checks: vec![],
+            },
+        ];
+
+        for test_board in test_boards {
+            // Prepare board
+            let mut game = Game {
+                board: custom_board(&test_board.board),
+                player: Player::White,
+                last_move: None,
+                info: Default::default(),
+            };
+
+            game.info.disable_castle_kingside(&Player::White);
+            game.info.disable_castle_kingside(&Player::Black);
+
+            // Do setup moves
+            for mv in &test_board.initial_moves {
+                assert!(
+                    do_move(&mut game, &mv).is_some(),
+                    "move {} failed:\n{}",
+                    mv,
+                    game.board
+                );
+            }
+
+            // Do move
+            let mut rev_game = <ReversableGame as PlayableGame>::from_game(&mut game);
+
+            assert!(
+                rev_game.do_move(&test_board.mv),
+                "invalid move {}:\n{}",
+                test_board.mv,
+                rev_game.as_ref().board
             );
         }
     }

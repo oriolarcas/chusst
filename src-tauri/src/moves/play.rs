@@ -191,20 +191,17 @@ pub struct ReversableGame<'a> {
     moves: Vec<ReversableMove>,
     last_move: Option<MoveInfo>,
     info: Option<GameInfo>,
-    move_player: Player,
 }
 
 impl<'a> PlayableGame<'a> for ReversableGame<'a> {
     fn from_game(game: &'a mut Game) -> Self {
         let last_move = game.last_move;
         let game_info = game.info;
-        let player = game.player;
         ReversableGame {
             game,
             moves: vec![],
             last_move,
             info: Some(game_info),
-            move_player: player,
         }
     }
 
@@ -222,6 +219,7 @@ impl<'a> PlayableGame<'a> for ReversableGame<'a> {
 }
 
 impl<'a> ReversableGame<'a> {
+    #[allow(dead_code)]
     pub fn undo(&mut self) {
         assert!(!self.moves.is_empty());
 
