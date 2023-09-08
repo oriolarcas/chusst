@@ -174,19 +174,27 @@ pub fn move_name(
             _ => panic!("invalid castling {} in:\n{}", mv, board),
         }
     } else {
+        let piece_char = |piece: &PieceType| {
+            match piece {
+                PieceType::Knight => Some('N'),
+                PieceType::Bishop => Some('B'),
+                PieceType::Rook => Some('R'),
+                PieceType::Queen => Some('Q'),
+                PieceType::King => Some('K'),
+                _ => None,
+            }
+        };
         let tgt_piece_opt = board.square(&mv.target);
         let pieces_iter = player_pieces_iter!(board: board, player: player);
 
-        match src_piece.piece {
-            PieceType::Pawn => {}
-            PieceType::Knight => name.push('N'),
-            PieceType::Bishop => name.push('B'),
-            PieceType::Rook => name.push('R'),
-            PieceType::Queen => name.push('Q'),
-            PieceType::King => name.push('K'),
+        match piece_char(&src_piece.piece) {
+            Some(piece_char_value) => name.push(piece_char_value),
+            None => (),
         }
 
-        let is_en_passant = src_piece.piece == PieceType::Pawn
+        let is_pawn = src_piece.piece == PieceType::Pawn;
+
+        let is_en_passant = is_pawn
             && mv.source.col != mv.target.col
             && board.square(&mv.target).is_none();
 
@@ -234,10 +242,19 @@ pub fn move_name(
         }
 
         if tgt_piece_opt.is_some() || is_en_passant {
+            if is_pawn {
+                name.push(source_suffix.chars().nth(0).unwrap());
+            }
             name.push('x');
         }
 
         name.push_str(format!("{}", mv.target).as_str());
+
+        // Is promotion?
+        if is_pawn && mv.target.row == Board::promotion_rank(player) {
+            name.push('=');
+            name.push(piece_char(&PieceType::Queen).unwrap());
+        }
     }
 
     // Is check?
