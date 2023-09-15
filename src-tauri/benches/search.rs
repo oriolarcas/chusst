@@ -1,4 +1,4 @@
-use chusst::board::{initial_board, Game, Player};
+use chusst::board::Game;
 use chusst::moves::{do_move, get_best_move_recursive};
 
 #[macro_use]
@@ -9,12 +9,7 @@ use bencher::Bencher;
 fn search(bench: &mut Bencher) {
     let mut searched = 0u64;
     bench.iter(|| {
-        let mut game = Game {
-            board: *initial_board(),
-            player: Player::White,
-            last_move: None,
-            info: Default::default(),
-        };
+        let mut game = Game::new();
 
         let best_branch = get_best_move_recursive(&mut game, 3).unwrap();
 
@@ -27,12 +22,7 @@ fn search(bench: &mut Bencher) {
 fn game_benchmark() -> u64 {
     // use std::io::Write;
 
-    let mut game = Game {
-        board: *initial_board(),
-        player: Player::White,
-        last_move: None,
-        info: Default::default(),
-    };
+    let mut game = Game::new();
     let get_best_move_helper = |game: &mut Game| {
         let best_branch = get_best_move_recursive(game, 3).unwrap();
 

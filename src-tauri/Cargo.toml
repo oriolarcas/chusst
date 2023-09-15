@@ -1,6 +1,6 @@
 [package]
 name = "chusst"
-version = "0.5.0"
+version = "0.7.0"
 description = "A simple chess engine in Rust"
 authors = ["Oriol Arcas"]
 license = ""
@@ -23,7 +23,11 @@ atty = "0.2.14"
 bencher = "0.1.5"
 
 [features]
-search-by-rollback = []
+# DO NOT set 'default', breaks production build
+
+# Build with this feature to print the search tree to stdout
+verbose-search = []
+
 # this feature is used for production builds or when `devPath` points to the filesystem
 # DO NOT REMOVE!!
 custom-protocol = ["tauri/custom-protocol"]

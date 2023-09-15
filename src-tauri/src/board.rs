@@ -299,8 +299,10 @@ const INITIAL_BOARD: Board = Board {
     ],
 };
 
-pub const fn initial_board() -> &'static Board {
-    &INITIAL_BOARD
+impl Board {
+    pub const fn new() -> Board {
+        INITIAL_BOARD
+    }
 }
 
 #[derive(Copy, Clone, PartialEq, Serialize)]
@@ -636,4 +638,15 @@ pub struct Game {
     pub player: Player,
     pub last_move: Option<MoveInfo>,
     pub info: GameInfo,
+}
+
+impl Game {
+    pub const fn new() -> Game {
+        Game {
+            board: INITIAL_BOARD,
+            player: Player::White,
+            last_move: None,
+            info: GameInfo::new(),
+        }
+    }
 }

@@ -1,6 +1,6 @@
 {
   "name": "chusst",
-  "version": "0.5.0",
+  "version": "0.7.0",
   "private": true,
   "dependencies": {
     "@tauri-apps/api": "^1.4.0",

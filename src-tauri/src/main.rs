@@ -1,7 +1,7 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use chusst::board::{initial_board, Game, GameInfo, Move, Piece, Player, Position};
+use chusst::board::{Game, Move, Piece, Position};
 use chusst::moves;
 use chusst::moves::MateType;
 
@@ -29,12 +29,7 @@ struct GameData {
 }
 
 static GAME: Mutex<GameData> = Mutex::new(GameData {
-    game: Game {
-        board: *initial_board(),
-        player: Player::White,
-        last_move: None,
-        info: GameInfo::new(),
-    },
+    game: Game::new(),
     history: vec![],
 });
 
@@ -155,12 +150,7 @@ fn do_move(source_row: usize, source_col: usize, target_row: usize, target_col: 
 fn restart() {
     let data = &mut GAME.lock().unwrap();
 
-    data.game = Game {
-        board: *initial_board(),
-        player: Player::White,
-        last_move: None,
-        info: Default::default(),
-    };
+    data.game = Game::new();
 
     data.history.clear();
 

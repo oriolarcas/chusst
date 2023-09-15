@@ -24,7 +24,57 @@ use self::play::{PlayableGame, ReversableGame};
 // List of pieces that can capture each square
 pub type BoardCaptures = Rows<Vec<Position>>;
 
-type Score = i32;
+#[derive(PartialEq, Default, Eq, PartialOrd, Ord, Copy, Clone)]
+pub struct Score(i32);
+
+impl Score {
+    pub const MAX: Self = Self(i32::MAX);
+    pub const MIN: Self = Self(-i32::MAX); // -i32::MIN > i32::MAX
+}
+
+impl From<i32> for Score {
+    fn from(value: i32) -> Self {
+        Score(value)
+    }
+}
+
+impl std::fmt::Display for Score {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        if *self <= Self::MIN {
+            write!(f, "-∞")
+        } else if *self >= Self::MAX {
+            write!(f, "+∞")
+        } else {
+            self.0.fmt(f)
+        }
+    }
+}
+
+impl std::ops::Add for Score {
+    type Output = Self;
+    fn add(self, other: Self) -> Self::Output {
+        Self::Output::from(self.0.saturating_add(other.0))
+    }
+}
+
+impl std::ops::Sub for Score {
+    type Output = Self;
+    fn sub(self, other: Self) -> Self::Output {
+        Self::Output::from(self.0.saturating_sub(other.0))
+    }
+}
+
+impl std::ops::Neg for Score {
+    type Output = Self;
+
+    fn neg(self) -> Self::Output {
+        if self <= Self::MIN {
+            Self::MAX
+        } else {
+            Self(-self.0)
+        }
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub enum MateType {
@@ -174,15 +224,13 @@ pub fn move_name(
             _ => panic!("invalid castling {} in:\n{}", mv, board),
         }
     } else {
-        let piece_char = |piece: &PieceType| {
-            match piece {
-                PieceType::Knight => Some('N'),
-                PieceType::Bishop => Some('B'),
-                PieceType::Rook => Some('R'),
-                PieceType::Queen => Some('Q'),
-                PieceType::King => Some('K'),
-                _ => None,
-            }
+        let piece_char = |piece: &PieceType| match piece {
+            PieceType::Knight => Some('N'),
+            PieceType::Bishop => Some('B'),
+            PieceType::Rook => Some('R'),
+            PieceType::Queen => Some('Q'),
+            PieceType::King => Some('K'),
+            _ => None,
         };
         let tgt_piece_opt = board.square(&mv.target);
         let pieces_iter = player_pieces_iter!(board: board, player: player);
@@ -194,9 +242,8 @@ pub fn move_name(
 
         let is_pawn = src_piece.piece == PieceType::Pawn;
 
-        let is_en_passant = is_pawn
-            && mv.source.col != mv.target.col
-            && board.square(&mv.target).is_none();
+        let is_en_passant =
+            is_pawn && mv.source.col != mv.target.col && board.square(&mv.target).is_none();
 
         let mut piece_in_same_file = false;
         let mut piece_in_same_rank = false;
@@ -275,7 +322,7 @@ pub fn move_name(
                 .find(|position| **position == enemy_king_position)
                 .is_some();
         if causes_check {
-            let is_checkmate = get_best_move_recursive(&mut game, 0).is_none();
+            let is_checkmate = get_best_move_shallow(&mut game).is_none();
 
             name.push(if is_checkmate { '#' } else { '+' });
         }
@@ -284,7 +331,12 @@ pub fn move_name(
     Some(name)
 }
 
-pub fn move_branch_names(board: &Board, player: &Player, game_info: &GameInfo, moves: &Vec<&Move>) -> Vec<String> {
+pub fn move_branch_names(
+    board: &Board,
+    player: &Player,
+    game_info: &GameInfo,
+    moves: &Vec<&Move>,
+) -> Vec<String> {
     let mut game = Game {
         board: *board,
         player: *player,
@@ -306,16 +358,25 @@ pub fn move_branch_names(board: &Board, player: &Player, game_info: &GameInfo, m
 
 fn get_piece_value(piece: PieceType) -> Score {
     match piece {
-        PieceType::Pawn => 100,
-        PieceType::Knight => 300,
-        PieceType::Bishop => 300,
-        PieceType::Rook => 500,
-        PieceType::Queen => 900,
+        PieceType::Pawn => Score::from(100),
+        PieceType::Knight => Score::from(300),
+        PieceType::Bishop => Score::from(300),
+        PieceType::Rook => Score::from(500),
+        PieceType::Queen => Score::from(900),
         PieceType::King => Score::MAX,
     }
 }
 
-pub fn get_best_move_recursive(game: &mut Game, search_depth: u32) -> Option<Branch> {
+// Negamax with alpha-beta pruning
+fn get_best_move_recursive_alpha_beta(
+    game: &mut Game,
+    current_depth: u32,
+    max_depth: u32,
+    alpha: Score,
+    beta: Score,
+    parent_score: Score,
+    silent: bool,
+) -> Option<Branch> {
     let pieces_iter =
         player_pieces_iter!(board: &game.board, player: &game.player).collect::<Vec<Position>>();
 
@@ -326,7 +387,18 @@ pub fn get_best_move_recursive(game: &mut Game, search_depth: u32) -> Option<Bra
     let player = game.player;
     let king_position = find_player_king(&game.board, &game.player);
 
-    for player_piece_position in pieces_iter {
+    let mut local_alpha = alpha;
+
+    let is_leaf_node = current_depth < max_depth;
+
+    #[cfg(feature = "verbose-search")]
+    let indent = |depth: u32| {
+        std::iter::repeat("  ")
+            .take(usize::try_from(depth).unwrap())
+            .collect::<String>()
+    };
+
+    'main_loop: for player_piece_position in pieces_iter {
         let current_piece = &game.board.square(&player_piece_position).unwrap().piece;
 
         for possible_position in get_possible_moves_no_checks(
@@ -337,6 +409,7 @@ pub fn get_best_move_recursive(game: &mut Game, search_depth: u32) -> Option<Bra
         ) {
             searched_moves += 1;
 
+            // Evaluate this move locally
             let local_score = match &game.board.square(&possible_position) {
                 Some(piece) => get_piece_value(piece.piece),
                 None => {
@@ -346,32 +419,56 @@ pub fn get_best_move_recursive(game: &mut Game, search_depth: u32) -> Option<Bra
                         // Promotion
                         get_piece_value(PieceType::Queen)
                     } else {
-                        0
+                        Score::from(0)
                     }
                 }
             };
 
-            let mut branch = Branch {
-                moves: vec![WeightedMove {
-                    mv: mv!(player_piece_position, possible_position),
-                    score: local_score,
-                }],
-                score: local_score,
-                searched: 0,
-            };
-
-            let mv = branch.moves.first().unwrap();
+            let mv = mv!(player_piece_position, possible_position);
 
             let mut rev_game = SearchableGame::from_game(game);
 
-            if !move_with_checks(&mut rev_game, &mv.mv, &king_position) {
+            // Check if the move is legal
+            if !move_with_checks(&mut rev_game, &mv, &king_position) {
                 continue;
             }
 
+            let mut branch = Branch {
+                moves: vec![WeightedMove {
+                    mv: mv,
+                    score: local_score,
+                }],
+                // Negamax: negate score from previous move
+                score: local_score - parent_score,
+                searched: 0,
+            };
+
+            #[cfg(feature = "verbose-search")]
+            if !silent {
+                println!(
+                    "{}{} {} {:+} α: {}, β: {}{}",
+                    indent(current_depth),
+                    player,
+                    mv,
+                    branch.score,
+                    local_alpha,
+                    beta,
+                    if is_leaf_node { " {" } else { "" },
+                );
+            }
+
             // Recursion
-            if search_depth > 0 {
-                let mut next_moves_opt =
-                    get_best_move_recursive(rev_game.as_mut(), search_depth - 1);
+            if is_leaf_node {
+                let mut next_moves_opt = get_best_move_recursive_alpha_beta(
+                    rev_game.as_mut(),
+                    current_depth + 1,
+                    max_depth,
+                    // beta becomes the alpha of the other player, and viceversa
+                    -beta,
+                    -local_alpha,
+                    branch.score,
+                    silent,
+                );
 
                 let is_check_mate = if next_moves_opt.is_none() {
                     // check or stale mate?
@@ -383,20 +480,62 @@ pub fn get_best_move_recursive(game: &mut Game, search_depth: u32) -> Option<Bra
                     false
                 };
 
+                #[cfg(feature = "verbose-search")]
+                if !silent {
+                    println!(
+                        "{}Best child: {}",
+                        indent(current_depth + 1),
+                        next_moves_opt
+                            .as_ref()
+                            .map_or("<mate>".to_string(), |sub_branch| format!(
+                                "{}{:+}",
+                                sub_branch.moves.first().unwrap().mv,
+                                sub_branch.score
+                            ))
+                    );
+                }
+
                 let is_stale_mate = next_moves_opt.is_none() && !is_check_mate;
 
                 if is_check_mate {
-                    branch.score = local_score.saturating_add(get_piece_value(PieceType::King));
+                    branch.score = branch.score + get_piece_value(PieceType::King);
                 } else if !is_stale_mate {
                     let next_moves = next_moves_opt.as_mut().unwrap();
 
                     branch.moves.append(&mut next_moves.moves);
-                    branch.score = local_score.saturating_sub(next_moves.score);
+                    branch.score = -next_moves.score; // notice the score of the next move is negated
                     branch.searched = next_moves.searched;
                 }
 
                 searched_moves += branch.searched;
-            };
+
+                #[cfg(feature = "verbose-search")]
+                if !silent {
+                    println!("{}}}", indent(current_depth));
+                }
+
+                if branch.score >= beta {
+                    // Fail hard beta cutoff
+
+                    #[cfg(feature = "verbose-search")]
+                    if !silent {
+                        println!(
+                            "{}β cutoff: {} >= {}",
+                            indent(current_depth),
+                            branch.score,
+                            beta
+                        );
+                    }
+
+                    if best_move.as_ref().is_none() {
+                        best_move = Some(branch);
+                    }
+
+                    best_move.as_mut().unwrap().score = beta;
+
+                    break 'main_loop;
+                }
+            }
 
             match &best_move {
                 Some(current_best_move) => {
@@ -411,6 +550,9 @@ pub fn get_best_move_recursive(game: &mut Game, search_depth: u32) -> Option<Bra
                     best_move = Some(branch);
                 }
             }
+
+            // This will be the beta for the next move
+            local_alpha = best_move.as_ref().unwrap().score;
         }
     }
 
@@ -422,6 +564,22 @@ pub fn get_best_move_recursive(game: &mut Game, search_depth: u32) -> Option<Bra
     }
 
     best_move
+}
+
+fn get_best_move_shallow(game: &mut Game) -> Option<Branch> {
+    get_best_move_recursive_alpha_beta(game, 0, 0, Score::MIN, Score::MAX, Score::from(0), true)
+}
+
+pub fn get_best_move_recursive(game: &mut Game, search_depth: u32) -> Option<Branch> {
+    get_best_move_recursive_alpha_beta(
+        game,
+        0,
+        search_depth,
+        Score::MIN,
+        Score::MAX,
+        Score::from(0),
+        false,
+    )
 }
 
 fn get_possible_captures_of_position(
@@ -553,7 +711,7 @@ pub fn is_mate(
         info: *game_info,
     };
 
-    if get_best_move_recursive(&mut game, 0).is_none() {
+    if get_best_move_shallow(&mut game).is_none() {
         let king_position = find_player_king(&board, &player);
         return if piece_is_unsafe(&board, &king_position) {
             Some(MateType::Checkmate)
@@ -622,7 +780,7 @@ pub fn do_move(game: &mut Game, mv: &Move) -> Option<Vec<Piece>> {
 mod tests {
     use super::play::{PlayableGame, ReversableGame};
     use super::{do_move, get_possible_moves, move_name, mv, piece_is_unsafe};
-    use crate::board::{initial_board, Board, Game, Move, Piece, PieceType, Player, Position};
+    use crate::board::{Board, Game, Move, Piece, PieceType, Player, Position};
     use crate::{p, pos};
 
     struct PiecePosition {
@@ -699,7 +857,7 @@ mod tests {
                 }
                 board
             }
-            None => *initial_board(),
+            None => Board::new(),
         }
     }
 
@@ -996,10 +1154,9 @@ mod tests {
     fn quick_test() {
         // White: ♙ ♘ ♗ ♖ ♕ ♔
         // Black: ♟ ♞ ♝ ♜ ♛ ♚
-        let test_boards = [
-            TestBoard {
-                board: Some(
-                    "  a  b  c  d  e  f  g  h \n\
+        let test_boards = [TestBoard {
+            board: Some(
+                "  a  b  c  d  e  f  g  h \n\
                     8 [♜][♞][ ][♛][♚][♝][♞][ ]\n\
                     7 [ ][♝][♟][♟][♟][♟][♟][♜]\n\
                     6 [ ][♟][ ][ ][ ][ ][ ][ ]\n\
@@ -1008,12 +1165,11 @@ mod tests {
                     3 [ ][♙][♘][ ][♗][♘][♙][ ]\n\
                     2 [ ][ ][♙][♕][ ][ ][ ][ ]\n\
                     1 [♖][ ][ ][ ][♔][ ][ ][♖]",
-                ),
-                initial_moves: vec![],
-                mv: mv!(e1 => c1),
-                checks: vec![],
-            },
-        ];
+            ),
+            initial_moves: vec![],
+            mv: mv!(e1 => c1),
+            checks: vec![],
+        }];
 
         for test_board in test_boards {
             // Prepare board
