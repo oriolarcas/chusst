@@ -144,16 +144,37 @@ class ScoreBoard extends Component<{
     const white_score = white_total_score - black_total_score;
     const black_score = black_total_score - white_total_score;
 
+    // Hide pawns captured by both players
+    const count_pawns = (captured: string[]) => captured.filter((piece) => piece.toLowerCase() == "pawn").length;
+    const white_captured_pawns = count_pawns(this.state.white_captures);
+    const black_captured_pawns = count_pawns(this.state.black_captures);
+    const common_captured_pawns = Math.min(white_captured_pawns, black_captured_pawns);
+    const pawn_filter = function* (captured: string[]) {
+      let counter = 0;
+      for (const piece of captured) {
+        if (piece.toLowerCase() == "pawn") {
+          counter++;
+          if (counter <= common_captured_pawns) {
+            continue;
+          }
+        }
+        yield piece;
+      }
+    };
+
+    const filtered_white_captures = Array.from(pawn_filter(this.state.white_captures));
+    const filtered_black_captures = Array.from(pawn_filter(this.state.black_captures));
+
     return <Row className='score-board'>
         <Col style={{textAlign: 'left'}}>
           <p className='m-0'>White ({white_score})</p>
-          <p className='captured-list'>{this.state.white_captures.map((piece) =>
+          <p className='captured-list'>{filtered_white_captures.map((piece) =>
             <div className={'captured piece black ' + piece.toLowerCase()}></div>
           )}</p>
         </Col>
         <Col style={{textAlign: 'right'}}>
           <p className='m-0'>Black ({black_score})</p>
-          <p className='captured-list'>{this.state.black_captures.map((piece) =>
+          <p className='captured-list'>{filtered_black_captures.map((piece) =>
             <div className={'captured piece white ' + piece.toLowerCase()}></div>
           )}</p>
         </Col>
