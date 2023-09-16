@@ -227,24 +227,26 @@ pub fn move_name(
             }
         }
 
+        let is_capture = tgt_piece_opt.is_some() || is_en_passant;
+
         let source_suffix = format!("{}", mv.source);
-        if is_en_passant {
-            name.push(source_suffix.chars().nth(0).unwrap());
+        let source_rank = source_suffix.chars().nth(1).unwrap();
+        let source_file = source_suffix.chars().nth(0).unwrap();
+
+        if is_en_passant || (is_pawn && is_capture) {
+            name.push(source_file);
         } else if piece_in_same_file && piece_in_same_rank {
             // Same type of pieces in same rank and file: file and rank suffix
             name.push_str(source_suffix.as_str());
         } else if piece_in_same_rank {
             // Same type of pieces in same rank but different file: file suffix
-            name.push(source_suffix.chars().nth(0).unwrap());
+            name.push(source_file);
         } else if piece_in_same_file {
             // Same type of pieces in same file but different rank: rank suffix
-            name.push(source_suffix.chars().nth(1).unwrap());
+            name.push(source_rank);
         }
 
-        if tgt_piece_opt.is_some() || is_en_passant {
-            if is_pawn {
-                name.push(source_suffix.chars().nth(0).unwrap());
-            }
+        if is_capture {
             name.push('x');
         }
 

@@ -145,14 +145,14 @@ class ScoreBoard extends Component<{
     const black_score = black_total_score - white_total_score;
 
     // Hide pawns captured by both players
-    const count_pawns = (captured: string[]) => captured.filter((piece) => piece.toLowerCase() == "pawn").length;
+    const count_pawns = (captured: string[]) => captured.filter((piece) => piece.toLowerCase() === "pawn").length;
     const white_captured_pawns = count_pawns(this.state.white_captures);
     const black_captured_pawns = count_pawns(this.state.black_captures);
     const common_captured_pawns = Math.min(white_captured_pawns, black_captured_pawns);
     const pawn_filter = function* (captured: string[]) {
       let counter = 0;
       for (const piece of captured) {
-        if (piece.toLowerCase() == "pawn") {
+        if (piece.toLowerCase() === "pawn") {
           counter++;
           if (counter <= common_captured_pawns) {
             continue;
