@@ -514,7 +514,7 @@ fn get_best_move_recursive_alpha_beta(
                     println!("{}}}", indent(current_depth));
                 }
 
-                if branch.score >= beta {
+                if branch.score >= beta && branch.score < Score::MAX {
                     // Fail hard beta cutoff
 
                     #[cfg(feature = "verbose-search")]
