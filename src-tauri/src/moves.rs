@@ -18,8 +18,17 @@ use std::collections::HashMap;
 use std::time::Instant;
 
 use self::conditions::try_move;
-use self::iter::pawn_progress_direction;
 use self::play::{PlayableGame, ReversableGame};
+
+pub trait HasStopSignal {
+    fn stop(&mut self) -> bool;
+}
+
+impl HasStopSignal for () {
+    fn stop(&mut self) -> bool {
+        false
+    }
+}
 
 // List of pieces that can capture each square
 pub type BoardCaptures = Rows<Vec<Position>>;
@@ -376,6 +385,7 @@ fn get_best_move_recursive_alpha_beta(
     beta: Score,
     parent_score: Score,
     silent: bool,
+    stop_signal: &mut impl HasStopSignal,
 ) -> Option<Branch> {
     let pieces_iter =
         player_pieces_iter!(board: &game.board, player: &game.player).collect::<Vec<Position>>();
@@ -407,6 +417,10 @@ fn get_best_move_recursive_alpha_beta(
             &game.info,
             player_piece_position,
         ) {
+            if stop_signal.stop() {
+                break 'main_loop;
+            }
+
             searched_moves += 1;
 
             // Evaluate this move locally
@@ -468,6 +482,7 @@ fn get_best_move_recursive_alpha_beta(
                     -local_alpha,
                     branch.score,
                     silent,
+                    stop_signal,
                 );
 
                 let is_check_mate = if next_moves_opt.is_none() {
@@ -567,10 +582,23 @@ fn get_best_move_recursive_alpha_beta(
 }
 
 fn get_best_move_shallow(game: &mut Game) -> Option<Branch> {
-    get_best_move_recursive_alpha_beta(game, 0, 0, Score::MIN, Score::MAX, Score::from(0), true)
+    get_best_move_recursive_alpha_beta(
+        game,
+        0,
+        0,
+        Score::MIN,
+        Score::MAX,
+        Score::from(0),
+        true,
+        &mut (),
+    )
 }
 
-pub fn get_best_move_recursive(game: &mut Game, search_depth: u32) -> Option<Branch> {
+pub fn get_best_move_recursive(
+    game: &mut Game,
+    search_depth: u32,
+    stop_signal: &mut impl HasStopSignal,
+) -> Option<Branch> {
     get_best_move_recursive_alpha_beta(
         game,
         0,
@@ -579,6 +607,7 @@ pub fn get_best_move_recursive(game: &mut Game, search_depth: u32) -> Option<Bra
         Score::MAX,
         Score::from(0),
         false,
+        stop_signal,
     )
 }
 
@@ -604,7 +633,7 @@ fn get_possible_captures_of_position(
                 {
                     let passed_rank = usize::try_from(
                         i8::try_from(position.row).unwrap()
-                            - pawn_progress_direction(&square.player),
+                            - Board::pawn_progress_direction(&square.player),
                     )
                     .unwrap();
                     captures.push(pos!(passed_rank, possible_position.col));
@@ -636,10 +665,15 @@ pub fn get_possible_captures(
     board_captures
 }
 
-pub fn get_best_move(game: &mut Game, search_depth: u32) -> GameMove {
+pub fn get_best_move_with_logger(
+    game: &mut Game,
+    search_depth: u32,
+    stop_signal: &mut impl HasStopSignal,
+    logger: &mut impl std::io::Write,
+) -> GameMove {
     let player = game.player;
     let start_time = Instant::now();
-    let best_branch = get_best_move_recursive(game, search_depth);
+    let best_branch = get_best_move_recursive(game, search_depth, stop_signal);
     let duration = (Instant::now() - start_time).as_secs_f64();
 
     if best_branch.is_none() {
@@ -647,12 +681,12 @@ pub fn get_best_move(game: &mut Game, search_depth: u32) -> GameMove {
         let king_position = find_player_king(&game.board, &player);
         let is_check_mate = piece_is_unsafe(&game.board, &king_position);
 
-        print!("  ({:.2} s.) ", duration);
+        write!(logger, "  ({:.2} s.) ", duration);
         let enemy_player = enemy(&player);
         if is_check_mate {
-            println!("Checkmate, {} wins", enemy_player);
+            writeln!(logger, "Checkmate, {} wins", enemy_player);
         } else {
-            println!("Stalemate caused by {}", enemy_player);
+            writeln!(logger, "Stalemate caused by {}", enemy_player);
         }
         return if is_check_mate {
             GameMove::Mate(MateType::Checkmate)
@@ -679,7 +713,8 @@ pub fn get_best_move(game: &mut Game, search_depth: u32) -> GameMove {
         .map(|mv| &mv.mv)
         .collect::<Vec<&Move>>();
 
-    println!(
+    writeln!(
+        logger,
         "  ({:.2} s., {:.0} mps) Best branch {:+} after {}: {}",
         duration,
         f64::from(total_moves) / duration,
@@ -695,6 +730,10 @@ pub fn get_best_move(game: &mut Game, search_depth: u32) -> GameMove {
     );
 
     GameMove::Normal(**branch_moves.first().unwrap())
+}
+
+pub fn get_best_move(game: &mut Game, search_depth: u32) -> GameMove {
+    get_best_move_with_logger(game, search_depth, &mut (), &mut std::io::stdout())
 }
 
 pub fn is_mate(

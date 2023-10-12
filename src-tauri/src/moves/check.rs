@@ -1,8 +1,6 @@
 use crate::board::{Board, PieceType, Player, Position};
 use crate::moves::conditions::{enemy, only_empty, try_move, Direction};
-use crate::moves::iter::{
-    dir, into_rolling_board_iterator, pawn_progress_direction, player_pieces_iter, PlayerPiecesIter,
-};
+use crate::moves::iter::{dir, into_rolling_board_iterator, player_pieces_iter, PlayerPiecesIter};
 
 pub fn find_player_king(board: &Board, player: &Player) -> Position {
     let king_pos_option = player_pieces_iter!(board: board, player: player)
@@ -43,7 +41,7 @@ fn position_is_unsafe(board: &Board, position: &Position, player: &Player) -> bo
     };
 
     // 1. Pawns
-    let pd = -pawn_progress_direction(&enemy_player);
+    let pd = -Board::pawn_progress_direction(&enemy_player);
 
     if is_player_piece(&try_move(&position, &dir!(pd, -1)), &PieceType::Pawn)
         || is_player_piece(&try_move(&position, &dir!(pd, 1)), &PieceType::Pawn)
