@@ -4,7 +4,7 @@ Simple project to learn about chess programming, Rust and Tauri.
 
 # How to build
 
-Run `cargo tauri dev` to build and run the UI, which will allow you to play against the engine.
+Run `cargo tauri dev` from `src-tauri` to build and run the UI, which will allow you to play against the engine.
 
 # License and copyright
 

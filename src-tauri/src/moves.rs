@@ -30,6 +30,19 @@ impl HasStopSignal for () {
     }
 }
 
+macro_rules! log {
+    ($logger:expr, $str:expr) => {
+        {
+            let _ = writeln!($logger, $str);
+        }
+    };
+    ($logger:expr, $fmt:expr, $($param:expr),*) => {
+        {
+            let _ = writeln!($logger, $fmt, $($param),+);
+        }
+    };
+}
+
 // List of pieces that can capture each square
 pub type BoardCaptures = Rows<Vec<Position>>;
 
@@ -85,12 +98,13 @@ impl std::ops::Neg for Score {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Copy, Clone, Debug, PartialEq, Serialize)]
 pub enum MateType {
     Checkmate,
     Stalemate,
 }
 
+#[derive(Copy, Clone)]
 pub enum GameMove {
     Normal(Move),
     Mate(MateType),
@@ -681,12 +695,12 @@ pub fn get_best_move_with_logger(
         let king_position = find_player_king(&game.board, &player);
         let is_check_mate = piece_is_unsafe(&game.board, &king_position);
 
-        write!(logger, "  ({:.2} s.) ", duration);
+        log!(logger, "  ({:.2} s.) ", duration);
         let enemy_player = enemy(&player);
         if is_check_mate {
-            writeln!(logger, "Checkmate, {} wins", enemy_player);
+            log!(logger, "Checkmate, {} wins", enemy_player);
         } else {
-            writeln!(logger, "Stalemate caused by {}", enemy_player);
+            log!(logger, "Stalemate caused by {}", enemy_player);
         }
         return if is_check_mate {
             GameMove::Mate(MateType::Checkmate)
@@ -713,7 +727,7 @@ pub fn get_best_move_with_logger(
         .map(|mv| &mv.mv)
         .collect::<Vec<&Move>>();
 
-    writeln!(
+    log!(
         logger,
         "  ({:.2} s., {:.0} mps) Best branch {:+} after {}: {}",
         duration,
@@ -726,7 +740,7 @@ pub fn get_best_move_with_logger(
         )
         .map(|(move_info, move_name)| format!("{}{:+}", move_name, move_info.score))
         .collect::<Vec<String>>()
-        .join(" "),
+        .join(" ")
     );
 
     GameMove::Normal(**branch_moves.first().unwrap())

@@ -11,7 +11,7 @@ fn search(bench: &mut Bencher) {
     bench.iter(|| {
         let mut game = Game::new();
 
-        let best_branch = get_best_move_recursive(&mut game, 3).unwrap();
+        let best_branch = get_best_move_recursive(&mut game, 3, &mut ()).unwrap();
 
         searched = u64::from(best_branch.searched);
     });
@@ -24,7 +24,7 @@ fn game_benchmark() -> u64 {
 
     let mut game = Game::new();
     let get_best_move_helper = |game: &mut Game| {
-        let best_branch = get_best_move_recursive(game, 3).unwrap();
+        let best_branch = get_best_move_recursive(game, 3, &mut ()).unwrap();
 
         (best_branch.searched, best_branch.moves.first().unwrap().mv)
     };
