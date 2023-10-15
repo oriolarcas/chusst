@@ -1201,6 +1201,15 @@ mod tests {
         }
     }
 
+    #[test]
+    fn fen_parsing() {
+        let start_pos_fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+        let parsed_game = Game::try_from_fen(start_pos_fen.split_ascii_whitespace().collect::<Vec<&str>>().as_slice());
+        assert!(parsed_game.is_some(), "Failed to parse FEN string");
+        let game = parsed_game.unwrap();
+        assert_eq!(game, Game::new(), "\n{}", game.board);
+    }
+
     // Template to quickly test a specific board/move
     #[test]
     #[ignore]

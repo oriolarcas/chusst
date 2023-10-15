@@ -2,9 +2,10 @@ mod duplex_thread;
 mod engine;
 mod stdin;
 
-use engine::{EngineCommand, EngineResponse, GoCommand, NewGameCommand};
 use chusst::board::{Game, Move};
 use chusst::moves::GameMove;
+use engine::{create_engine_thread, EngineCommand, EngineResponse, GoCommand, NewGameCommand};
+use stdin::{create_stdin_thread, StdinResponse};
 
 use crossbeam_channel::select;
 use rust_fsm::*;
@@ -14,7 +15,7 @@ use std::io::Write;
 use std::time::Instant;
 
 enum SyncInput {
-    FromStdin(String),
+    FromStdin(StdinResponse),
     FromEngine(EngineResponse),
 }
 
@@ -48,13 +49,20 @@ state_machine! {
     },
     Searching => {
         CommandStop => WaitingForResult[EngineCommandStop],
+        EngineResult => WaitingForStop[SaveBestMove],
         // Additional commands
         CommandIsReady => Ready[OutputCommandReadyOk],
     },
     WaitingForResult => {
         EngineResult => Ready[OutputCommandBestMove],
         // Additional commands
+        CommandIsReady => Ready[OutputCommandReadyOk],
         CommandStop => WaitingForResult,
+    },
+    WaitingForStop => {
+        CommandStop => Ready[OutputSavedCommandBestMove],
+        // Additional commands
+        CommandIsReady => Ready[WaitingForStop],
     }
 }
 
@@ -115,8 +123,8 @@ fn uci_loop<'scope, 'env>(scope: &'scope std::thread::Scope<'scope, 'env>) {
     }
 
     let mut search_depth = 3;
-    let engine_thread = engine::create_engine_thread(scope);
-    let stdin_thread = stdin::create_stdin_thread(scope);
+    let engine_thread = create_engine_thread(scope);
+    let stdin_thread = create_stdin_thread(scope);
 
     log!("Starting engine");
 
@@ -132,45 +140,54 @@ fn uci_loop<'scope, 'env>(scope: &'scope std::thread::Scope<'scope, 'env>) {
 
     let mut uci_protocol: StateMachine<UciProtocol> = StateMachine::new();
 
-    let get_input = || -> Option<SyncInput> {
+    let get_input = || -> Result<SyncInput, String> {
         select! {
-            recv(stdin_thread.from_thread) -> stdin_line => return Some(SyncInput::FromStdin(stdin_line.ok()?)),
-            recv(engine_thread.from_thread) -> engine_response => return Some(SyncInput::FromEngine(engine_response.ok()?)),
+            recv(stdin_thread.from_thread) -> stdin_line => return Ok(SyncInput::FromStdin(stdin_line.map_err(stringify_stdin_err)?)),
+            recv(engine_thread.from_thread) -> engine_response => return Ok(SyncInput::FromEngine(engine_response.map_err(stringify_engine_err)?)),
         }
     };
+
+    let mut last_best_move: Option<GameMove> = None;
 
     loop {
         let input = get_input();
 
         let (protocol_input, parsed_input) = match &input {
-            Some(SyncInput::FromStdin(stdin_line)) => {
-                let words = parse_command(stdin_line.as_str(), &mut logger);
-                let protocol_stdin_input = if let Some(stdin_command) = words.first() {
-                    match stdin_command.as_str() {
-                        "uci" => UciProtocolInput::CommandUci,
-                        "isready" => UciProtocolInput::CommandIsReady,
-                        "setparam" => UciProtocolInput::CommandSetParam,
-                        "ucinewgame" => UciProtocolInput::CommandUciNewGame,
-                        "position" => UciProtocolInput::CommandPosition,
-                        "go" => UciProtocolInput::CommandGo,
-                        "stop" => UciProtocolInput::CommandStop,
-                        // Exit
-                        "quit" => break,
-                        // Unknown command, ignore:
-                        _ => {
-                            log!("Unknown command");
-                            continue;
+            Ok(SyncInput::FromStdin(stdin_response)) => match &stdin_response {
+                Ok(stdin_line) => {
+                    let words = parse_command(stdin_line.as_str(), &mut logger);
+                    let protocol_stdin_input = if let Some(stdin_command) = words.first() {
+                        match stdin_command.as_str() {
+                            "uci" => UciProtocolInput::CommandUci,
+                            "isready" => UciProtocolInput::CommandIsReady,
+                            "setparam" => UciProtocolInput::CommandSetParam,
+                            "ucinewgame" => UciProtocolInput::CommandUciNewGame,
+                            "position" => UciProtocolInput::CommandPosition,
+                            "go" => UciProtocolInput::CommandGo,
+                            "stop" => UciProtocolInput::CommandStop,
+                            // Exit
+                            "quit" => break,
+                            // Unknown command, ignore:
+                            _ => {
+                                log!("Unknown command");
+                                continue;
+                            }
                         }
-                    }
-                } else {
-                    continue;
-                };
-                (protocol_stdin_input, ParsedInput::UciStdInInput(words))
-            }
-            Some(SyncInput::FromEngine(engine_response)) => {
+                    } else {
+                        continue;
+                    };
+                    (protocol_stdin_input, ParsedInput::UciStdInInput(words))
+                }
+                Err(error_message) => {
+                    log!("stdin error: {error_message}");
+                    log!("Exiting");
+                    break;
+                }
+            },
+            Ok(SyncInput::FromEngine(engine_response)) => {
                 let engine_protocol_input = match &engine_response {
                     EngineResponse::Log(message) => {
-                        log!("{}", message);
+                        log!("(engine) {}", message.trim());
                         continue;
                     }
                     EngineResponse::Ready => continue,
@@ -185,8 +202,9 @@ fn uci_loop<'scope, 'env>(scope: &'scope std::thread::Scope<'scope, 'env>) {
                     ParsedInput::EngineMessage(engine_response.clone()),
                 )
             }
-            None => {
-                log!("I/O error, exiting");
+            Err(error_message) => {
+                log!("I/O error: {error_message}");
+                log!("Exiting");
                 break;
             }
         };
@@ -253,12 +271,31 @@ fn uci_loop<'scope, 'env>(scope: &'scope std::thread::Scope<'scope, 'env>) {
                 }
             }
             (Some(UciProtocolOutput::EngineCommandPosition), ParsedInput::UciStdInInput(words)) => {
+                log!("Position command: '{}'", words.join(" "));
                 let mut param_iter = words.iter().skip(1).map(String::as_str);
                 let (next_token, new_game) = match param_iter.next() {
                     Some("startpos") => (param_iter.next(), Some(Game::new())),
-                    Some("fenstring") => {
-                        let fen = param_iter.clone().take(6).collect::<Vec<&str>>();
+                    Some("fen") => {
+                        log!("Parsing FEN string...");
+
+                        let fen: Vec<&str> = [
+                            param_iter.next(),
+                            param_iter.next(),
+                            param_iter.next(),
+                            param_iter.next(),
+                            param_iter.next(),
+                            param_iter.next(),
+                        ]
+                        .iter()
+                        .map_while(|token| *token)
+                        .collect();
+
                         if let Some(new_game_from_fen) = Game::try_from_fen(fen.as_slice()) {
+                            let _ = log!(
+                                "New game from {}:\n{}",
+                                fen.join(" "),
+                                new_game_from_fen.board
+                            );
                             (param_iter.next(), Some(new_game_from_fen))
                         } else {
                             log!("Malformed FEN string in position command");
@@ -275,15 +312,22 @@ fn uci_loop<'scope, 'env>(scope: &'scope std::thread::Scope<'scope, 'env>) {
                     game: new_game,
                     moves: Vec::new(),
                 };
-                if let Some("moves") = next_token {
-                    for mv_str in param_iter {
-                        if let Some(mv) = Move::try_from_long_algebraic_str(&mv_str) {
-                            new_game_command.moves.push(mv);
-                        } else {
-                            log!("Malformed move in position command");
-                            continue;
+                match next_token {
+                    Some("moves") => {
+                        for mv_str in param_iter {
+                            if let Some(mv) = Move::try_from_long_algebraic_str(&mv_str) {
+                                new_game_command.moves.push(mv);
+                            } else {
+                                log!("Malformed move in position command");
+                                continue;
+                            }
                         }
                     }
+                    Some(_) => {
+                        log!("Malformed move in position command");
+                        continue;
+                    }
+                    None => (),
                 }
                 if engine_thread
                     .to_thread
@@ -311,6 +355,12 @@ fn uci_loop<'scope, 'env>(scope: &'scope std::thread::Scope<'scope, 'env>) {
                     _ => log!("Unknown go command"),
                 }
             }
+            (
+                Some(UciProtocolOutput::SaveBestMove),
+                ParsedInput::EngineMessage(EngineResponse::BestBranch(best_move_result)),
+            ) => {
+                last_best_move = best_move_result;
+            }
             (Some(UciProtocolOutput::EngineCommandStop), ParsedInput::UciStdInInput(_)) => {
                 if let Err(_) = engine_thread.to_thread.send(EngineCommand::Stop) {
                     log!("Error: could not send go command to engine");
@@ -318,15 +368,18 @@ fn uci_loop<'scope, 'env>(scope: &'scope std::thread::Scope<'scope, 'env>) {
                 }
             }
             (
+                Some(UciProtocolOutput::OutputSavedCommandBestMove),
+                ParsedInput::UciStdInInput(_),
+            ) => {
+                let best_move_str = move_to_uci_string(&last_best_move);
+                write_command!("bestmove {}", best_move_str);
+                last_best_move = None;
+            }
+            (
                 Some(UciProtocolOutput::OutputCommandBestMove),
                 ParsedInput::EngineMessage(EngineResponse::BestBranch(best_move_result)),
             ) => {
-                let best_move_str = match best_move_result {
-                    Some(GameMove::Normal(best_move)) => {
-                        format!("{}{}", best_move.source, best_move.target)
-                    }
-                    Some(GameMove::Mate(_)) | None => "0000".to_owned(),
-                };
+                let best_move_str = move_to_uci_string(&best_move_result);
                 write_command!("bestmove {}", best_move_str);
             }
 
@@ -347,6 +400,36 @@ fn uci_loop<'scope, 'env>(scope: &'scope std::thread::Scope<'scope, 'env>) {
 
     let _ = stdin_thread.thread_handle.join();
     let _ = engine_thread.thread_handle.join();
+}
+
+fn stringify_stdin_err<T>(value: T) -> String
+where
+    T: std::fmt::Display,
+{
+    stringify(value, "stdin")
+}
+
+fn stringify_engine_err<T>(value: T) -> String
+where
+    T: std::fmt::Display,
+{
+    stringify(value, "engine")
+}
+
+fn stringify<T>(value: T, prefix: &str) -> String
+where
+    T: std::fmt::Display,
+{
+    format!("{prefix}: {value}")
+}
+
+fn move_to_uci_string(mv: &Option<GameMove>) -> String {
+    match mv {
+        Some(GameMove::Normal(best_move)) => {
+            format!("{}{}", best_move.source, best_move.target)
+        }
+        Some(GameMove::Mate(_)) | None => "0000".to_owned(),
+    }
 }
 
 fn parse_command(line: &str, logger: &mut Logger) -> Vec<String> {

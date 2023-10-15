@@ -134,7 +134,7 @@ macro_rules! p {
     };
 }
 
-#[derive(Copy, Clone, PartialEq, Serialize)]
+#[derive(Copy, Clone, Debug, PartialEq, Serialize)]
 pub struct Position {
     pub row: usize,
     pub col: usize,
@@ -404,7 +404,7 @@ impl Board {
             return None;
         }
 
-        for (rank, pieces) in ranks.iter().enumerate() {
+        for (rank, pieces) in ranks.iter().rev().enumerate() {
             if rank > 7 {
                 return None;
             }
@@ -427,20 +427,20 @@ impl Board {
                     continue;
                 }
 
-                let piece = match piece_char.to_lowercase().next() {
-                    Some('r') => p!(rb),
-                    Some('n') => p!(nb),
-                    Some('b') => p!(bb),
-                    Some('q') => p!(qb),
-                    Some('k') => p!(kb),
-                    Some('p') => p!(pb),
-                    Some('R') => p!(rw),
-                    Some('N') => p!(nw),
-                    Some('B') => p!(bw),
-                    Some('Q') => p!(qw),
-                    Some('K') => p!(kw),
-                    Some('P') => p!(pw),
-                    Some(_) | None => return None,
+                let piece = match piece_char {
+                    'r' => p!(rb),
+                    'n' => p!(nb),
+                    'b' => p!(bb),
+                    'q' => p!(qb),
+                    'k' => p!(kb),
+                    'p' => p!(pb),
+                    'R' => p!(rw),
+                    'N' => p!(nw),
+                    'B' => p!(bw),
+                    'Q' => p!(qw),
+                    'K' => p!(kw),
+                    'P' => p!(pw),
+                    _ => return None,
                 };
 
                 board.update(&pos!(rank, file), piece);
@@ -620,7 +620,7 @@ impl Board {
     }
 }
 
-#[derive(Copy, Clone, PartialEq, Serialize)]
+#[derive(Copy, Clone, Debug, PartialEq, Serialize)]
 pub struct Move {
     pub source: Position,
     pub target: Position,
@@ -663,7 +663,7 @@ impl fmt::Display for Move {
     }
 }
 
-#[derive(Copy, Clone, PartialEq, Serialize)]
+#[derive(Copy, Clone, Debug, PartialEq, Serialize)]
 pub enum MoveExtraInfo {
     Other,
     Promotion(PieceType),
@@ -673,13 +673,13 @@ pub enum MoveExtraInfo {
     CastleQueenside,
 }
 
-#[derive(Copy, Clone, Serialize)]
+#[derive(Copy, Clone, Debug, PartialEq, Serialize)]
 pub struct MoveInfo {
     pub mv: Move,
     pub info: MoveExtraInfo,
 }
 
-#[derive(Copy, Clone, Serialize)]
+#[derive(Copy, Clone, Debug, PartialEq, Serialize)]
 pub struct GameInfo {
     white_kingside_castling_allowed: bool,
     white_queenside_castling_allowed: bool,
@@ -745,7 +745,7 @@ impl Default for GameInfo {
     }
 }
 
-#[derive(Copy, Clone, Serialize)]
+#[derive(Copy, Clone, Debug, PartialEq, Serialize)]
 pub struct Game {
     pub board: Board,
     pub player: Player,

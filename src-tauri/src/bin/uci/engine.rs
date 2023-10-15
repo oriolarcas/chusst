@@ -2,6 +2,8 @@ use crate::duplex_thread::{create_duplex_thread, DuplexThread};
 use chusst::board::{Game, Move};
 use chusst::moves::{do_move, get_best_move_with_logger, GameMove, HasStopSignal};
 
+use std::io::Write;
+
 #[derive(Clone)]
 pub struct GoCommand {
     pub depth: u32,
@@ -144,7 +146,10 @@ fn engine_thread(
             }
             Some(EngineCommand::Stop) => (),
             Some(EngineCommand::Exit) => break,
-            None => break,
+            None => {
+                let _ = writeln!(communicator, "Broken command pipeline");
+                break;
+            }
         }
     }
 }
