@@ -28,7 +28,7 @@ bencher = "0.1.5"
 
 [[bin]]
 name = "chusst-uci"
-path = "src/bin/uci.rs"
+path = "src/bin/uci/main.rs"
 
 [features]
 # DO NOT set 'default', breaks production build

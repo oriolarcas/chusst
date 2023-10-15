@@ -1,39 +1,17 @@
+mod duplex_thread;
+mod engine;
+mod stdin;
+
+use engine::{EngineCommand, EngineResponse, GoCommand, NewGameCommand};
 use chusst::board::{Game, Move};
-use chusst::moves::{do_move, get_best_move_with_logger, GameMove, HasStopSignal};
+use chusst::moves::GameMove;
 
 use crossbeam_channel::select;
 use rust_fsm::*;
 
 use std::fs::File;
 use std::io::Write;
-use std::time::{Duration, Instant};
-
-#[derive(Clone)]
-struct GoCommand {
-    depth: u32,
-}
-
-#[derive(Clone)]
-struct NewGameCommand {
-    game: Option<Game>,
-    moves: Vec<Move>,
-}
-
-#[derive(Clone)]
-enum EngineCommand {
-    NewGame(NewGameCommand),
-    Go(GoCommand),
-    Stop,
-    Exit,
-}
-
-#[derive(Clone)]
-enum EngineResponse {
-    Ready,
-    Log(String),
-    BestBranch(Option<GameMove>),
-    Error(String),
-}
+use std::time::Instant;
 
 enum SyncInput {
     FromStdin(String),
@@ -51,26 +29,6 @@ impl Logger {
         let elapsed = self.last_event.elapsed();
         self.last_event = now;
         (elapsed.as_micros() as f64) / 1000.
-    }
-}
-
-struct SenderAsWriter<'a> {
-    sender: &'a mut crossbeam_channel::Sender<EngineResponse>,
-}
-
-impl<'a> std::io::Write for SenderAsWriter<'a> {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        let msg = String::from_utf8(buf.to_vec())
-            .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err))?;
-        let msg_len = msg.len();
-        self.sender
-            .send(EngineResponse::Log(msg))
-            .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err))?;
-        Ok(msg_len)
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
     }
 }
 
@@ -109,7 +67,7 @@ const SEARCH_DEPTH_DEFAULT: u32 = 4;
 const SEARCH_DEPTH_MIN: u32 = 2;
 const SEARCH_DEPTH_MAX: u32 = 5;
 
-fn uci_loop() {
+fn uci_loop<'scope, 'env>(scope: &'scope std::thread::Scope<'scope, 'env>) {
     let mut logger = Logger {
         file: match std::fs::OpenOptions::new()
             .write(true)
@@ -157,33 +115,12 @@ fn uci_loop() {
     }
 
     let mut search_depth = 3;
-    let (engine_thread, to_engine, from_engine) = {
-        // Communication channels
-        let (to_engine_send, to_engine_receive) = crossbeam_channel::unbounded::<EngineCommand>();
-        let (from_engine_send, from_engine_receive) =
-            crossbeam_channel::unbounded::<EngineResponse>();
-
-        // Spawn thread
-        let engine_thread =
-            std::thread::spawn(move || engine_thread(to_engine_receive, from_engine_send));
-
-        (engine_thread, to_engine_send, from_engine_receive)
-    };
-
-    let (stdin_thread, stdin_reader_stop_signal, stdin_line_reader) = {
-        let (to_stdin_send, to_stdin_receive) = crossbeam_channel::unbounded::<()>();
-        let (from_stdin_send, from_stdin_receive) = crossbeam_channel::unbounded::<String>();
-
-        // Spawn thread
-        let stdin_thread =
-            std::thread::spawn(move || stdin_thread(to_stdin_receive, from_stdin_send));
-
-        (stdin_thread, to_stdin_send, from_stdin_receive)
-    };
+    let engine_thread = engine::create_engine_thread(scope);
+    let stdin_thread = stdin::create_stdin_thread(scope);
 
     log!("Starting engine");
 
-    match from_engine.recv() {
+    match engine_thread.from_thread.recv() {
         Ok(EngineResponse::Ready) => (),
         _ => {
             log!("Could not start engine thread");
@@ -197,8 +134,8 @@ fn uci_loop() {
 
     let get_input = || -> Option<SyncInput> {
         select! {
-            recv(stdin_line_reader) -> stdin_line => return Some(SyncInput::FromStdin(stdin_line.ok()?)),
-            recv(from_engine) -> engine_response => return Some(SyncInput::FromEngine(engine_response.ok()?)),
+            recv(stdin_thread.from_thread) -> stdin_line => return Some(SyncInput::FromStdin(stdin_line.ok()?)),
+            recv(engine_thread.from_thread) -> engine_response => return Some(SyncInput::FromEngine(engine_response.ok()?)),
         }
     };
 
@@ -303,10 +240,14 @@ fn uci_loop() {
                 write_command!("readyok")
             }
             (Some(UciProtocolOutput::EngineCommandNewGame), ParsedInput::UciStdInInput(_)) => {
-                if let Err(_) = to_engine.send(EngineCommand::NewGame(NewGameCommand {
-                    game: Some(Game::new()),
-                    moves: Vec::new(),
-                })) {
+                if let Err(_) =
+                    engine_thread
+                        .to_thread
+                        .send(EngineCommand::NewGame(NewGameCommand {
+                            game: Some(Game::new()),
+                            moves: Vec::new(),
+                        }))
+                {
                     log!("Error: could not send new game to engine");
                     break;
                 }
@@ -344,7 +285,8 @@ fn uci_loop() {
                         }
                     }
                 }
-                if to_engine
+                if engine_thread
+                    .to_thread
                     .send(EngineCommand::NewGame(new_game_command))
                     .is_err()
                 {
@@ -355,7 +297,8 @@ fn uci_loop() {
             (Some(UciProtocolOutput::EngineCommandGo), ParsedInput::UciStdInInput(words)) => {
                 match words.get(1).map(String::as_str) {
                     Some("infinite") => {
-                        if to_engine
+                        if engine_thread
+                            .to_thread
                             .send(EngineCommand::Go(GoCommand {
                                 depth: search_depth,
                             }))
@@ -369,7 +312,7 @@ fn uci_loop() {
                 }
             }
             (Some(UciProtocolOutput::EngineCommandStop), ParsedInput::UciStdInInput(_)) => {
-                if let Err(_) = to_engine.send(EngineCommand::Stop) {
+                if let Err(_) = engine_thread.to_thread.send(EngineCommand::Stop) {
                     log!("Error: could not send go command to engine");
                     break;
                 }
@@ -397,13 +340,13 @@ fn uci_loop() {
         }
     }
 
-    let _ = stdin_reader_stop_signal.send(());
+    let _ = stdin_thread.to_thread.send(());
 
-    let _ = to_engine.send(EngineCommand::Stop);
-    let _ = to_engine.send(EngineCommand::Exit);
+    let _ = engine_thread.to_thread.send(EngineCommand::Stop);
+    let _ = engine_thread.to_thread.send(EngineCommand::Exit);
 
-    let _ = stdin_thread.join();
-    let _ = engine_thread.join();
+    let _ = stdin_thread.thread_handle.join();
+    let _ = engine_thread.thread_handle.join();
 }
 
 fn parse_command(line: &str, logger: &mut Logger) -> Vec<String> {
@@ -416,97 +359,6 @@ fn parse_command(line: &str, logger: &mut Logger) -> Vec<String> {
         .collect()
 }
 
-fn stdin_thread(
-    stop_signal: crossbeam_channel::Receiver<()>,
-    stdin_lines_sender: crossbeam_channel::Sender<String>,
-) {
-    loop {
-        if stop_signal.try_recv().is_ok() {
-            break;
-        }
-
-        let try_to_read_stdin = async_std::io::timeout(Duration::from_millis(100), async {
-            let mut line = String::new();
-            let _ = async_std::io::stdin().read_line(&mut line).await;
-            Ok(line)
-        });
-        match async_std::task::block_on(try_to_read_stdin) {
-            Ok(line) => {
-                let _ = stdin_lines_sender.send(line);
-            }
-            Err(_) => break,
-        }
-    }
-}
-
-struct EngineCommandReceiver<'a> {
-    receiver: &'a crossbeam_channel::Receiver<EngineCommand>,
-    messages: Vec<EngineCommand>,
-}
-
-impl<'a> HasStopSignal for EngineCommandReceiver<'a> {
-    fn stop(&mut self) -> bool {
-        if let Ok(cmd) = self.receiver.try_recv() {
-            match cmd {
-                EngineCommand::Stop => return true,
-                _ => self.messages.push(cmd),
-            }
-        }
-        false
-    }
-}
-
-fn engine_thread(
-    to_engine: crossbeam_channel::Receiver<EngineCommand>,
-    from_engine: crossbeam_channel::Sender<EngineResponse>,
-) {
-    let mut from_engine_mut = from_engine;
-    let mut communicator = SenderAsWriter {
-        sender: &mut from_engine_mut,
-    };
-    let mut game = Game::new();
-    let mut command_receiver = EngineCommandReceiver {
-        receiver: &to_engine,
-        messages: Vec::new(),
-    };
-
-    if communicator.sender.send(EngineResponse::Ready).is_err() {
-        return;
-    }
-
-    loop {
-        let command = command_receiver.messages.pop().or(to_engine.recv().ok());
-        match command {
-            Some(EngineCommand::NewGame(new_game_cmd)) => {
-                if let Some(new_game) = new_game_cmd.game {
-                    game = new_game;
-                }
-                for mv in new_game_cmd.moves {
-                    if do_move(&mut game, &mv).is_none() {
-                        let _ = communicator
-                            .sender
-                            .send(EngineResponse::Error(format!("Invalid move {}", mv)));
-                    }
-                }
-            }
-            Some(EngineCommand::Go(go_command)) => {
-                let best_move = get_best_move_with_logger(
-                    &mut game,
-                    go_command.depth,
-                    &mut command_receiver,
-                    &mut communicator,
-                );
-                let _ignore_error = communicator
-                    .sender
-                    .send(EngineResponse::BestBranch(Some(best_move)));
-            }
-            Some(EngineCommand::Stop) => (),
-            Some(EngineCommand::Exit) => break,
-            None => break,
-        }
-    }
-}
-
 fn main() {
-    uci_loop();
+    std::thread::scope(|scope| uci_loop(scope));
 }
