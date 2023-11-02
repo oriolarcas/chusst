@@ -1,6 +1,9 @@
 use crate::duplex_thread::{create_duplex_thread, DuplexThread};
 use chusst::board::{Game, Move};
-use chusst::moves::{do_move, get_best_move_with_logger, GameMove, HasStopSignal};
+use chusst::moves::{
+    do_move, get_best_move_with_logger, EngineFeedback, EngineFeedbackMessage, GameMove,
+    HasStopSignal,
+};
 
 use std::io::Write;
 
@@ -27,6 +30,7 @@ pub enum EngineCommand {
 pub enum EngineResponse {
     Ready,
     Log(String),
+    Info(EngineFeedbackMessage),
     BestBranch(Option<GameMove>),
     Error(String),
 }
@@ -102,6 +106,12 @@ impl<'a> BufferedSenderWriter<'a> {
         msg: EngineResponse,
     ) -> Result<(), crossbeam_channel::SendError<EngineResponse>> {
         self.sender.send(msg)
+    }
+}
+
+impl<'a> EngineFeedback for BufferedSenderWriter<'a> {
+    fn send(&self, msg: EngineFeedbackMessage) {
+        let _ = self.send(EngineResponse::Info(msg));
     }
 }
 

@@ -10,6 +10,7 @@ use stdin::{create_stdin_thread, StdinResponse};
 use crossbeam_channel::select;
 use rust_fsm::*;
 
+use std::fmt;
 use std::fs::File;
 use std::io::Write;
 use std::time::Instant;
@@ -37,32 +38,34 @@ state_machine! {
     // derive(Debug)
     UciProtocol(Initializing)
 
-    Initializing(CommandUci) => Ready[OutputCommandId],
+    Initializing(CommandUci) => Ready [OutputCommandId],
     Ready => {
-        CommandGo => Searching[EngineCommandGo],
-        CommandPosition => Ready[EngineCommandPosition],
+        CommandGo => Searching [EngineCommandGo],
+        CommandPosition => Ready [EngineCommandPosition],
         // Additional commands
-        CommandUciNewGame => Ready[EngineCommandNewGame],
-        CommandIsReady => Ready[OutputCommandReadyOk],
-        CommandSetParam => Ready[EngineCommandSetParam],
-        CommandStop => Ready,
+        CommandUciNewGame => Ready [EngineCommandNewGame],
+        CommandIsReady => Ready [OutputCommandReadyOk],
+        CommandSetParam => Ready [EngineCommandSetParam],
+        CommandStop => Ready [OutputSavedCommandBestMove],
     },
     Searching => {
-        CommandStop => WaitingForResult[EngineCommandStop],
-        EngineResult => WaitingForStop[SaveBestMove],
+        CommandStop => WaitingForResult [EngineCommandStop],
+        EngineInfo => Seaching [OutputCommandInfo],
+        EngineResult => WaitingForStop [SaveBestMove],
         // Additional commands
-        CommandIsReady => Ready[OutputCommandReadyOk],
+        CommandIsReady => Ready [OutputCommandReadyOk],
     },
     WaitingForResult => {
-        EngineResult => Ready[OutputCommandBestMove],
+        EngineInfo => WaitingForResult [OutputCommandInfo],
+        EngineResult => Ready [OutputCommandBestMove],
         // Additional commands
-        CommandIsReady => Ready[OutputCommandReadyOk],
+        CommandIsReady => Ready [OutputCommandReadyOk],
         CommandStop => WaitingForResult,
     },
     WaitingForStop => {
-        CommandStop => Ready[OutputSavedCommandBestMove],
+        CommandStop => Ready [OutputSavedCommandBestMove],
         // Additional commands
-        CommandIsReady => Ready[WaitingForStop],
+        CommandIsReady => Ready [WaitingForStop],
     }
 }
 
@@ -74,6 +77,20 @@ enum ParsedInput {
 const SEARCH_DEPTH_DEFAULT: u32 = 4;
 const SEARCH_DEPTH_MIN: u32 = 2;
 const SEARCH_DEPTH_MAX: u32 = 5;
+
+impl fmt::Display for UciProtocolState {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let state = match self {
+            UciProtocolState::Initializing => "Initializing",
+            UciProtocolState::Ready => "Ready",
+            UciProtocolState::Seaching => "Seaching",
+            UciProtocolState::Searching => "Searching",
+            UciProtocolState::WaitingForResult => "WaitingForResult",
+            UciProtocolState::WaitingForStop => "WaitingForStop",
+        };
+        write!(f, "{}", state)
+    }
+}
 
 fn uci_loop<'scope, 'env>(scope: &'scope std::thread::Scope<'scope, 'env>) {
     let mut logger = Logger {
@@ -147,7 +164,7 @@ fn uci_loop<'scope, 'env>(scope: &'scope std::thread::Scope<'scope, 'env>) {
         }
     };
 
-    let mut last_best_move: Option<GameMove> = None;
+    let mut last_best_move: Option<Option<GameMove>> = None;
 
     loop {
         let input = get_input();
@@ -187,10 +204,14 @@ fn uci_loop<'scope, 'env>(scope: &'scope std::thread::Scope<'scope, 'env>) {
             Ok(SyncInput::FromEngine(engine_response)) => {
                 let engine_protocol_input = match &engine_response {
                     EngineResponse::Log(message) => {
-                        log!("(engine) {}", message.trim());
+                        let trimmed_message = message.trim();
+                        if !trimmed_message.is_empty() {
+                            log!("(engine) {}", message.trim());
+                        }
                         continue;
                     }
                     EngineResponse::Ready => continue,
+                    EngineResponse::Info(_) => UciProtocolInput::EngineInfo,
                     EngineResponse::BestBranch(_) => UciProtocolInput::EngineResult,
                     EngineResponse::Error(error) => {
                         log!("{}", error);
@@ -209,6 +230,8 @@ fn uci_loop<'scope, 'env>(scope: &'scope std::thread::Scope<'scope, 'env>) {
             }
         };
 
+        let previous_state = uci_protocol.state().to_string();
+
         let protocol_output_result = uci_protocol.consume(&protocol_input);
 
         let protocol_output = match &protocol_output_result {
@@ -218,6 +241,16 @@ fn uci_loop<'scope, 'env>(scope: &'scope std::thread::Scope<'scope, 'env>) {
                 continue;
             }
         };
+
+        let current_state = uci_protocol.state().to_string();
+
+        if current_state != previous_state {
+            log!(
+                "New state: {} -> {}",
+                previous_state,
+                uci_protocol.state().to_string()
+            );
+        }
 
         match (protocol_output, parsed_input) {
             (Some(UciProtocolOutput::OutputCommandId), _) => {
@@ -359,7 +392,7 @@ fn uci_loop<'scope, 'env>(scope: &'scope std::thread::Scope<'scope, 'env>) {
                 Some(UciProtocolOutput::SaveBestMove),
                 ParsedInput::EngineMessage(EngineResponse::BestBranch(best_move_result)),
             ) => {
-                last_best_move = best_move_result;
+                last_best_move = Some(best_move_result);
             }
             (Some(UciProtocolOutput::EngineCommandStop), ParsedInput::UciStdInInput(_)) => {
                 if let Err(_) = engine_thread.to_thread.send(EngineCommand::Stop) {
@@ -371,9 +404,21 @@ fn uci_loop<'scope, 'env>(scope: &'scope std::thread::Scope<'scope, 'env>) {
                 Some(UciProtocolOutput::OutputSavedCommandBestMove),
                 ParsedInput::UciStdInInput(_),
             ) => {
-                let best_move_str = move_to_uci_string(&last_best_move);
-                write_command!("bestmove {}", best_move_str);
-                last_best_move = None;
+                if let Some(best_move) = &last_best_move {
+                    let best_move_str = move_to_uci_string(&best_move);
+                    write_command!("bestmove {}", best_move_str);
+                }
+            }
+            (
+                Some(UciProtocolOutput::OutputCommandInfo),
+                ParsedInput::EngineMessage(EngineResponse::Info(info)),
+            ) => {
+                write_command!(
+                    "info depth {} nodes {} score cp {}",
+                    info.depth,
+                    info.nodes,
+                    info.score
+                );
             }
             (
                 Some(UciProtocolOutput::OutputCommandBestMove),
@@ -387,7 +432,7 @@ fn uci_loop<'scope, 'env>(scope: &'scope std::thread::Scope<'scope, 'env>) {
             (None, _) => continue,
             // Should never come to this
             _ => {
-                log!("Unexpected error");
+                log!("Unexpected protocol state");
                 break;
             }
         }
