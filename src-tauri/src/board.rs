@@ -158,7 +158,11 @@ impl Position {
             'h' => 7,
             _ => return None,
         };
-        let rank = usize::try_from(chars.next()?.to_digit(10)?).ok()?;
+        let rank_digit = usize::try_from(chars.next()?.to_digit(10)?).ok()?;
+        let rank = match rank_digit {
+            1..=8 => rank_digit - 1,
+            _ => return None,
+        };
 
         Some(Position {
             row: rank,

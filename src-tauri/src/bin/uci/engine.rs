@@ -6,6 +6,7 @@ use chusst::moves::{
 };
 
 use std::io::Write;
+use std::fmt;
 
 #[derive(Clone)]
 pub struct GoCommand {
@@ -33,6 +34,19 @@ pub enum EngineResponse {
     Info(EngineFeedbackMessage),
     BestBranch(Option<GameMove>),
     Error(String),
+}
+
+impl fmt::Display for EngineResponse {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let response = match self {
+            EngineResponse::Ready => "Ready",
+            EngineResponse::Log(_) => "Log",
+            EngineResponse::Info(_) => "Info",
+            EngineResponse::BestBranch(_) => "BestBranch",
+            EngineResponse::Error(_) => "Error",
+        };
+        write!(f, "{}", response)
+    }
 }
 
 struct EngineCommandReceiver<'a> {

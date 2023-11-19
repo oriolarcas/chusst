@@ -45,13 +45,13 @@ state_machine! {
         // Additional commands
         CommandUciNewGame => Ready [EngineCommandNewGame],
         CommandIsReady => Ready [OutputCommandReadyOk],
-        CommandSetParam => Ready [EngineCommandSetParam],
+        CommandSetOption => Ready [EngineCommandSetOption],
         CommandStop => Ready [OutputSavedCommandBestMove],
     },
     Searching => {
         CommandStop => WaitingForResult [EngineCommandStop],
-        EngineInfo => Seaching [OutputCommandInfo],
-        EngineResult => WaitingForStop [SaveBestMove],
+        EngineInfo => Searching [OutputCommandInfo],
+        EngineResult => Ready [SaveBestMove],
         // Additional commands
         CommandIsReady => Ready [OutputCommandReadyOk],
     },
@@ -62,11 +62,6 @@ state_machine! {
         CommandIsReady => Ready [OutputCommandReadyOk],
         CommandStop => WaitingForResult,
     },
-    WaitingForStop => {
-        CommandStop => Ready [OutputSavedCommandBestMove],
-        // Additional commands
-        CommandIsReady => Ready [WaitingForStop],
-    }
 }
 
 enum ParsedInput {
@@ -83,10 +78,8 @@ impl fmt::Display for UciProtocolState {
         let state = match self {
             UciProtocolState::Initializing => "Initializing",
             UciProtocolState::Ready => "Ready",
-            UciProtocolState::Seaching => "Seaching",
             UciProtocolState::Searching => "Searching",
             UciProtocolState::WaitingForResult => "WaitingForResult",
-            UciProtocolState::WaitingForStop => "WaitingForStop",
         };
         write!(f, "{}", state)
     }
@@ -177,7 +170,7 @@ fn uci_loop<'scope, 'env>(scope: &'scope std::thread::Scope<'scope, 'env>) {
                         match stdin_command.as_str() {
                             "uci" => UciProtocolInput::CommandUci,
                             "isready" => UciProtocolInput::CommandIsReady,
-                            "setparam" => UciProtocolInput::CommandSetParam,
+                            "setoption" => UciProtocolInput::CommandSetOption,
                             "ucinewgame" => UciProtocolInput::CommandUciNewGame,
                             "position" => UciProtocolInput::CommandPosition,
                             "go" => UciProtocolInput::CommandGo,
@@ -237,7 +230,7 @@ fn uci_loop<'scope, 'env>(scope: &'scope std::thread::Scope<'scope, 'env>) {
         let protocol_output = match &protocol_output_result {
             Ok(output) => output,
             Err(_) => {
-                log!("Unexpected UCI command, ignoring");
+                log!("Unexpected input, ignoring");
                 continue;
             }
         };
@@ -263,7 +256,10 @@ fn uci_loop<'scope, 'env>(scope: &'scope std::thread::Scope<'scope, 'env>) {
                 );
                 write_command!("uciok");
             }
-            (Some(UciProtocolOutput::EngineCommandSetParam), ParsedInput::UciStdInInput(words)) => {
+            (
+                Some(UciProtocolOutput::EngineCommandSetOption),
+                ParsedInput::UciStdInInput(words),
+            ) => {
                 if let Some(&["name", name, "value", value]) = words
                     .iter()
                     .map(String::as_str)
@@ -304,7 +300,6 @@ fn uci_loop<'scope, 'env>(scope: &'scope std::thread::Scope<'scope, 'env>) {
                 }
             }
             (Some(UciProtocolOutput::EngineCommandPosition), ParsedInput::UciStdInInput(words)) => {
-                log!("Position command: '{}'", words.join(" "));
                 let mut param_iter = words.iter().skip(1).map(String::as_str);
                 let (next_token, new_game) = match param_iter.next() {
                     Some("startpos") => (param_iter.next(), Some(Game::new())),
@@ -324,11 +319,6 @@ fn uci_loop<'scope, 'env>(scope: &'scope std::thread::Scope<'scope, 'env>) {
                         .collect();
 
                         if let Some(new_game_from_fen) = Game::try_from_fen(fen.as_slice()) {
-                            let _ = log!(
-                                "New game from {}:\n{}",
-                                fen.join(" "),
-                                new_game_from_fen.board
-                            );
                             (param_iter.next(), Some(new_game_from_fen))
                         } else {
                             log!("Malformed FEN string in position command");
@@ -341,6 +331,9 @@ fn uci_loop<'scope, 'env>(scope: &'scope std::thread::Scope<'scope, 'env>) {
                         continue;
                     }
                 };
+                if let Some(game) = &new_game {
+                    let _ = log!("New position:\n{}", game.board);
+                }
                 let mut new_game_command = NewGameCommand {
                     game: new_game,
                     moves: Vec::new(),
@@ -372,6 +365,10 @@ fn uci_loop<'scope, 'env>(scope: &'scope std::thread::Scope<'scope, 'env>) {
                 }
             }
             (Some(UciProtocolOutput::EngineCommandGo), ParsedInput::UciStdInInput(words)) => {
+                // go infinite
+                //   Search until stop is received
+                // go wtime 300000 btime 300000 movestogo 40
+                //   Search with this amount of time
                 match words.get(1).map(String::as_str) {
                     Some("infinite") => {
                         if engine_thread
@@ -385,13 +382,18 @@ fn uci_loop<'scope, 'env>(scope: &'scope std::thread::Scope<'scope, 'env>) {
                             break;
                         }
                     }
-                    _ => log!("Unknown go command"),
+                    _ => {
+                        log!("Error: Unknown go command");
+                        break;
+                    }
                 }
             }
             (
                 Some(UciProtocolOutput::SaveBestMove),
                 ParsedInput::EngineMessage(EngineResponse::BestBranch(best_move_result)),
             ) => {
+                let best_move_str = move_to_uci_string(&best_move_result);
+                write_command!("bestmove {}", best_move_str);
                 last_best_move = Some(best_move_result);
             }
             (Some(UciProtocolOutput::EngineCommandStop), ParsedInput::UciStdInInput(_)) => {
