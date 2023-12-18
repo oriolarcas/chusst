@@ -136,8 +136,8 @@ macro_rules! p {
 
 #[derive(Copy, Clone, Debug, PartialEq, Serialize)]
 pub struct Position {
-    pub row: usize,
-    pub col: usize,
+    pub rank: usize,
+    pub file: usize,
 }
 
 impl Position {
@@ -164,17 +164,14 @@ impl Position {
             _ => return None,
         };
 
-        Some(Position {
-            row: rank,
-            col: file,
-        })
+        Some(Position { rank, file })
     }
 }
 
 impl fmt::Display for Position {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let row = self.row + 1;
-        let col = ["a", "b", "c", "d", "e", "f", "g", "h"][self.col];
+        let row = self.rank + 1;
+        let col = ["a", "b", "c", "d", "e", "f", "g", "h"][self.file];
         write!(f, "{}{}", col, row)
     }
 }
@@ -182,202 +179,202 @@ impl fmt::Display for Position {
 #[macro_export]
 macro_rules! pos {
     (a1) => {
-        Position { row: 0, col: 0 }
+        Position { rank: 0, file: 0 }
     };
     (b1) => {
-        Position { row: 0, col: 1 }
+        Position { rank: 0, file: 1 }
     };
     (c1) => {
-        Position { row: 0, col: 2 }
+        Position { rank: 0, file: 2 }
     };
     (d1) => {
-        Position { row: 0, col: 3 }
+        Position { rank: 0, file: 3 }
     };
     (e1) => {
-        Position { row: 0, col: 4 }
+        Position { rank: 0, file: 4 }
     };
     (f1) => {
-        Position { row: 0, col: 5 }
+        Position { rank: 0, file: 5 }
     };
     (g1) => {
-        Position { row: 0, col: 6 }
+        Position { rank: 0, file: 6 }
     };
     (h1) => {
-        Position { row: 0, col: 7 }
+        Position { rank: 0, file: 7 }
     };
     (a2) => {
-        Position { row: 1, col: 0 }
+        Position { rank: 1, file: 0 }
     };
     (b2) => {
-        Position { row: 1, col: 1 }
+        Position { rank: 1, file: 1 }
     };
     (c2) => {
-        Position { row: 1, col: 2 }
+        Position { rank: 1, file: 2 }
     };
     (d2) => {
-        Position { row: 1, col: 3 }
+        Position { rank: 1, file: 3 }
     };
     (e2) => {
-        Position { row: 1, col: 4 }
+        Position { rank: 1, file: 4 }
     };
     (f2) => {
-        Position { row: 1, col: 5 }
+        Position { rank: 1, file: 5 }
     };
     (g2) => {
-        Position { row: 1, col: 6 }
+        Position { rank: 1, file: 6 }
     };
     (h2) => {
-        Position { row: 1, col: 7 }
+        Position { rank: 1, file: 7 }
     };
     (a3) => {
-        Position { row: 2, col: 0 }
+        Position { rank: 2, file: 0 }
     };
     (b3) => {
-        Position { row: 2, col: 1 }
+        Position { rank: 2, file: 1 }
     };
     (c3) => {
-        Position { row: 2, col: 2 }
+        Position { rank: 2, file: 2 }
     };
     (d3) => {
-        Position { row: 2, col: 3 }
+        Position { rank: 2, file: 3 }
     };
     (e3) => {
-        Position { row: 2, col: 4 }
+        Position { rank: 2, file: 4 }
     };
     (f3) => {
-        Position { row: 2, col: 5 }
+        Position { rank: 2, file: 5 }
     };
     (g3) => {
-        Position { row: 2, col: 6 }
+        Position { rank: 2, file: 6 }
     };
     (h3) => {
-        Position { row: 2, col: 7 }
+        Position { rank: 2, file: 7 }
     };
     (a4) => {
-        Position { row: 3, col: 0 }
+        Position { rank: 3, file: 0 }
     };
     (b4) => {
-        Position { row: 3, col: 1 }
+        Position { rank: 3, file: 1 }
     };
     (c4) => {
-        Position { row: 3, col: 2 }
+        Position { rank: 3, file: 2 }
     };
     (d4) => {
-        Position { row: 3, col: 3 }
+        Position { rank: 3, file: 3 }
     };
     (e4) => {
-        Position { row: 3, col: 4 }
+        Position { rank: 3, file: 4 }
     };
     (f4) => {
-        Position { row: 3, col: 5 }
+        Position { rank: 3, file: 5 }
     };
     (g4) => {
-        Position { row: 3, col: 6 }
+        Position { rank: 3, file: 6 }
     };
     (h4) => {
-        Position { row: 3, col: 7 }
+        Position { rank: 3, file: 7 }
     };
     (a5) => {
-        Position { row: 4, col: 0 }
+        Position { rank: 4, file: 0 }
     };
     (b5) => {
-        Position { row: 4, col: 1 }
+        Position { rank: 4, file: 1 }
     };
     (c5) => {
-        Position { row: 4, col: 2 }
+        Position { rank: 4, file: 2 }
     };
     (d5) => {
-        Position { row: 4, col: 3 }
+        Position { rank: 4, file: 3 }
     };
     (e5) => {
-        Position { row: 4, col: 4 }
+        Position { rank: 4, file: 4 }
     };
     (f5) => {
-        Position { row: 4, col: 5 }
+        Position { rank: 4, file: 5 }
     };
     (g5) => {
-        Position { row: 4, col: 6 }
+        Position { rank: 4, file: 6 }
     };
     (h5) => {
-        Position { row: 4, col: 7 }
+        Position { rank: 4, file: 7 }
     };
     (a6) => {
-        Position { row: 5, col: 0 }
+        Position { rank: 5, file: 0 }
     };
     (b6) => {
-        Position { row: 5, col: 1 }
+        Position { rank: 5, file: 1 }
     };
     (c6) => {
-        Position { row: 5, col: 2 }
+        Position { rank: 5, file: 2 }
     };
     (d6) => {
-        Position { row: 5, col: 3 }
+        Position { rank: 5, file: 3 }
     };
     (e6) => {
-        Position { row: 5, col: 4 }
+        Position { rank: 5, file: 4 }
     };
     (f6) => {
-        Position { row: 5, col: 5 }
+        Position { rank: 5, file: 5 }
     };
     (g6) => {
-        Position { row: 5, col: 6 }
+        Position { rank: 5, file: 6 }
     };
     (h6) => {
-        Position { row: 5, col: 7 }
+        Position { rank: 5, file: 7 }
     };
     (a7) => {
-        Position { row: 6, col: 0 }
+        Position { rank: 6, file: 0 }
     };
     (b7) => {
-        Position { row: 6, col: 1 }
+        Position { rank: 6, file: 1 }
     };
     (c7) => {
-        Position { row: 6, col: 2 }
+        Position { rank: 6, file: 2 }
     };
     (d7) => {
-        Position { row: 6, col: 3 }
+        Position { rank: 6, file: 3 }
     };
     (e7) => {
-        Position { row: 6, col: 4 }
+        Position { rank: 6, file: 4 }
     };
     (f7) => {
-        Position { row: 6, col: 5 }
+        Position { rank: 6, file: 5 }
     };
     (g7) => {
-        Position { row: 6, col: 6 }
+        Position { rank: 6, file: 6 }
     };
     (h7) => {
-        Position { row: 6, col: 7 }
+        Position { rank: 6, file: 7 }
     };
     (a8) => {
-        Position { row: 7, col: 0 }
+        Position { rank: 7, file: 0 }
     };
     (b8) => {
-        Position { row: 7, col: 1 }
+        Position { rank: 7, file: 1 }
     };
     (c8) => {
-        Position { row: 7, col: 2 }
+        Position { rank: 7, file: 2 }
     };
     (d8) => {
-        Position { row: 7, col: 3 }
+        Position { rank: 7, file: 3 }
     };
     (e8) => {
-        Position { row: 7, col: 4 }
+        Position { rank: 7, file: 4 }
     };
     (f8) => {
-        Position { row: 7, col: 5 }
+        Position { rank: 7, file: 5 }
     };
     (g8) => {
-        Position { row: 7, col: 6 }
+        Position { rank: 7, file: 6 }
     };
     (h8) => {
-        Position { row: 7, col: 7 }
+        Position { rank: 7, file: 7 }
     };
 
     ($rank:expr, $file:expr) => {
         Position {
-            row: $rank,
-            col: $file,
+            rank: $rank,
+            file: $file,
         }
     };
 }
@@ -461,16 +458,16 @@ impl Board {
     }
 
     pub fn square(&self, pos: &Position) -> &Square {
-        &self.rows[pos.row][pos.col]
+        &self.rows[pos.rank][pos.file]
     }
 
     pub fn update(&mut self, pos: &Position, value: Square) {
-        self.rows[pos.row][pos.col] = value;
+        self.rows[pos.rank][pos.file] = value;
     }
 
     pub fn move_piece(&mut self, source: &Position, target: &Position) {
-        self.rows[target.row][target.col] = self.rows[source.row][source.col];
-        self.rows[source.row][source.col] = None;
+        self.rows[target.rank][target.file] = self.rows[source.rank][source.file];
+        self.rows[source.rank][source.file] = None;
     }
 
     pub fn home_rank(player: &Player) -> usize {
@@ -803,14 +800,14 @@ impl Game {
                 Player::Black => (6, 5, 4),
             };
 
-            if en_passant_pos.row != passed_rank {
+            if en_passant_pos.rank != passed_rank {
                 return None;
             }
 
             Some(MoveInfo {
                 mv: mv!(
-                    pos!(source_rank, en_passant_pos.col),
-                    pos!(target_rank, en_passant_pos.col)
+                    pos!(source_rank, en_passant_pos.file),
+                    pos!(target_rank, en_passant_pos.file)
                 ),
                 info: MoveExtraInfo::EnPassant,
             })

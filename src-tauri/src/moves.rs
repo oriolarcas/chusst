@@ -142,7 +142,7 @@ fn move_with_checks(game: &mut SearchableGame, mv: &Move, king_position: &Positi
     let is_king = mv.source == *king_position;
 
     // Before moving, check if it is a castling and it is valid
-    if is_king && mv.source.col.abs_diff(mv.target.col) == 2 {
+    if is_king && mv.source.file.abs_diff(mv.target.file) == 2 {
         let player = game.as_ref().board.square(king_position).unwrap().player;
         let is_valid_castling_square = |direction: &Direction| {
             only_empty_and_safe(
@@ -152,7 +152,7 @@ fn move_with_checks(game: &mut SearchableGame, mv: &Move, king_position: &Positi
             )
             .is_some()
         };
-        let castling_is_safe = match mv.target.col {
+        let castling_is_safe = match mv.target.file {
             // Queenside
             2 => is_valid_castling_square(&dir!(0, -1)) && is_valid_castling_square(&dir!(0, -2)),
             // Kingside
@@ -252,11 +252,11 @@ pub fn move_name(
     let src_piece = src_piece_opt.unwrap();
 
     let is_castling =
-        src_piece.piece == PieceType::King && mv.source.col.abs_diff(mv.target.col) == 2;
+        src_piece.piece == PieceType::King && mv.source.file.abs_diff(mv.target.file) == 2;
 
     if is_castling {
         // Castling doesn't need piece or position
-        match mv.target.col {
+        match mv.target.file {
             2 => name.push_str("0-0-0"),
             6 => name.push_str("0-0"),
             _ => panic!("invalid castling {} in:\n{}", mv, board),
@@ -281,7 +281,7 @@ pub fn move_name(
         let is_pawn = src_piece.piece == PieceType::Pawn;
 
         let is_en_passant =
-            is_pawn && mv.source.col != mv.target.col && board.square(&mv.target).is_none();
+            is_pawn && mv.source.file != mv.target.file && board.square(&mv.target).is_none();
 
         let mut piece_in_same_file = false;
         let mut piece_in_same_rank = false;
@@ -304,9 +304,9 @@ pub fn move_name(
                 .find(|possible_position| *possible_position == mv.target)
                 .is_some()
             {
-                if player_piece_position.row == mv.source.row {
+                if player_piece_position.rank == mv.source.rank {
                     piece_in_same_rank = true;
-                } else if player_piece_position.col == mv.source.col {
+                } else if player_piece_position.file == mv.source.file {
                     piece_in_same_file = true;
                 }
             }
@@ -338,7 +338,7 @@ pub fn move_name(
         name.push_str(format!("{}", mv.target).as_str());
 
         // Is promotion?
-        if is_pawn && mv.target.row == Board::promotion_rank(player) {
+        if is_pawn && mv.target.rank == Board::promotion_rank(player) {
             name.push('=');
             name.push(piece_char(&PieceType::Queen).unwrap());
         }
@@ -460,7 +460,7 @@ fn get_best_move_recursive_alpha_beta(
                 Some(piece) => get_piece_value(piece.piece),
                 None => {
                     if *current_piece == PieceType::Pawn
-                        && possible_position.row == Board::promotion_rank(&player)
+                        && possible_position.rank == Board::promotion_rank(&player)
                     {
                         // Promotion
                         get_piece_value(PieceType::Queen)
@@ -676,14 +676,14 @@ fn get_possible_captures_of_position(
                     captures.push(possible_position);
                 } else if !is_capture
                     && square.piece == PieceType::Pawn
-                    && position.col.abs_diff(position.col) != 0
+                    && position.file.abs_diff(position.file) != 0
                 {
                     let passed_rank = usize::try_from(
-                        i8::try_from(position.row).unwrap()
+                        i8::try_from(position.rank).unwrap()
                             - Board::pawn_progress_direction(&square.player),
                     )
                     .unwrap();
-                    captures.push(pos!(passed_rank, possible_position.col));
+                    captures.push(pos!(passed_rank, possible_position.file));
                 }
             }
         }
@@ -705,7 +705,7 @@ pub fn get_possible_captures(
         for capture in
             get_possible_captures_of_position(board, last_move, game_info, &source_position)
         {
-            board_captures[capture.row][capture.col].push(source_position);
+            board_captures[capture.rank][capture.file].push(source_position);
         }
     }
 

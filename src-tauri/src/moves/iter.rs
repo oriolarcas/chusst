@@ -20,17 +20,17 @@ impl<'a> Iterator for BoardIter {
     type Item = Position;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.position.row > 7 {
+        if self.position.rank > 7 {
             return None;
         }
 
         let current_position = self.position;
 
-        if self.position.col == 7 {
-            self.position.row += 1;
-            self.position.col = 0;
+        if self.position.file == 7 {
+            self.position.rank += 1;
+            self.position.file = 0;
         } else {
-            self.position.col += 1;
+            self.position.file += 1;
         }
 
         Some(current_position)
@@ -346,8 +346,8 @@ impl<'a> Iterator for PawnIter<'a> {
         let player = &square.unwrap().player;
         let direction = Board::pawn_progress_direction(player);
         let can_pass = match player {
-            Player::White => self.board_state.position.row == 1,
-            Player::Black => self.board_state.position.row == 6,
+            Player::White => self.board_state.position.rank == 1,
+            Player::Black => self.board_state.position.rank == 6,
         };
         loop {
             let result = match self.state {

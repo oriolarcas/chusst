@@ -1,4 +1,4 @@
-use crate::board::{Board, MoveInfo, MoveExtraInfo, Position, Player};
+use crate::board::{Board, MoveExtraInfo, MoveInfo, Player, Position};
 use crate::pos;
 
 #[derive(Copy, Clone)]
@@ -8,8 +8,8 @@ pub struct Direction {
 }
 
 pub fn try_move(position: &Position, direction: &Direction) -> Option<Position> {
-    let row = i8::try_from(position.row).unwrap() + direction.row_inc;
-    let col = i8::try_from(position.col).unwrap() + direction.col_inc;
+    let row = i8::try_from(position.rank).unwrap() + direction.row_inc;
+    let col = i8::try_from(position.file).unwrap() + direction.col_inc;
 
     if row < 0 || row >= 8 {
         return None;

@@ -75,19 +75,19 @@ trait PlayableGameNoChecksImpl<'a>: PlayableGame<'a> {
         let moved_piece = square.piece;
         let move_info = match moved_piece {
             PieceType::Pawn => {
-                if mv.source.row.abs_diff(mv.target.row) == 2 {
+                if mv.source.rank.abs_diff(mv.target.rank) == 2 {
                     MoveExtraInfo::Passed
-                } else if mv.source.col != mv.target.col && board.square(&mv.target).is_none() {
+                } else if mv.source.file != mv.target.file && board.square(&mv.target).is_none() {
                     MoveExtraInfo::EnPassant
-                } else if mv.target.row == Board::promotion_rank(&player) {
+                } else if mv.target.rank == Board::promotion_rank(&player) {
                     MoveExtraInfo::Promotion(PieceType::Queen)
                 } else {
                     MoveExtraInfo::Other
                 }
             }
             PieceType::King => {
-                if mv.source.col.abs_diff(mv.target.col) == 2 {
-                    match mv.target.col {
+                if mv.source.file.abs_diff(mv.target.file) == 2 {
+                    match mv.target.file {
                         2 => MoveExtraInfo::CastleQueenside,
                         6 => MoveExtraInfo::CastleKingside,
                         _ => panic!("invalid castling {} in:\n{}", mv, board),
@@ -165,8 +165,8 @@ trait PlayableGameNoChecksImpl<'a>: PlayableGame<'a> {
         if moved_piece == PieceType::King {
             self.as_mut().info.disable_castle_kingside(&player);
             self.as_mut().info.disable_castle_queenside(&player);
-        } else if moved_piece == PieceType::Rook && mv.source.row == Board::home_rank(&player) {
-            match mv.source.col {
+        } else if moved_piece == PieceType::Rook && mv.source.rank == Board::home_rank(&player) {
+            match mv.source.file {
                 0 => self.as_mut().info.disable_castle_queenside(&player),
                 7 => self.as_mut().info.disable_castle_kingside(&player),
                 _ => (),
