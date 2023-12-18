@@ -45,8 +45,8 @@ fn get_history() -> Vec<TurnDescription> {
 }
 
 #[tauri::command]
-fn get_possible_moves(row: usize, col: usize) -> Vec<Position> {
-    let position = Position { row, col };
+fn get_possible_moves(rank: usize, file: usize) -> Vec<Position> {
+    let position = Position { rank, file };
     let game = &mut GAME.lock().unwrap().game;
     let possible_moves =
         moves::get_possible_moves(&game.board, &game.last_move, &game.info, position);
@@ -60,15 +60,15 @@ fn get_possible_captures() -> moves::BoardCaptures {
 }
 
 #[tauri::command(rename_all = "snake_case")]
-fn do_move(source_row: usize, source_col: usize, target_row: usize, target_col: usize) -> bool {
+fn do_move(source_rank: usize, source_file: usize, target_rank: usize, target_file: usize) -> bool {
     let mv = Move {
         source: Position {
-            row: source_row,
-            col: source_col,
+            rank: source_rank,
+            file: source_file,
         },
         target: Position {
-            row: target_row,
-            col: target_col,
+            rank: target_rank,
+            file: target_file,
         },
     };
     let game_data = &mut GAME.lock().unwrap();
