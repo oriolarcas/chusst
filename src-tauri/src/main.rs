@@ -91,7 +91,7 @@ fn do_move(source_row: usize, source_col: usize, target_row: usize, target_col: 
         }
     };
 
-    let (black_move_opt, black_captures, mate) = match moves::get_best_move(game, 3) {
+    let (black_move_opt, black_captures, mate) = match moves::get_best_move(game, 4) {
         moves::GameMove::Normal(mv) => {
             let description =
                 moves::move_name(&game.board, &game.last_move, &game.info, &game.player, &mv);

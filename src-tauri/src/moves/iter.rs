@@ -4,13 +4,6 @@ use crate::moves::conditions::{
 };
 use crate::pos;
 
-pub fn pawn_progress_direction(player: &Player) -> i8 {
-    match player {
-        Player::White => 1,
-        Player::Black => -1,
-    }
-}
-
 pub struct BoardIter {
     position: Position,
 }
@@ -351,7 +344,7 @@ impl<'a> Iterator for PawnIter<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         let square = self.board_state.board.square(&self.board_state.position);
         let player = &square.unwrap().player;
-        let direction = pawn_progress_direction(player);
+        let direction = Board::pawn_progress_direction(player);
         let can_pass = match player {
             Player::White => self.board_state.position.row == 1,
             Player::Black => self.board_state.position.row == 6,

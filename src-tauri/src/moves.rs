@@ -1,5 +1,6 @@
 mod check;
 mod conditions;
+mod feedback;
 mod iter;
 mod play;
 
@@ -7,6 +8,8 @@ use crate::board::{
     Board, Game, GameInfo, Move, MoveInfo, Piece, PieceType, Player, Position, Rows,
 };
 use crate::moves::check::{find_player_king, only_empty_and_safe, piece_is_unsafe};
+pub use crate::moves::feedback::{EngineFeedback, EngineFeedbackMessage, SilentSearchFeedback};
+use crate::moves::feedback::{PeriodicalSearchFeedback, SearchFeedback, StdoutFeedback};
 use crate::moves::play::SearchableGame;
 use crate::{mv, pos};
 use conditions::{enemy, Direction};
@@ -18,12 +21,35 @@ use std::collections::HashMap;
 use std::time::Instant;
 
 use self::conditions::try_move;
-use self::iter::pawn_progress_direction;
 use self::play::{PlayableGame, ReversableGame};
+
+pub trait HasStopSignal {
+    fn stop(&mut self) -> bool;
+}
+
+impl HasStopSignal for () {
+    fn stop(&mut self) -> bool {
+        false
+    }
+}
+
+macro_rules! log {
+    ($logger:expr, $str:expr) => {
+        {
+            let _ = writeln!($logger, $str);
+        }
+    };
+    ($logger:expr, $fmt:expr, $($param:expr),*) => {
+        {
+            let _ = writeln!($logger, $fmt, $($param),+);
+        }
+    };
+}
 
 // List of pieces that can capture each square
 pub type BoardCaptures = Rows<Vec<Position>>;
 
+// Score in centipawns
 #[derive(PartialEq, Default, Eq, PartialOrd, Ord, Copy, Clone)]
 pub struct Score(i32);
 
@@ -35,6 +61,12 @@ impl Score {
 impl From<i32> for Score {
     fn from(value: i32) -> Self {
         Score(value)
+    }
+}
+
+impl Into<i32> for Score {
+    fn into(self) -> i32 {
+        self.0
     }
 }
 
@@ -76,12 +108,13 @@ impl std::ops::Neg for Score {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Copy, Clone, Debug, PartialEq, Serialize)]
 pub enum MateType {
     Checkmate,
     Stalemate,
 }
 
+#[derive(Copy, Clone)]
 pub enum GameMove {
     Normal(Move),
     Mate(MateType),
@@ -98,6 +131,11 @@ pub struct Branch {
     pub moves: Vec<WeightedMove>,
     pub score: Score,
     pub searched: u32,
+}
+
+struct SearchResult {
+    branch: Option<Branch>,
+    stopped: bool,
 }
 
 fn move_with_checks(game: &mut SearchableGame, mv: &Move, king_position: &Position) -> bool {
@@ -356,6 +394,7 @@ pub fn move_branch_names(
     move_names
 }
 
+// Value in centipawns
 fn get_piece_value(piece: PieceType) -> Score {
     match piece {
         PieceType::Pawn => Score::from(100),
@@ -375,8 +414,9 @@ fn get_best_move_recursive_alpha_beta(
     alpha: Score,
     beta: Score,
     parent_score: Score,
-    silent: bool,
-) -> Option<Branch> {
+    stop_signal: &mut impl HasStopSignal,
+    feedback: &mut impl SearchFeedback,
+) -> SearchResult {
     let pieces_iter =
         player_pieces_iter!(board: &game.board, player: &game.player).collect::<Vec<Position>>();
 
@@ -389,7 +429,8 @@ fn get_best_move_recursive_alpha_beta(
 
     let mut local_alpha = alpha;
 
-    let is_leaf_node = current_depth < max_depth;
+    let is_leaf_node = current_depth == max_depth;
+    let mut stopped = false;
 
     #[cfg(feature = "verbose-search")]
     let indent = |depth: u32| {
@@ -407,6 +448,11 @@ fn get_best_move_recursive_alpha_beta(
             &game.info,
             player_piece_position,
         ) {
+            if stop_signal.stop() {
+                let _ = writeln!(feedback, "Search stopped");
+                break 'main_loop;
+            }
+
             searched_moves += 1;
 
             // Evaluate this move locally
@@ -443,6 +489,8 @@ fn get_best_move_recursive_alpha_beta(
                 searched: 0,
             };
 
+            feedback.update(current_depth, searched_moves, branch.score.into());
+
             #[cfg(feature = "verbose-search")]
             if !silent {
                 println!(
@@ -453,13 +501,13 @@ fn get_best_move_recursive_alpha_beta(
                     branch.score,
                     local_alpha,
                     beta,
-                    if is_leaf_node { " {" } else { "" },
+                    if !is_leaf_node { " {" } else { "" },
                 );
             }
 
             // Recursion
-            if is_leaf_node {
-                let mut next_moves_opt = get_best_move_recursive_alpha_beta(
+            if !is_leaf_node {
+                let mut search_result = get_best_move_recursive_alpha_beta(
                     rev_game.as_mut(),
                     current_depth + 1,
                     max_depth,
@@ -467,8 +515,12 @@ fn get_best_move_recursive_alpha_beta(
                     -beta,
                     -local_alpha,
                     branch.score,
-                    silent,
+                    stop_signal,
+                    feedback,
                 );
+
+                let next_moves_opt = &mut search_result.branch;
+                stopped = search_result.stopped;
 
                 let is_check_mate = if next_moves_opt.is_none() {
                     // check or stale mate?
@@ -514,7 +566,7 @@ fn get_best_move_recursive_alpha_beta(
                     println!("{}}}", indent(current_depth));
                 }
 
-                if branch.score >= beta {
+                if branch.score >= beta && branch.score < Score::MAX {
                     // Fail hard beta cutoff
 
                     #[cfg(feature = "verbose-search")]
@@ -553,6 +605,10 @@ fn get_best_move_recursive_alpha_beta(
 
             // This will be the beta for the next move
             local_alpha = best_move.as_ref().unwrap().score;
+
+            if stopped {
+                break 'main_loop;
+            }
         }
     }
 
@@ -563,14 +619,32 @@ fn get_best_move_recursive_alpha_beta(
         None => (),
     }
 
-    best_move
+    SearchResult {
+        branch: best_move,
+        stopped,
+    }
 }
 
 fn get_best_move_shallow(game: &mut Game) -> Option<Branch> {
-    get_best_move_recursive_alpha_beta(game, 0, 0, Score::MIN, Score::MAX, Score::from(0), true)
+    get_best_move_recursive_alpha_beta(
+        game,
+        0,
+        0,
+        Score::MIN,
+        Score::MAX,
+        Score::from(0),
+        &mut (),
+        &mut SilentSearchFeedback::default(),
+    )
+    .branch
 }
 
-pub fn get_best_move_recursive(game: &mut Game, search_depth: u32) -> Option<Branch> {
+pub fn get_best_move_recursive(
+    game: &mut Game,
+    search_depth: u32,
+    stop_signal: &mut impl HasStopSignal,
+    feedback: &mut impl SearchFeedback,
+) -> Option<Branch> {
     get_best_move_recursive_alpha_beta(
         game,
         0,
@@ -578,8 +652,10 @@ pub fn get_best_move_recursive(game: &mut Game, search_depth: u32) -> Option<Bra
         Score::MIN,
         Score::MAX,
         Score::from(0),
-        false,
+        stop_signal,
+        feedback,
     )
+    .branch
 }
 
 fn get_possible_captures_of_position(
@@ -604,7 +680,7 @@ fn get_possible_captures_of_position(
                 {
                     let passed_rank = usize::try_from(
                         i8::try_from(position.row).unwrap()
-                            - pawn_progress_direction(&square.player),
+                            - Board::pawn_progress_direction(&square.player),
                     )
                     .unwrap();
                     captures.push(pos!(passed_rank, possible_position.col));
@@ -636,10 +712,17 @@ pub fn get_possible_captures(
     board_captures
 }
 
-pub fn get_best_move(game: &mut Game, search_depth: u32) -> GameMove {
+pub fn get_best_move_with_logger(
+    game: &mut Game,
+    search_depth: u32,
+    stop_signal: &mut impl HasStopSignal,
+    engine_feedback: &mut impl EngineFeedback,
+) -> GameMove {
     let player = game.player;
     let start_time = Instant::now();
-    let best_branch = get_best_move_recursive(game, search_depth);
+    let mut feedback =
+        PeriodicalSearchFeedback::new(std::time::Duration::from_millis(500), engine_feedback);
+    let best_branch = get_best_move_recursive(game, search_depth, stop_signal, &mut feedback);
     let duration = (Instant::now() - start_time).as_secs_f64();
 
     if best_branch.is_none() {
@@ -647,12 +730,12 @@ pub fn get_best_move(game: &mut Game, search_depth: u32) -> GameMove {
         let king_position = find_player_king(&game.board, &player);
         let is_check_mate = piece_is_unsafe(&game.board, &king_position);
 
-        print!("  ({:.2} s.) ", duration);
+        log!(engine_feedback, "  ({:.2} s.) ", duration);
         let enemy_player = enemy(&player);
         if is_check_mate {
-            println!("Checkmate, {} wins", enemy_player);
+            log!(engine_feedback, "Checkmate, {} wins", enemy_player);
         } else {
-            println!("Stalemate caused by {}", enemy_player);
+            log!(engine_feedback, "Stalemate caused by {}", enemy_player);
         }
         return if is_check_mate {
             GameMove::Mate(MateType::Checkmate)
@@ -679,7 +762,8 @@ pub fn get_best_move(game: &mut Game, search_depth: u32) -> GameMove {
         .map(|mv| &mv.mv)
         .collect::<Vec<&Move>>();
 
-    println!(
+    log!(
+        engine_feedback,
         "  ({:.2} s., {:.0} mps) Best branch {:+} after {}: {}",
         duration,
         f64::from(total_moves) / duration,
@@ -691,10 +775,14 @@ pub fn get_best_move(game: &mut Game, search_depth: u32) -> GameMove {
         )
         .map(|(move_info, move_name)| format!("{}{:+}", move_name, move_info.score))
         .collect::<Vec<String>>()
-        .join(" "),
+        .join(" ")
     );
 
     GameMove::Normal(**branch_moves.first().unwrap())
+}
+
+pub fn get_best_move(game: &mut Game, search_depth: u32) -> GameMove {
+    get_best_move_with_logger(game, search_depth, &mut (), &mut StdoutFeedback::default())
 }
 
 pub fn is_mate(
@@ -1146,6 +1234,20 @@ mod tests {
                 game.board
             );
         }
+    }
+
+    #[test]
+    fn fen_parsing() {
+        let start_pos_fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+        let parsed_game = Game::try_from_fen(
+            start_pos_fen
+                .split_ascii_whitespace()
+                .collect::<Vec<&str>>()
+                .as_slice(),
+        );
+        assert!(parsed_game.is_some(), "Failed to parse FEN string");
+        let game = parsed_game.unwrap();
+        assert_eq!(game, Game::new(), "\n{}", game.board);
     }
 
     // Template to quickly test a specific board/move

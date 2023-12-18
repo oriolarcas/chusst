@@ -1,5 +1,5 @@
 use chusst::board::Game;
-use chusst::moves::{do_move, get_best_move_recursive};
+use chusst::moves::{do_move, get_best_move_recursive, SilentSearchFeedback};
 
 #[macro_use]
 extern crate bencher;
@@ -11,7 +11,9 @@ fn search(bench: &mut Bencher) {
     bench.iter(|| {
         let mut game = Game::new();
 
-        let best_branch = get_best_move_recursive(&mut game, 3).unwrap();
+        let best_branch =
+            get_best_move_recursive(&mut game, 3, &mut (), &mut SilentSearchFeedback::default())
+                .unwrap();
 
         searched = u64::from(best_branch.searched);
     });
@@ -24,7 +26,9 @@ fn game_benchmark() -> u64 {
 
     let mut game = Game::new();
     let get_best_move_helper = |game: &mut Game| {
-        let best_branch = get_best_move_recursive(game, 3).unwrap();
+        let best_branch =
+            get_best_move_recursive(game, 3, &mut (), &mut SilentSearchFeedback::default())
+                .unwrap();
 
         (best_branch.searched, best_branch.moves.first().unwrap().mv)
     };
