@@ -50,7 +50,7 @@ jobs:
       if: startsWith(github.ref, 'refs/tags/')
       with:
         name: linux
-        path: ./src-tauri/target/release/bundle/deb/chusst_*.deb
+        path: ./target/release/bundle/deb/chusst_*.deb
 
   macos:
     name: Build for macOS
@@ -78,7 +78,7 @@ jobs:
       uses: actions/upload-artifact@v3
       with:
         name: macos
-        path: ./src-tauri/target/release/bundle/dmg/chusst_*.dmg
+        path: ./target/release/bundle/dmg/chusst_*.dmg
 
   release:
     name: Create release
