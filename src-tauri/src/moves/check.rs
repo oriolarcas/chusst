@@ -36,7 +36,7 @@ fn position_is_unsafe(board: &Board, position: &Position, player: &Player) -> bo
 
     let enemy_in_direction = |direction: &Direction| {
         into_rolling_board_iterator(&board, &player, &position, direction)
-            .find_map(|pos| board.square(&pos).as_ref())
+            .find_map(|pos| board.square(&pos))
             .map(|piece| piece.piece)
     };
 

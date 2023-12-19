@@ -62,7 +62,7 @@ trait PlayableGameNoChecksImpl<'a>: PlayableGame<'a> {
     ) {
         let board = &mut self.as_mut().board;
 
-        let square_opt = board.square(&mv.source).as_ref();
+        let square_opt = board.square(&mv.source);
         assert!(
             square_opt.is_some(),
             "move {} from empty square:\n{}",
@@ -102,7 +102,7 @@ trait PlayableGameNoChecksImpl<'a>: PlayableGame<'a> {
         if let Some(moves) = moves_option {
             moves.push(ReversableMove {
                 mv: *mv,
-                previous_piece: *board.square(&mv.target),
+                previous_piece: board.square(&mv.target),
             });
         }
 
@@ -122,7 +122,7 @@ trait PlayableGameNoChecksImpl<'a>: PlayableGame<'a> {
                 if let Some(moves) = moves_option {
                     moves.push(ReversableMove {
                         mv: mv!(passed, passed),
-                        previous_piece: *board.square(&passed),
+                        previous_piece: board.square(&passed),
                     });
                 }
 
@@ -132,7 +132,7 @@ trait PlayableGameNoChecksImpl<'a>: PlayableGame<'a> {
                 if let Some(moves) = moves_option {
                     moves.push(ReversableMove {
                         mv: mv!(mv.target, mv.target),
-                        previous_piece: *board.square(&mv.target),
+                        previous_piece: board.square(&mv.target),
                     });
                 }
                 board.update(&mv.target, Some(Piece { piece, player }));
