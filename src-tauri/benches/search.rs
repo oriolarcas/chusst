@@ -12,7 +12,7 @@ fn search(bench: &mut Bencher) {
         let mut game = Game::new();
 
         let best_branch =
-            get_best_move_recursive(&mut game, 3, &mut (), &mut SilentSearchFeedback::default())
+            get_best_move_recursive(&mut game, 4, &mut (), &mut SilentSearchFeedback::default())
                 .unwrap();
 
         searched = u64::from(best_branch.searched);

@@ -382,17 +382,73 @@ macro_rules! pos {
 pub type Square = Option<Piece>;
 
 pub type Rank<T> = [T; 8];
-pub type Row<T> = Rank<T>;
-pub type Rows<T> = Rank<Row<T>>;
+pub type Ranks<T> = Rank<Rank<T>>;
 
 #[derive(Copy, Clone, Debug, Default, PartialEq, Serialize)]
 pub struct Board {
-    // rows[x][y], where x = 0..7 = rows 1..8, and y = 0..7 = columns a..h
-    // for instance, e4 is Board.rows[2][4]
-    pub(self) rows: Rows<Square>,
+    // ranks[x][y], where x = 0..7 = ranks 1..8, and y = 0..7 = files a..h
+    // for instance, e4 is Board.ranks[3][4]
+
+    // Binary representation of a Square:
+    // 0b000vPppp where:
+    // v = 1 if the square is valid, 0 if it is not
+    // P = 0 if the piece is white, 1 if it is black
+    // pppp = piece type, 0..5 = pawn..king
+    ranks: Ranks<u8>,
 }
 
 impl Board {
+    const EMPTY_SQUARE: u8 = 0b0000_0000;
+
+    const fn u8_to_square(square_byte: u8) -> Square {
+        if square_byte & 0b0010_0000 == 0 {
+            return None;
+        }
+
+        let player = match square_byte & 0b0001_0000 != 0 {
+            true => Player::Black,
+            false => Player::White,
+        };
+
+        let piece = match square_byte & 0b0000_1111 {
+            0 => PieceType::Pawn,
+            1 => PieceType::Knight,
+            2 => PieceType::Bishop,
+            3 => PieceType::Rook,
+            4 => PieceType::Queen,
+            5 => PieceType::King,
+            _ => unreachable!(),
+        };
+
+        Some(Piece { piece, player })
+    }
+
+    const fn square_to_u8(square: &Square) -> u8 {
+        match square {
+            Some(piece) => {
+                let mut square_byte = 0b0010_0000;
+                square_byte |= match piece.player {
+                    Player::White => 0b0000_0000,
+                    Player::Black => 0b0001_0000,
+                };
+                square_byte |= match piece.piece {
+                    PieceType::Pawn => 0b0000_0000,
+                    PieceType::Knight => 0b0000_0001,
+                    PieceType::Bishop => 0b0000_0010,
+                    PieceType::Rook => 0b0000_0011,
+                    PieceType::Queen => 0b0000_0100,
+                    PieceType::King => 0b0000_0101,
+                };
+                square_byte
+            }
+            None => 0,
+        }
+    }
+
+    fn as_square(&self, pos: &Position) -> Square {
+        Board::u8_to_square(self.ranks[pos.rank][pos.file])
+    }
+
     pub fn try_from_fen(fen: &str) -> Option<Board> {
         // Example initial
         // rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR
@@ -457,17 +513,17 @@ impl Board {
         Some(board)
     }
 
-    pub fn square(&self, pos: &Position) -> &Square {
-        &self.rows[pos.rank][pos.file]
+    pub fn square(&self, pos: &Position) -> Square {
+        self.as_square(pos)
     }
 
     pub fn update(&mut self, pos: &Position, value: Square) {
-        self.rows[pos.rank][pos.file] = value;
+        self.ranks[pos.rank][pos.file] = Board::square_to_u8(&value);
     }
 
     pub fn move_piece(&mut self, source: &Position, target: &Position) {
-        self.rows[target.rank][target.file] = self.rows[source.rank][source.file];
-        self.rows[source.rank][source.file] = None;
+        self.ranks[target.rank][target.file] = self.ranks[source.rank][source.file];
+        self.ranks[source.rank][source.file] = Board::EMPTY_SQUARE;
     }
 
     pub fn home_rank(player: &Player) -> usize {
@@ -519,10 +575,10 @@ impl fmt::Display for Board {
         let (left_square, right_square) = if is_atty { (" ", " ") } else { ("[", "]") };
 
         rows.push("   a  b  c  d  e  f  g  h ".to_owned());
-        for (rank, row) in self.rows.iter().rev().enumerate() {
+        for (rank, rank_pieces) in self.ranks.iter().rev().enumerate() {
             let mut row_str = String::from(format!("{} ", 8 - rank));
-            for (file, square) in row.iter().enumerate() {
-                let piece = match square {
+            for (file, square_byte) in rank_pieces.iter().enumerate() {
+                let piece = match Board::u8_to_square(*square_byte) {
                     Some(square_value) => Some((
                         get_unicode_piece(square_value.piece, square_value.player),
                         square_value.player,
@@ -564,53 +620,63 @@ impl fmt::Display for Board {
     }
 }
 
+macro_rules! pu8 {
+    ($piece:ident) => {
+        Board::square_to_u8(&p!($piece))
+    };
+
+    () => {
+        Board::EMPTY_SQUARE
+    };
+}
+
 const INITIAL_BOARD: Board = Board {
     // Initial board
     // Note that white pieces are at the top, because arrays are defined top-down, while chess rows go bottom-up
-    rows: [
+    ranks: [
         [
-            p!(rw),
-            p!(nw),
-            p!(bw),
-            p!(qw),
-            p!(kw),
-            p!(bw),
-            p!(nw),
-            p!(rw),
+            pu8!(rw),
+            pu8!(nw),
+            pu8!(bw),
+            pu8!(qw),
+            pu8!(kw),
+            pu8!(bw),
+            pu8!(nw),
+            pu8!(rw),
         ],
         [
-            p!(pw),
-            p!(pw),
-            p!(pw),
-            p!(pw),
-            p!(pw),
-            p!(pw),
-            p!(pw),
-            p!(pw),
+            pu8!(pw),
+            pu8!(pw),
+            pu8!(pw),
+            pu8!(pw),
+            pu8!(pw),
+            pu8!(pw),
+            pu8!(pw),
+            pu8!(pw),
         ],
-        [p!(); 8],
-        [p!(); 8],
-        [p!(); 8],
-        [p!(); 8],
+        [pu8!(); 8],
+        [pu8!(); 8],
+        [pu8!(); 8],
+        [pu8!(); 8],
         [
-            p!(pb),
-            p!(pb),
-            p!(pb),
-            p!(pb),
-            p!(pb),
-            p!(pb),
-            p!(pb),
-            p!(pb),
+            pu8!(pb),
+            pu8!(pb),
+            pu8!(pb),
+            pu8!(pb),
+            pu8!(pb),
+            pu8!(pb),
+            pu8!(pb),
+            pu8!(pb),
         ],
         [
-            p!(rb),
-            p!(nb),
-            p!(bb),
-            p!(qb),
-            p!(kb),
-            p!(bb),
-            p!(nb),
-            p!(rb),
+            pu8!(rb),
+            pu8!(nb),
+            pu8!(bb),
+            pu8!(qb),
+            pu8!(kb),
+            pu8!(bb),
+            pu8!(nb),
+            pu8!(rb),
         ],
     ],
 };

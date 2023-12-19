@@ -5,7 +5,7 @@ mod iter;
 mod play;
 
 use crate::board::{
-    Board, Game, GameInfo, Move, MoveInfo, Piece, PieceType, Player, Position, Rows,
+    Board, Game, GameInfo, Move, MoveInfo, Piece, PieceType, Player, Position, Ranks,
 };
 use crate::moves::check::{find_player_king, only_empty_and_safe, piece_is_unsafe};
 pub use crate::moves::feedback::{EngineFeedback, EngineFeedbackMessage, SilentSearchFeedback};
@@ -47,7 +47,7 @@ macro_rules! log {
 }
 
 // List of pieces that can capture each square
-pub type BoardCaptures = Rows<Vec<Position>>;
+pub type BoardCaptures = Ranks<Vec<Position>>;
 
 // Score in centipawns
 #[derive(PartialEq, Default, Eq, PartialOrd, Ord, Copy, Clone)]
@@ -204,7 +204,7 @@ pub fn get_possible_moves(
     game_info: &GameInfo,
     position: Position,
 ) -> Vec<Position> {
-    let square = board.square(&position).as_ref();
+    let square = board.square(&position);
     if square.is_none() {
         return vec![];
     }
@@ -1061,7 +1061,7 @@ mod tests {
 
             for check in &test_board.checks {
                 assert_eq!(
-                    *rev_game.as_ref().board.square(&check.position),
+                    rev_game.as_ref().board.square(&check.position),
                     check.piece,
                     "expected {} in {}, found {}:\n{}",
                     check
