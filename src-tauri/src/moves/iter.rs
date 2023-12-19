@@ -1,4 +1,5 @@
-use crate::board::{Board, GameInfo, MoveInfo, PieceType, Player, Position};
+use crate::board::{Board, PieceType, Player, Position};
+use crate::game::{GameInfo, MoveInfo};
 use crate::moves::conditions::{
     only_empty, only_empty_or_enemy, only_en_passant, only_enemy, try_move, Direction,
 };

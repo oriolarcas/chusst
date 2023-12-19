@@ -1,5 +1,5 @@
 use crate::duplex_thread::{create_duplex_thread, DuplexThread};
-use chusst::board::{Game, Move};
+use chusst::game::{Game, Move};
 use chusst::moves::{
     do_move, get_best_move_with_logger, EngineFeedback, EngineFeedbackMessage, GameMove,
     HasStopSignal,

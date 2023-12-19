@@ -1,4 +1,4 @@
-use chusst::board::Game;
+use chusst::game::Game;
 use chusst::moves::{do_move, get_best_move_recursive, SilentSearchFeedback};
 
 #[macro_use]

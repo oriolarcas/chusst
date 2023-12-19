@@ -1,7 +1,6 @@
 use super::get_possible_moves;
-use crate::board::{
-    Board, Game, GameInfo, Move, MoveExtraInfo, MoveInfo, Piece, PieceType, Player,
-};
+use crate::board::{Board, Piece, PieceType};
+use crate::game::{Game, GameInfo, Move, MoveExtraInfo, MoveInfo};
 use crate::moves::conditions::{enemy, only_enemy, try_move, Direction};
 use crate::moves::iter::dir;
 use crate::mv;
@@ -111,10 +110,7 @@ trait PlayableGameNoChecksImpl<'a>: PlayableGame<'a> {
         match move_info {
             MoveExtraInfo::EnPassant => {
                 // Capture passed pawn
-                let direction: i8 = match player {
-                    Player::White => 1,
-                    Player::Black => -1,
-                };
+                let direction = Board::pawn_progress_direction(&player);
                 let passed =
                     only_enemy(&board, try_move(&mv.target, &dir!(-direction, 0)), &player)
                         .unwrap();
@@ -203,7 +199,7 @@ impl<'a> PlayableGame<'a> for SearchableGame<'a> {
     }
 
     fn do_move_no_checks(&mut self, mv: &Move) {
-        self.do_move_no_checks_impl(mv, &mut None)
+        self.do_move_no_checks_impl(mv, &mut None);
     }
 }
 

@@ -1,7 +1,8 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use chusst::board::{Game, Move, Piece, Position};
+use chusst::board::{Piece, Position};
+use chusst::game::{Game, Move};
 use chusst::moves;
 use chusst::moves::MateType;
 

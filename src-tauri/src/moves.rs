@@ -1,12 +1,13 @@
+mod bitboards;
 mod check;
 mod conditions;
 mod feedback;
 mod iter;
 mod play;
 
-use crate::board::{
-    Board, Game, GameInfo, Move, MoveInfo, Piece, PieceType, Player, Position, Ranks,
-};
+use crate::board::{Board, Piece, PieceType, Player, Position, Ranks};
+use crate::game::{Game, GameInfo, Move, MoveInfo};
+use crate::moves::bitboards::Bitboards;
 use crate::moves::check::{find_player_king, only_empty_and_safe, piece_is_unsafe};
 pub use crate::moves::feedback::{EngineFeedback, EngineFeedbackMessage, SilentSearchFeedback};
 use crate::moves::feedback::{PeriodicalSearchFeedback, SearchFeedback, StdoutFeedback};
@@ -20,6 +21,7 @@ use serde::Serialize;
 use std::collections::HashMap;
 use std::time::Instant;
 
+use self::check::piece_is_unsafe_with_bitboards;
 use self::conditions::try_move;
 use self::play::{PlayableGame, ReversableGame};
 
@@ -140,19 +142,25 @@ struct SearchResult {
 
 fn move_with_checks(game: &mut SearchableGame, mv: &Move, king_position: &Position) -> bool {
     let is_king = mv.source == *king_position;
+    let player = game.as_ref().board.square(king_position).unwrap().player;
 
     // Before moving, check if it is a castling and it is valid
     if is_king && mv.source.file.abs_diff(mv.target.file) == 2 {
-        let player = game.as_ref().board.square(king_position).unwrap().player;
+        let bitboards = Bitboards::from(&game.as_ref().board);
+        let player_bitboards = bitboards.by_player(&player);
+        let enemy_bitboards = bitboards.by_player(&enemy(&player));
+
         let is_valid_castling_square = |direction: &Direction| {
             only_empty_and_safe(
                 &game.as_ref().board,
                 try_move(&mv.source, &direction),
                 &player,
+                &player_bitboards,
+                &enemy_bitboards,
             )
             .is_some()
         };
-        let castling_is_safe = match mv.target.file {
+        let can_castle = match mv.target.file {
             // Queenside
             2 => is_valid_castling_square(&dir!(0, -1)) && is_valid_castling_square(&dir!(0, -2)),
             // Kingside
@@ -163,7 +171,14 @@ fn move_with_checks(game: &mut SearchableGame, mv: &Move, king_position: &Positi
                 game.as_ref().board,
                 game.as_ref().info
             ),
-        } && !piece_is_unsafe(&game.as_ref().board, king_position);
+        };
+        let castling_is_safe = can_castle
+            && !piece_is_unsafe_with_bitboards(
+                &game.as_ref().board,
+                king_position,
+                &player_bitboards,
+                &enemy_bitboards,
+            );
 
         if !castling_is_safe {
             return false;
@@ -176,6 +191,16 @@ fn move_with_checks(game: &mut SearchableGame, mv: &Move, king_position: &Positi
     // After moving, check if the king is in check
 
     let current_king_position = if is_king { &mv.target } else { king_position };
+
+    // let bitboards = Bitboards::from(&game.as_ref().board);
+    // let player_bitboards = bitboards.by_player(&player);
+    // let enemy_bitboards = bitboards.by_player(&enemy(&player));
+    // !piece_is_unsafe_with_bitboards(
+    //     &game.as_ref().board,
+    //     &current_king_position,
+    //     &player_bitboards,
+    //     &enemy_bitboards,
+    // )
 
     !piece_is_unsafe(&game.as_ref().board, &current_king_position)
 }
@@ -868,7 +893,8 @@ pub fn do_move(game: &mut Game, mv: &Move) -> Option<Vec<Piece>> {
 mod tests {
     use super::play::{PlayableGame, ReversableGame};
     use super::{do_move, get_possible_moves, move_name, mv, piece_is_unsafe};
-    use crate::board::{Board, Game, Move, Piece, PieceType, Player, Position};
+    use crate::board::{Board, Piece, PieceType, Player, Position};
+    use crate::game::{Game, Move};
     use crate::{p, pos};
 
     struct PiecePosition {

@@ -2,7 +2,7 @@ mod duplex_thread;
 mod engine;
 mod stdin;
 
-use chusst::board::{Game, Move};
+use chusst::game::{Game, Move};
 use chusst::moves::GameMove;
 use engine::{create_engine_thread, EngineCommand, EngineResponse, GoCommand, NewGameCommand};
 use stdin::{create_stdin_thread, StdinResponse};

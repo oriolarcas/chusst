@@ -1,4 +1,5 @@
-use crate::board::{Board, MoveExtraInfo, MoveInfo, Player, Position};
+use crate::board::{Board, Player, Position};
+use crate::game::{MoveExtraInfo, MoveInfo};
 use crate::pos;
 
 #[derive(Copy, Clone)]
