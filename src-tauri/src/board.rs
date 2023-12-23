@@ -624,11 +624,11 @@ impl fmt::Display for Board {
     }
 }
 
-struct BoardRanks<'a> {
+struct SerializableBoardRanks<'a> {
     ranks: &'a Ranks<u8>,
 }
 
-impl<'a> Serialize for BoardRanks<'a> {
+impl<'a> Serialize for SerializableBoardRanks<'a> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
@@ -650,7 +650,7 @@ impl Serialize for Board {
         S: serde::Serializer,
     {
         let mut map = serializer.serialize_map(Some(1))?;
-        map.serialize_entry("ranks", &BoardRanks { ranks: &self.ranks })?;
+        map.serialize_entry("ranks", &SerializableBoardRanks { ranks: &self.ranks })?;
         map.end()
     }
 }
