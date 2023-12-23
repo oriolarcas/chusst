@@ -18,12 +18,12 @@ type Piece = {
 type SquareType = Piece | null;
 
 type Position = {
-  row: number;
-  col: number;
+  rank: number;
+  file: number;
 }
 
 type Game = {
-  board: {rows: SquareType[][]};
+  board: {ranks: SquareType[][]};
   player: string;
   turn: number;
   last_move: Position | null;
@@ -161,27 +161,27 @@ export class Board extends Component<BoardProps, {}> {
   }
 
   isSquareSelected(position: Position) {
-    return this.state.selected?.row === position.row && this.state.selected?.col === position.col;
+    return this.state.selected?.rank === position.rank && this.state.selected?.file === position.file;
   }
 
   isSquareEmpty(position: Position) {
-    return !(this.state.game?.board.rows[position.row][position.col]);
+    return !(this.state.game?.board.ranks[position.rank][position.file]);
   }
 
   isSquarePlayer(position: Position, player: string) {
-    return this.state.game?.board.rows[position.row][position.col]?.player === player;
+    return this.state.game?.board.ranks[position.rank][position.file]?.player === player;
   }
 
   async highlightPieceMoves(position: Position, selected?: boolean): Promise<Set<string>[][]> {
     let hints = newHintMatrix();
 
-    hints[position.row][position.col].add(selected === true ? 'selected' : 'source');
+    hints[position.rank][position.file].add(selected === true ? 'selected' : 'source');
 
-    const moves: Position[] = await invoke('get_possible_moves', {row: position.row, col: position.col});
+    const moves: Position[] = await invoke('get_possible_moves', {rank: position.rank, file: position.file});
 
     for (const move of moves) {
-      const move_type = this.state.game?.board.rows[move.row][move.col] == null ? "move" : "capture";
-      hints[move.row][move.col].add(move_type);
+      const move_type = this.state.game?.board.ranks[move.rank][move.file] == null ? "move" : "capture";
+      hints[move.rank][move.file].add(move_type);
     }
 
     return hints;
@@ -201,13 +201,13 @@ export class Board extends Component<BoardProps, {}> {
   updateHintsWithAttackers(hints: Hints, position: Position) {
     this.filterAttackingHints(hints);
 
-    for (const attacker of this.state.captures[position.row][position.col]) {
-      hints[attacker.row][attacker.col].add('attacker');
+    for (const attacker of this.state.captures[position.rank][position.file]) {
+      hints[attacker.rank][attacker.file].add('attacker');
     }
   }
 
   onMouseEnter = async (event: any, rank: number, file: number, hint?: PieceHintTypes) => {
-    let position: Position = {row: rank, col: file};
+    let position: Position = {rank, file};
     if (hint !== undefined) {
       let hints = this.state.hints;
       this.updateHintsWithAttackers(hints, position);
@@ -244,12 +244,12 @@ export class Board extends Component<BoardProps, {}> {
       return;
     }
 
-    const position: Position = {row: rank, col: file};
+    const position: Position = {rank, file};
     const already_selected = this.isSquareSelected(position);
 
     if (this.state.selected !== null && !already_selected && !this.isSquarePlayer(position, this.state.game.player)) {
       // Move
-      const result: boolean = await invoke('do_move', {source_row: this.state.selected?.row, source_col: this.state.selected?.col, target_row: rank, target_col: file});
+      const result: boolean = await invoke('do_move', {source_rank: this.state.selected?.rank, source_file: this.state.selected?.file, target_rank: rank, target_file: file});
       if (!result) {
         console.log('Invalid move');
         return;
@@ -302,7 +302,7 @@ export class Board extends Component<BoardProps, {}> {
       return;
     }
 
-    if (this.state.selected === null && this.state.game?.board.rows[rank][file]?.player !== this.state.game?.player) {
+    if (this.state.selected === null && this.state.game?.board.ranks[rank][file]?.player !== this.state.game?.player) {
       // Opponent's piece
       return;
     }
@@ -321,7 +321,7 @@ export class Board extends Component<BoardProps, {}> {
             ((file_index + rank_index) % 2 === 0 ? 'dark-endgame' : 'light-endgame') :
             ((file_index + rank_index) % 2 === 0 ? 'dark' : 'light');
 
-          let square = this.state.game?.board.rows[rank_index][file_index];
+          let square = this.state.game?.board.ranks[rank_index][file_index];
           let piece = square?.piece;
           let player = square?.player;
           let piece_classes: Piece | undefined;

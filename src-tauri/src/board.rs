@@ -1,6 +1,6 @@
 use atty;
 use colored::Colorize;
-use serde::Serialize;
+use serde::{ser::SerializeMap, ser::SerializeSeq, Serialize};
 use std::fmt;
 
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq, Serialize)]
@@ -384,7 +384,7 @@ pub type Square = Option<Piece>;
 pub type Rank<T> = [T; 8];
 pub type Ranks<T> = Rank<Rank<T>>;
 
-#[derive(Copy, Clone, Debug, Default, PartialEq, Serialize)]
+#[derive(Copy, Clone, Debug, Default, PartialEq)]
 pub struct Board {
     // ranks[x][y], where x = 0..7 = ranks 1..8, and y = 0..7 = files a..h
     // for instance, e4 is Board.ranks[3][4]
@@ -443,6 +443,10 @@ impl Board {
             }
             None => 0,
         }
+    }
+
+    pub const fn new() -> Board {
+        INITIAL_BOARD
     }
 
     fn as_square(&self, pos: &Position) -> Square {
@@ -620,6 +624,37 @@ impl fmt::Display for Board {
     }
 }
 
+struct BoardRanks<'a> {
+    ranks: &'a Ranks<u8>,
+}
+
+impl<'a> Serialize for BoardRanks<'a> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut seq = serializer.serialize_seq(Some(self.ranks.len()))?;
+        for rank in self.ranks {
+            let rank_of_squares = rank
+                .iter()
+                .map(|square_byte| Board::u8_to_square(*square_byte));
+            seq.serialize_element(&rank_of_squares.collect::<Vec<Square>>())?;
+        }
+        seq.end()
+    }
+}
+
+impl Serialize for Board {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut map = serializer.serialize_map(Some(1))?;
+        map.serialize_entry("ranks", &BoardRanks { ranks: &self.ranks })?;
+        map.end()
+    }
+}
+
 macro_rules! pu8 {
     ($piece:ident) => {
         Board::square_to_u8(&p!($piece))
@@ -680,9 +715,3 @@ pub const INITIAL_BOARD: Board = Board {
         ],
     ],
 };
-
-impl Board {
-    pub const fn new() -> Board {
-        INITIAL_BOARD
-    }
-}
