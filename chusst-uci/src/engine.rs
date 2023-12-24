@@ -1,12 +1,12 @@
 use crate::duplex_thread::{create_duplex_thread, DuplexThread};
-use chusst::game::{Game, Move};
-use chusst::moves::{
+use chusst::eval::{
     do_move, get_best_move_with_logger, EngineFeedback, EngineFeedbackMessage, GameMove,
     HasStopSignal,
 };
+use chusst::game::{Game, Move};
 
-use std::io::Write;
 use std::fmt;
+use std::io::Write;
 
 #[derive(Clone)]
 pub struct GoCommand {

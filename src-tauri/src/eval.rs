@@ -6,12 +6,12 @@ mod iter;
 mod play;
 
 use crate::board::{Board, Piece, PieceType, Player, Position, Ranks};
+use crate::eval::bitboards::Bitboards;
+use crate::eval::check::{find_player_king, only_empty_and_safe, piece_is_unsafe};
+pub use crate::eval::feedback::{EngineFeedback, EngineFeedbackMessage, SilentSearchFeedback};
+use crate::eval::feedback::{PeriodicalSearchFeedback, SearchFeedback, StdoutFeedback};
+use crate::eval::play::SearchableGame;
 use crate::game::{Game, GameInfo, Move, MoveInfo};
-use crate::moves::bitboards::Bitboards;
-use crate::moves::check::{find_player_king, only_empty_and_safe, piece_is_unsafe};
-pub use crate::moves::feedback::{EngineFeedback, EngineFeedbackMessage, SilentSearchFeedback};
-use crate::moves::feedback::{PeriodicalSearchFeedback, SearchFeedback, StdoutFeedback};
-use crate::moves::play::SearchableGame;
 use crate::{mv, pos};
 use conditions::{enemy, Direction};
 use iter::{dir, piece_into_iter, player_pieces_iter, BoardIter, PlayerPiecesIter};

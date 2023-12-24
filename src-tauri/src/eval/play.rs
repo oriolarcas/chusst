@@ -1,8 +1,8 @@
 use super::get_possible_moves;
 use crate::board::{Board, Piece, PieceType};
+use crate::eval::conditions::{enemy, only_enemy, try_move, Direction};
+use crate::eval::iter::dir;
 use crate::game::{Game, GameInfo, Move, MoveExtraInfo, MoveInfo};
-use crate::moves::conditions::{enemy, only_enemy, try_move, Direction};
-use crate::moves::iter::dir;
 use crate::mv;
 use std::marker::PhantomData;
 

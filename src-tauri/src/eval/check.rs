@@ -1,7 +1,7 @@
 use crate::board::{Board, PieceType, Player, Position};
-use crate::moves::bitboards::PlayerBitboards;
-use crate::moves::conditions::{enemy, only_empty, try_move, Direction};
-use crate::moves::iter::{dir, into_rolling_board_iterator, player_pieces_iter, PlayerPiecesIter};
+use crate::eval::bitboards::PlayerBitboards;
+use crate::eval::conditions::{enemy, only_empty, try_move, Direction};
+use crate::eval::iter::{dir, into_rolling_board_iterator, player_pieces_iter, PlayerPiecesIter};
 
 pub fn find_player_king(board: &Board, player: &Player) -> Position {
     let king_pos_option = player_pieces_iter!(board: board, player: player)

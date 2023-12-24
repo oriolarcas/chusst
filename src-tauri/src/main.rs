@@ -2,9 +2,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use chusst::board::{Piece, Position};
+use chusst::eval;
+use chusst::eval::MateType;
 use chusst::game::{Game, Move};
-use chusst::moves;
-use chusst::moves::MateType;
 
 use serde::Serialize;
 use tauri::{LogicalSize, Manager, Size};
@@ -15,7 +15,7 @@ use std::sync::Mutex;
 struct MoveDescription {
     mv: String,
     captures: Vec<Piece>,
-    mate: Option<moves::MateType>,
+    mate: Option<eval::MateType>,
 }
 
 #[derive(Clone, Serialize)]
@@ -50,14 +50,14 @@ fn get_possible_moves(rank: usize, file: usize) -> Vec<Position> {
     let position = Position { rank, file };
     let game = &mut GAME.lock().unwrap().game;
     let possible_moves =
-        moves::get_possible_moves(&game.board, &game.last_move, &game.info, position);
+        eval::get_possible_moves(&game.board, &game.last_move, &game.info, position);
     possible_moves
 }
 
 #[tauri::command]
-fn get_possible_captures() -> moves::BoardCaptures {
+fn get_possible_captures() -> eval::BoardCaptures {
     let game = &mut GAME.lock().unwrap().game;
-    moves::get_possible_captures(&game.board, &game.last_move, &game.info)
+    eval::get_possible_captures(&game.board, &game.last_move, &game.info)
 }
 
 #[tauri::command(rename_all = "snake_case")]
@@ -76,7 +76,7 @@ fn do_move(source_rank: usize, source_file: usize, target_rank: usize, target_fi
     let game = &mut game_data.game;
 
     let white_move =
-        match moves::move_name(&game.board, &game.last_move, &game.info, &game.player, &mv) {
+        match eval::move_name(&game.board, &game.last_move, &game.info, &game.player, &mv) {
             Some(name) => name,
             None => {
                 println!("Invalid move: {}", mv);
@@ -84,7 +84,7 @@ fn do_move(source_rank: usize, source_file: usize, target_rank: usize, target_fi
             }
         };
 
-    let white_captures = match moves::do_move(game, &mv) {
+    let white_captures = match eval::do_move(game, &mv) {
         Some(captures) => captures,
         None => {
             println!("Invalid move: {}", white_move);
@@ -92,19 +92,19 @@ fn do_move(source_rank: usize, source_file: usize, target_rank: usize, target_fi
         }
     };
 
-    let (black_move_opt, black_captures, mate) = match moves::get_best_move(game, 4) {
-        moves::GameMove::Normal(mv) => {
+    let (black_move_opt, black_captures, mate) = match eval::get_best_move(game, 4) {
+        eval::GameMove::Normal(mv) => {
             let description =
-                moves::move_name(&game.board, &game.last_move, &game.info, &game.player, &mv);
+                eval::move_name(&game.board, &game.last_move, &game.info, &game.player, &mv);
 
-            let black_captures = moves::do_move(game, &mv);
+            let black_captures = eval::do_move(game, &mv);
             assert!(black_captures.is_some());
 
-            let black_mate = moves::is_mate(&game.board, &game.player, &game.last_move, &game.info);
+            let black_mate = eval::is_mate(&game.board, &game.player, &game.last_move, &game.info);
 
             (description, black_captures.unwrap(), black_mate)
         }
-        moves::GameMove::Mate(mate) => match mate {
+        eval::GameMove::Mate(mate) => match mate {
             MateType::Stalemate => (None, vec![], Some(MateType::Stalemate)),
             MateType::Checkmate => (None, vec![], Some(MateType::Checkmate)),
         },
