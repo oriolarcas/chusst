@@ -4230,18 +4230,13 @@ pub const IN_BETWEEN_TABLE: [[Bitboard; 64]; 64] = [
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{board::Position, eval::bitboards::rank_and_file_to_bitboard_index};
 
-    fn bitboard_index_to_position(index: usize) -> (usize, usize) {
-        (index / 8, index % 8)
-    }
-
-    fn position_to_bitboard_index(rank: usize, file: usize) -> usize {
-        rank * 8 + file
-    }
-
-    fn format_index(index: usize) -> String {
-        let (rank, file) = bitboard_index_to_position(index);
-        format!("{}{}", (file + 97) as u8 as char, rank + 1)
+    fn bitboard_index_to_position(index: usize) -> Position {
+        Position {
+            rank: index / 8,
+            file: index % 8,
+        }
     }
 
     fn format_bitboard(bitboard: Bitboard) -> String {
@@ -4250,7 +4245,7 @@ mod tests {
         for rank in (0..8).rev() {
             result += &format!("{} ", rank + 1);
             for file in 0..8 {
-                let index = position_to_bitboard_index(rank, file);
+                let index = rank_and_file_to_bitboard_index(rank, file);
                 let bit = (bitboard >> index) & 1;
                 result += &format!("{}", bit);
             }
@@ -4262,14 +4257,14 @@ mod tests {
     #[test]
     fn check_in_between_table() {
         let inbetween_table = super::IN_BETWEEN_TABLE;
-        for source in 0..64 {
-            for target in 0..64 {
-                let (source_rank, source_file) = bitboard_index_to_position(source);
-                let (target_rank, target_file) = bitboard_index_to_position(target);
-                let in_between = inbetween_table[source][target];
+        for source_index in 0..64 {
+            for target_index in 0..64 {
+                let source = bitboard_index_to_position(source_index);
+                let target = bitboard_index_to_position(target_index);
+                let in_between = inbetween_table[source_index][target_index];
 
-                let rank_distance = ((source_rank as i8) - (target_rank as i8)).abs();
-                let file_distance = ((source_file as i8) - (target_file as i8)).abs();
+                let rank_distance = ((source.rank as i8) - (target.rank as i8)).abs();
+                let file_distance = ((source.file as i8) - (target.file as i8)).abs();
 
                 if rank_distance <= 1 && file_distance <= 1 {
                     assert_eq!(in_between, 0);
@@ -4282,53 +4277,53 @@ mod tests {
 
                 if same_rank {
                     let mut in_between_rank = 0;
-                    let file_increment = if source_file < target_file { 1i8 } else { -1i8 };
-                    let mut file = source_file;
+                    let file_increment = if source.file < target.file { 1i8 } else { -1i8 };
+                    let mut file = source.file;
 
                     for _ in 1..file_distance {
                         file = (file as i8 + file_increment) as usize;
                         in_between_rank |=
-                            1 << position_to_bitboard_index(source_rank, file as usize);
+                            1 << rank_and_file_to_bitboard_index(source.rank, file as usize);
                     }
                     assert_eq!(
                         in_between,
                         in_between_rank,
                         "source: {}, target: {}, expected:\n{}\nactual:\n{}",
-                        format_index(source),
-                        format_index(target),
+                        source,
+                        target,
                         format_bitboard(in_between_rank),
                         format_bitboard(in_between),
                     );
                 } else if same_file {
                     let mut in_between_file = 0;
-                    let rank_increment = if source_rank < target_rank { 1i8 } else { -1i8 };
-                    let mut rank = source_rank;
+                    let rank_increment = if source.rank < target.rank { 1i8 } else { -1i8 };
+                    let mut rank = source.rank;
 
                     for _ in 1..rank_distance {
                         rank = (rank as i8 + rank_increment) as usize;
                         in_between_file |=
-                            1 << position_to_bitboard_index(rank as usize, source_file);
+                            1 << rank_and_file_to_bitboard_index(rank as usize, source.file);
                     }
                     assert_eq!(in_between, in_between_file);
                 } else if same_diagonal {
                     let mut in_between_diagonal = 0;
-                    let rank_increment = if source_rank < target_rank { 1i8 } else { -1i8 };
-                    let file_increment = if source_file < target_file { 1i8 } else { -1i8 };
+                    let rank_increment = if source.rank < target.rank { 1i8 } else { -1i8 };
+                    let file_increment = if source.file < target.file { 1i8 } else { -1i8 };
 
-                    let mut rank = source_rank;
-                    let mut file = source_file;
+                    let mut rank = source.rank;
+                    let mut file = source.file;
                     for _ in 1..rank_distance {
                         rank = (rank as i8 + rank_increment) as usize;
                         file = (file as i8 + file_increment) as usize;
-                        in_between_diagonal |= 1 << position_to_bitboard_index(rank, file);
+                        in_between_diagonal |= 1 << rank_and_file_to_bitboard_index(rank, file);
                     }
 
                     assert_eq!(
                         in_between,
                         in_between_diagonal,
                         "source: {}, target: {}, expected:\n{}\nactual:\n{}",
-                        format_index(source),
-                        format_index(target),
+                        source,
+                        target,
                         format_bitboard(in_between_diagonal),
                         format_bitboard(in_between),
                     );

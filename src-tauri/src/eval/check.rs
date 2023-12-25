@@ -24,6 +24,16 @@ pub fn find_player_king(board: &Board, player: &Player) -> Position {
     *king_pos_option.first().unwrap()
 }
 
+pub fn find_player_king_fast(
+    player_bitboards: &PlayerBitboards,
+) -> Position {
+    let king_position = player_bitboards
+        .piece_iter(&PieceType::King)
+        .next();
+    assert!(king_position.is_some(), "Player has no king:\n{}", player_bitboards);
+    king_position.expect("Player has no king!")
+}
+
 fn position_is_unsafe_by_squares(board: &Board, position: &Position, player: &Player) -> bool {
     let enemy_player = enemy(&player);
 
@@ -229,7 +239,7 @@ pub fn piece_is_unsafe(board: &Board, position: &Position) -> bool {
     position_is_unsafe_by_squares(board, position, &player)
 }
 
-pub fn piece_is_unsafe_with_bitboards(
+pub fn piece_is_unsafe_fast(
     board: &Board,
     position: &Position,
     player_bitboards: &PlayerBitboards,

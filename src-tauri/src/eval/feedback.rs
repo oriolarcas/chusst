@@ -5,12 +5,22 @@ pub struct EngineFeedbackMessage {
     pub score: i32, // in centipawns
 }
 
+pub struct EngineInfoMessage {
+    pub message: String,
+}
+
+pub enum EngineMessage {
+    SearchFeedback(EngineFeedbackMessage),
+    Info(EngineInfoMessage),
+}
+
 pub trait EngineFeedback: std::io::Write {
-    fn send(&self, msg: EngineFeedbackMessage);
+    fn send(&self, msg: EngineMessage);
 }
 
 pub trait SearchFeedback: std::io::Write {
     fn update(self: &mut Self, depth: u32, nodes: u32, score: i32);
+    fn info(self: &mut Self, message: &str);
 }
 
 #[derive(Default)]
@@ -19,6 +29,10 @@ pub struct SilentSearchFeedback();
 impl SearchFeedback for SilentSearchFeedback {
     fn update(self: &mut Self, _depth: u32, _nodes: u32, _score: i32) {
         // do nothing
+    }
+
+    fn info(self: &mut Self, message: &str) {
+        println!("{}", message);
     }
 }
 
@@ -59,13 +73,20 @@ impl<'a> SearchFeedback for PeriodicalSearchFeedback<'a> {
             return;
         }
 
-        self.receiver.send(EngineFeedbackMessage {
-            depth,
-            nodes,
-            score,
-        });
+        self.receiver
+            .send(EngineMessage::SearchFeedback(EngineFeedbackMessage {
+                depth,
+                nodes,
+                score,
+            }));
 
         self.last_update = now;
+    }
+
+    fn info(self: &mut Self, message: &str) {
+        self.receiver.send(EngineMessage::Info(EngineInfoMessage {
+            message: message.to_string(),
+        }))
     }
 }
 
@@ -83,8 +104,18 @@ impl<'a> std::io::Write for PeriodicalSearchFeedback<'a> {
 pub struct StdoutFeedback();
 
 impl EngineFeedback for StdoutFeedback {
-    fn send(&self, _msg: EngineFeedbackMessage) {
+    fn send(&self, _msg: EngineMessage) {
         // ignore
+    }
+}
+
+impl SearchFeedback for StdoutFeedback {
+    fn update(self: &mut Self, _depth: u32, _nodes: u32, _score: i32) {
+        // ignore
+    }
+
+    fn info(self: &mut Self, message: &str) {
+        println!("{}", message);
     }
 }
 

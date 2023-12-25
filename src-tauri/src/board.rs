@@ -384,6 +384,12 @@ pub type Square = Option<Piece>;
 pub type Rank<T> = [T; 8];
 pub type Ranks<T> = Rank<Rank<T>>;
 
+pub trait ModifiableBoard {
+    fn update(&mut self, pos: &Position, value: Square);
+
+    fn move_piece(&mut self, source: &Position, target: &Position);
+}
+
 #[derive(Copy, Clone, Debug, Default, PartialEq)]
 pub struct Board {
     // ranks[x][y], where x = 0..7 = ranks 1..8, and y = 0..7 = files a..h
@@ -521,15 +527,6 @@ impl Board {
         self.as_square(pos)
     }
 
-    pub fn update(&mut self, pos: &Position, value: Square) {
-        self.ranks[pos.rank][pos.file] = Board::square_to_u8(&value);
-    }
-
-    pub fn move_piece(&mut self, source: &Position, target: &Position) {
-        self.ranks[target.rank][target.file] = self.ranks[source.rank][source.file];
-        self.ranks[source.rank][source.file] = Board::EMPTY_SQUARE;
-    }
-
     pub fn home_rank(player: &Player) -> usize {
         match player {
             Player::White => 0,
@@ -549,6 +546,17 @@ impl Board {
             Player::White => 1,
             Player::Black => -1,
         }
+    }
+}
+
+impl ModifiableBoard for Board {
+    fn update(&mut self, pos: &Position, value: Square) {
+        self.ranks[pos.rank][pos.file] = Board::square_to_u8(&value);
+    }
+
+    fn move_piece(&mut self, source: &Position, target: &Position) {
+        self.ranks[target.rank][target.file] = self.ranks[source.rank][source.file];
+        self.ranks[source.rank][source.file] = Board::EMPTY_SQUARE;
     }
 }
 

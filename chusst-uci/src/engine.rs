@@ -1,7 +1,7 @@
 use crate::duplex_thread::{create_duplex_thread, DuplexThread};
 use chusst::eval::{
-    do_move, get_best_move_with_logger, EngineFeedback, EngineFeedbackMessage, GameMove,
-    HasStopSignal,
+    do_move, get_best_move_with_logger, EngineFeedback, EngineFeedbackMessage, EngineMessage,
+    GameMove, HasStopSignal,
 };
 use chusst::game::{Game, Move};
 
@@ -124,8 +124,15 @@ impl<'a> BufferedSenderWriter<'a> {
 }
 
 impl<'a> EngineFeedback for BufferedSenderWriter<'a> {
-    fn send(&self, msg: EngineFeedbackMessage) {
-        let _ = self.send(EngineResponse::Info(msg));
+    fn send(&self, msg: EngineMessage) {
+        match msg {
+            EngineMessage::Info(msg) => {
+                let _ = self.send(EngineResponse::Log(msg.message));
+            }
+            EngineMessage::SearchFeedback(msg) => {
+                let _ = self.send(EngineResponse::Info(msg));
+            }
+        }
     }
 }
 

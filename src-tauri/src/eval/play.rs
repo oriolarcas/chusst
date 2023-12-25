@@ -1,10 +1,12 @@
-use super::get_possible_moves;
-use crate::board::{Board, Piece, PieceType};
+use crate::board::{Board, ModifiableBoard, Piece, PieceType, Player, Position, Square};
+use crate::eval::bitboards::BitboardGame;
 use crate::eval::conditions::{enemy, only_enemy, try_move, Direction};
+use crate::eval::get_possible_moves;
 use crate::eval::iter::dir;
 use crate::game::{Game, GameInfo, Move, MoveExtraInfo, MoveInfo};
 use crate::mv;
-use std::marker::PhantomData;
+
+use super::bitboards::PlayerBitboards;
 
 pub struct ReversableMove {
     mv: Move,
@@ -12,7 +14,6 @@ pub struct ReversableMove {
 }
 
 pub trait PlayableGame<'a> {
-    fn from_game(game: &'a mut Game) -> Self;
     fn as_ref(&self) -> &Game;
     fn as_mut(&mut self) -> &mut Game;
 
@@ -53,20 +54,14 @@ pub trait PlayableGame<'a> {
     fn do_move_no_checks(&mut self, mv: &Move);
 }
 
-trait PlayableGameNoChecksImpl<'a>: PlayableGame<'a> {
-    fn do_move_no_checks_impl(
-        &mut self,
-        mv: &Move,
-        moves_option: &mut Option<&mut Vec<ReversableMove>>,
-    ) {
-        let board = &mut self.as_mut().board;
-
-        let square_opt = board.square(&mv.source);
+trait PlayableGamePrivate<'a>: PlayableGame<'a> {
+    fn do_move_no_checks_private(&mut self, mv: &Move) {
+        let square_opt = self.as_ref().board.square(&mv.source);
         assert!(
             square_opt.is_some(),
             "move {} from empty square:\n{}",
             mv,
-            board
+            self.as_ref().board
         );
         let square = square_opt.unwrap();
 
@@ -76,7 +71,9 @@ trait PlayableGameNoChecksImpl<'a>: PlayableGame<'a> {
             PieceType::Pawn => {
                 if mv.source.rank.abs_diff(mv.target.rank) == 2 {
                     MoveExtraInfo::Passed
-                } else if mv.source.file != mv.target.file && board.square(&mv.target).is_none() {
+                } else if mv.source.file != mv.target.file
+                    && self.as_ref().board.square(&mv.target).is_none()
+                {
                     MoveExtraInfo::EnPassant
                 } else if mv.target.rank == Board::promotion_rank(&player) {
                     MoveExtraInfo::Promotion(PieceType::Queen)
@@ -89,7 +86,7 @@ trait PlayableGameNoChecksImpl<'a>: PlayableGame<'a> {
                     match mv.target.file {
                         2 => MoveExtraInfo::CastleQueenside,
                         6 => MoveExtraInfo::CastleKingside,
-                        _ => panic!("invalid castling {} in:\n{}", mv, board),
+                        _ => panic!("invalid castling {} in:\n{}", mv, self.as_ref().board),
                     }
                 } else {
                     MoveExtraInfo::Other
@@ -98,62 +95,32 @@ trait PlayableGameNoChecksImpl<'a>: PlayableGame<'a> {
             _ => MoveExtraInfo::Other,
         };
 
-        if let Some(moves) = moves_option {
-            moves.push(ReversableMove {
-                mv: *mv,
-                previous_piece: board.square(&mv.target),
-            });
-        }
-
-        board.move_piece(&mv.source, &mv.target);
+        self.move_piece(mv);
 
         match move_info {
             MoveExtraInfo::EnPassant => {
                 // Capture passed pawn
                 let direction = Board::pawn_progress_direction(&player);
-                let passed =
-                    only_enemy(&board, try_move(&mv.target, &dir!(-direction, 0)), &player)
-                        .unwrap();
-
-                if let Some(moves) = moves_option {
-                    moves.push(ReversableMove {
-                        mv: mv!(passed, passed),
-                        previous_piece: board.square(&passed),
-                    });
-                }
-
-                board.update(&passed, None);
+                let passed = only_enemy(
+                    &self.as_ref().board,
+                    try_move(&mv.target, &dir!(-direction, 0)),
+                    &player,
+                )
+                .unwrap();
+                self.update(&passed, None);
             }
             MoveExtraInfo::Promotion(piece) => {
-                if let Some(moves) = moves_option {
-                    moves.push(ReversableMove {
-                        mv: mv!(mv.target, mv.target),
-                        previous_piece: board.square(&mv.target),
-                    });
-                }
-                board.update(&mv.target, Some(Piece { piece, player }));
+                self.update(&mv.target, Some(Piece { piece, player }));
             }
             MoveExtraInfo::CastleKingside => {
                 let rook_source = try_move(&mv.source, &dir!(0, 3)).unwrap();
                 let rook_target = try_move(&mv.source, &dir!(0, 1)).unwrap();
-                if let Some(moves) = moves_option {
-                    moves.push(ReversableMove {
-                        mv: mv!(rook_source, rook_target),
-                        previous_piece: None,
-                    });
-                }
-                board.move_piece(&rook_source, &rook_target);
+                self.move_piece(&mv!(rook_source, rook_target));
             }
             MoveExtraInfo::CastleQueenside => {
                 let rook_source = try_move(&mv.source, &dir!(0, -4)).unwrap();
                 let rook_target = try_move(&mv.source, &dir!(0, -1)).unwrap();
-                if let Some(moves) = moves_option {
-                    moves.push(ReversableMove {
-                        mv: mv!(rook_source, rook_target),
-                        previous_piece: None,
-                    });
-                }
-                board.move_piece(&rook_source, &rook_target);
+                self.move_piece(&mv!(rook_source, rook_target));
             }
             _ => (),
         }
@@ -175,35 +142,73 @@ trait PlayableGameNoChecksImpl<'a>: PlayableGame<'a> {
             info: move_info,
         });
     }
+
+    fn move_piece(&mut self, mv: &Move);
+
+    fn update(&mut self, pos: &Position, value: Square);
 }
 
-pub struct SearchableGame<'a> {
-    game: Game,
-    _marker: PhantomData<&'a ()>,
+pub struct SearchableGame {
+    bitboard_game: BitboardGame,
 }
 
-impl<'a> PlayableGame<'a> for SearchableGame<'a> {
-    fn from_game(game: &'a mut Game) -> Self {
-        SearchableGame {
-            game: *game,
-            _marker: PhantomData,
-        }
+impl SearchableGame {
+    pub fn new_from_move(&self, mv: &Move) -> SearchableGame {
+        let mut new_game = SearchableGame {
+            bitboard_game: self.bitboard_game.clone(),
+        };
+
+        new_game.do_move_no_checks(mv);
+
+        new_game
     }
 
+    pub fn as_ref(&self) -> &Game {
+        &self.bitboard_game.as_ref()
+    }
+
+    pub fn as_mut(&mut self) -> &mut Game {
+        self.bitboard_game.as_mut()
+    }
+
+    pub fn bitboards_by_player(&self, player: &Player) -> &PlayerBitboards {
+        &self.bitboard_game.by_player(player)
+    }
+}
+
+impl<'a> PlayableGame<'a> for SearchableGame {
     fn as_ref(&self) -> &Game {
-        &self.game
+        &self.bitboard_game.as_ref()
     }
 
     fn as_mut(&mut self) -> &mut Game {
-        &mut self.game
+        self.bitboard_game.as_mut()
     }
 
     fn do_move_no_checks(&mut self, mv: &Move) {
-        self.do_move_no_checks_impl(mv, &mut None);
+        self.do_move_no_checks_private(mv);
     }
 }
 
-impl<'a> PlayableGameNoChecksImpl<'a> for SearchableGame<'a> {}
+impl From<&Game> for SearchableGame {
+    fn from(game: &Game) -> SearchableGame {
+        SearchableGame {
+            bitboard_game: BitboardGame::from(game),
+        }
+    }
+}
+
+impl<'a> PlayableGamePrivate<'a> for SearchableGame {
+    fn move_piece(&mut self, mv: &Move) {
+        self.bitboard_game.move_piece(&mv.source, &mv.target);
+        self.as_mut().board.move_piece(&mv.source, &mv.target);
+    }
+
+    fn update(&mut self, pos: &Position, value: Square) {
+        self.bitboard_game.update(pos, value);
+        self.as_mut().board.update(&pos, value);
+    }
+}
 
 pub struct ReversableGame<'a> {
     game: &'a mut Game,
@@ -213,17 +218,6 @@ pub struct ReversableGame<'a> {
 }
 
 impl<'a> PlayableGame<'a> for ReversableGame<'a> {
-    fn from_game(game: &'a mut Game) -> Self {
-        let last_move = game.last_move;
-        let game_info = game.info;
-        ReversableGame {
-            game,
-            moves: vec![],
-            last_move,
-            info: Some(game_info),
-        }
-    }
-
     fn as_ref(&self) -> &Game {
         &self.game
     }
@@ -234,15 +228,43 @@ impl<'a> PlayableGame<'a> for ReversableGame<'a> {
 
     fn do_move_no_checks(&mut self, mv: &Move) {
         let mut moves: Vec<ReversableMove> = Vec::new();
-        let result = self.do_move_no_checks_impl(mv, &mut Some(&mut moves));
+        let result = self.do_move_no_checks_private(mv);
         self.moves.append(&mut moves);
         result
     }
 }
 
-impl<'a> PlayableGameNoChecksImpl<'a> for ReversableGame<'a> {}
+impl<'a> PlayableGamePrivate<'a> for ReversableGame<'a> {
+    fn move_piece(&mut self, mv: &Move) {
+        self.moves.push(ReversableMove {
+            mv: *mv,
+            previous_piece: self.as_ref().board.square(&mv.target),
+        });
+        self.as_mut().board.move_piece(&mv.source, &mv.target);
+    }
+
+    fn update(&mut self, pos: &Position, value: Square) {
+        self.moves.push(ReversableMove {
+            mv: mv!(*pos, *pos),
+            previous_piece: self.as_ref().board.square(pos),
+        });
+        self.as_mut().board.update(&pos, value);
+    }
+}
 
 impl<'a> ReversableGame<'a> {
+    pub fn from(game: &'a mut Game) -> Self {
+        let last_move = game.last_move;
+        let game_info = game.info;
+        ReversableGame {
+            game,
+            moves: vec![],
+            last_move,
+            info: Some(game_info),
+        }
+    }
+
+    // undo() only used in tests
     #[allow(dead_code)]
     pub fn undo(&mut self) {
         assert!(!self.moves.is_empty());
