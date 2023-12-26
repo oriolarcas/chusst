@@ -381,8 +381,8 @@ macro_rules! pos {
 
 pub type Square = Option<Piece>;
 
-pub type Rank<T> = [T; 8];
-pub type Ranks<T> = Rank<Rank<T>>;
+pub type Files<T> = [T; 8];
+pub type Ranks<T> = [Files<T>; 8];
 
 pub trait ModifiableBoard {
     fn update(&mut self, pos: &Position, value: Square);
@@ -390,23 +390,35 @@ pub trait ModifiableBoard {
     fn move_piece(&mut self, source: &Position, target: &Position);
 }
 
-#[derive(Copy, Clone, Debug, Default, PartialEq)]
-pub struct Board {
-    // ranks[x][y], where x = 0..7 = ranks 1..8, and y = 0..7 = files a..h
-    // for instance, e4 is Board.ranks[3][4]
+#[cfg(feature = "sparse-board")]
+mod internal_representation {
+    use super::Square;
 
-    // Binary representation of a Square:
-    // 0b000vPppp where:
-    // v = 1 if the square is valid, 0 if it is not
-    // P = 0 if the piece is white, 1 if it is black
-    // pppp = piece type, 0..5 = pawn..king
-    ranks: Ranks<u8>,
+    pub type BoardSquare = Square;
+
+    pub const EMPTY_SQUARE: BoardSquare = None;
+
+    pub const fn internal_to_square(value: BoardSquare) -> Square {
+        value
+    }
+
+    pub const fn square_to_internal(value: &Square) -> BoardSquare {
+        *value
+    }
 }
 
-impl Board {
-    const EMPTY_SQUARE: u8 = 0b0000_0000;
+#[cfg(not(feature = "sparse-board"))]
+mod internal_representation {
+    use super::{Piece, PieceType, Player, Ranks, Square};
 
-    const fn u8_to_square(square_byte: u8) -> Square {
+    pub type BoardSquare = u8;
+
+    pub const EMPTY_SQUARE: BoardSquare = 0b0000_0000;
+
+    #[allow(dead_code)]
+    const SIZE_ASSERTION: [u8; 64] = [0; std::mem::size_of::<Ranks<BoardSquare>>()];
+
+    pub const fn internal_to_square(square_byte: BoardSquare) -> Square {
         if square_byte & 0b0010_0000 == 0 {
             return None;
         }
@@ -429,7 +441,7 @@ impl Board {
         Some(Piece { piece, player })
     }
 
-    const fn square_to_u8(square: &Square) -> u8 {
+    pub const fn square_to_internal(square: &Square) -> BoardSquare {
         match square {
             Some(piece) => {
                 let mut square_byte = 0b0010_0000;
@@ -450,13 +462,28 @@ impl Board {
             None => 0,
         }
     }
+}
+
+#[derive(Copy, Clone, Debug, Default, PartialEq)]
+pub struct Board {
+    // ranks[x][y], where x = 0..7 = ranks 1..8, and y = 0..7 = files a..h
+    // for instance, e4 is Board.ranks[3][4]
+
+    // Binary representation of a Square:
+    // 0b000vPppp where:
+    // v = 1 if the square is valid, 0 if it is not
+    // P = 0 if the piece is white, 1 if it is black
+    // pppp = piece type, 0..5 = pawn..king
+    ranks: Ranks<internal_representation::BoardSquare>,
+}
+
+impl Board {
+    fn as_square(&self, pos: &Position) -> Square {
+        internal_representation::internal_to_square(self.ranks[pos.rank][pos.file])
+    }
 
     pub const fn new() -> Board {
         INITIAL_BOARD
-    }
-
-    fn as_square(&self, pos: &Position) -> Square {
-        Board::u8_to_square(self.ranks[pos.rank][pos.file])
     }
 
     pub fn try_from_fen(fen: &str) -> Option<Board> {
@@ -551,12 +578,12 @@ impl Board {
 
 impl ModifiableBoard for Board {
     fn update(&mut self, pos: &Position, value: Square) {
-        self.ranks[pos.rank][pos.file] = Board::square_to_u8(&value);
+        self.ranks[pos.rank][pos.file] = internal_representation::square_to_internal(&value);
     }
 
     fn move_piece(&mut self, source: &Position, target: &Position) {
         self.ranks[target.rank][target.file] = self.ranks[source.rank][source.file];
-        self.ranks[source.rank][source.file] = Board::EMPTY_SQUARE;
+        self.ranks[source.rank][source.file] = internal_representation::EMPTY_SQUARE;
     }
 }
 
@@ -590,7 +617,7 @@ impl fmt::Display for Board {
         for (rank, rank_pieces) in self.ranks.iter().rev().enumerate() {
             let mut row_str = String::from(format!("{} ", 8 - rank));
             for (file, square_byte) in rank_pieces.iter().enumerate() {
-                let piece = match Board::u8_to_square(*square_byte) {
+                let piece = match internal_representation::internal_to_square(*square_byte) {
                     Some(square_value) => Some((
                         get_unicode_piece(square_value.piece, square_value.player),
                         square_value.player,
@@ -633,7 +660,7 @@ impl fmt::Display for Board {
 }
 
 struct SerializableBoardRanks<'a> {
-    ranks: &'a Ranks<u8>,
+    ranks: &'a Ranks<internal_representation::BoardSquare>,
 }
 
 impl<'a> Serialize for SerializableBoardRanks<'a> {
@@ -645,7 +672,7 @@ impl<'a> Serialize for SerializableBoardRanks<'a> {
         for rank in self.ranks {
             let rank_of_squares = rank
                 .iter()
-                .map(|square_byte| Board::u8_to_square(*square_byte));
+                .map(|square_byte| internal_representation::internal_to_square(*square_byte));
             seq.serialize_element(&rank_of_squares.collect::<Vec<Square>>())?;
         }
         seq.end()
@@ -663,13 +690,13 @@ impl Serialize for Board {
     }
 }
 
-macro_rules! pu8 {
+macro_rules! piece_repr {
     ($piece:ident) => {
-        Board::square_to_u8(&p!($piece))
+        internal_representation::square_to_internal(&p!($piece))
     };
 
     () => {
-        Board::EMPTY_SQUARE
+        internal_representation::EMPTY_SQUARE
     };
 }
 
@@ -678,48 +705,48 @@ pub const INITIAL_BOARD: Board = Board {
     // Note that white pieces are at the top, because arrays are defined top-down, while chess rows go bottom-up
     ranks: [
         [
-            pu8!(rw),
-            pu8!(nw),
-            pu8!(bw),
-            pu8!(qw),
-            pu8!(kw),
-            pu8!(bw),
-            pu8!(nw),
-            pu8!(rw),
+            piece_repr!(rw),
+            piece_repr!(nw),
+            piece_repr!(bw),
+            piece_repr!(qw),
+            piece_repr!(kw),
+            piece_repr!(bw),
+            piece_repr!(nw),
+            piece_repr!(rw),
         ],
         [
-            pu8!(pw),
-            pu8!(pw),
-            pu8!(pw),
-            pu8!(pw),
-            pu8!(pw),
-            pu8!(pw),
-            pu8!(pw),
-            pu8!(pw),
+            piece_repr!(pw),
+            piece_repr!(pw),
+            piece_repr!(pw),
+            piece_repr!(pw),
+            piece_repr!(pw),
+            piece_repr!(pw),
+            piece_repr!(pw),
+            piece_repr!(pw),
         ],
-        [pu8!(); 8],
-        [pu8!(); 8],
-        [pu8!(); 8],
-        [pu8!(); 8],
+        [piece_repr!(); 8],
+        [piece_repr!(); 8],
+        [piece_repr!(); 8],
+        [piece_repr!(); 8],
         [
-            pu8!(pb),
-            pu8!(pb),
-            pu8!(pb),
-            pu8!(pb),
-            pu8!(pb),
-            pu8!(pb),
-            pu8!(pb),
-            pu8!(pb),
+            piece_repr!(pb),
+            piece_repr!(pb),
+            piece_repr!(pb),
+            piece_repr!(pb),
+            piece_repr!(pb),
+            piece_repr!(pb),
+            piece_repr!(pb),
+            piece_repr!(pb),
         ],
         [
-            pu8!(rb),
-            pu8!(nb),
-            pu8!(bb),
-            pu8!(qb),
-            pu8!(kb),
-            pu8!(bb),
-            pu8!(nb),
-            pu8!(rb),
+            piece_repr!(rb),
+            piece_repr!(nb),
+            piece_repr!(bb),
+            piece_repr!(qb),
+            piece_repr!(kb),
+            piece_repr!(bb),
+            piece_repr!(nb),
+            piece_repr!(rb),
         ],
     ],
 };

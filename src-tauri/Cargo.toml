@@ -25,6 +25,8 @@ bencher = "0.1.5"
 [features]
 # DO NOT set 'default', breaks production build
 
+# Do NOT use a memory-efficient representation of the board (1 byte per square)
+sparse-board = []
 # Build with this feature to print the search tree to stdout
 verbose-search = []
 
