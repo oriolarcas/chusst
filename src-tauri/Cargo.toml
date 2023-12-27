@@ -23,7 +23,9 @@ atty = "0.2.14"
 bencher = "0.1.5"
 
 [features]
-default = ["compact-board", "bitboards"]
+# default = ["compact-board"]
+# default = ["bitboards"]
+# default = ["compact-board", "bitboards"]
 
 # Use bitboards to evaluate valid moves
 bitboards = []

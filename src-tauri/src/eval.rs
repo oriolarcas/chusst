@@ -1,3 +1,4 @@
+#[cfg(feature = "bitboards")]
 mod bitboards;
 mod check;
 mod conditions;
@@ -150,18 +151,8 @@ fn move_with_checks(
 
     // Before moving, check if it is a castling and it is valid
     if is_king && mv.source.file.abs_diff(mv.target.file) == 2 {
-        let player_bitboards = game.bitboards_by_player(&player);
-        let enemy_bitboards = game.bitboards_by_player(&enemy(&player));
-
         let is_valid_castling_square = |direction: &Direction| {
-            only_empty_and_safe(
-                &game.as_ref().board,
-                try_move(&mv.source, &direction),
-                &player,
-                &player_bitboards,
-                &enemy_bitboards,
-            )
-            .is_some()
+            only_empty_and_safe(&game, try_move(&mv.source, &direction), &player).is_some()
         };
         let can_castle = match mv.target.file {
             // Queenside
@@ -175,13 +166,7 @@ fn move_with_checks(
                 game.as_ref().info
             ),
         };
-        let castling_is_safe = can_castle
-            && !piece_is_unsafe_fast(
-                &game.as_ref().board,
-                king_position,
-                &player_bitboards,
-                &enemy_bitboards,
-            );
+        let castling_is_safe = can_castle && !piece_is_unsafe_fast(&game, king_position);
 
         if !castling_is_safe {
             return None;
@@ -194,15 +179,8 @@ fn move_with_checks(
     // After moving, check if the king is in check
 
     let current_king_position = if is_king { &mv.target } else { king_position };
-    let player_bitboards = new_game.bitboards_by_player(&player);
-    let enemy_bitboards = new_game.bitboards_by_player(&enemy(&player));
 
-    if piece_is_unsafe_fast(
-        &new_game.as_ref().board,
-        &current_king_position,
-        &player_bitboards,
-        &enemy_bitboards,
-    ) {
+    if piece_is_unsafe_fast(&new_game, &current_king_position) {
         return None;
     }
 
@@ -471,7 +449,7 @@ fn get_best_move_recursive_alpha_beta(
 
     let mut searched_moves: u32 = 0;
 
-    let king_position = find_player_king_fast(game.bitboards_by_player(&player));
+    let king_position = find_player_king_fast(game, player);
 
     let mut local_alpha = alpha;
 
@@ -574,14 +552,9 @@ fn get_best_move_recursive_alpha_beta(
                 let is_check_mate = if next_moves_opt.is_none() {
                     // check or stale mate?
                     let enemy_player_king_position =
-                        find_player_king_fast(recursive_game.bitboards_by_player(&enemy(&player)));
+                        find_player_king_fast(recursive_game, &enemy(&player));
 
-                    piece_is_unsafe_fast(
-                        &recursive_game.as_ref().board,
-                        &enemy_player_king_position,
-                        recursive_game.bitboards_by_player(&enemy(&player)),
-                        recursive_game.bitboards_by_player(player),
-                    )
+                    piece_is_unsafe_fast(&recursive_game, &enemy_player_king_position)
                 } else {
                     false
                 };

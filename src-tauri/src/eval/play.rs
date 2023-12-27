@@ -1,12 +1,11 @@
-use crate::board::{Board, ModifiableBoard, Piece, PieceType, Player, Position, Square};
-use crate::eval::bitboards::BitboardGame;
+use crate::board::{Board, ModifiableBoard, Piece, PieceType, Position, Square};
 use crate::eval::conditions::{enemy, only_enemy, try_move, Direction};
 use crate::eval::get_possible_moves;
 use crate::eval::iter::dir;
 use crate::game::{Game, GameInfo, Move, MoveExtraInfo, MoveInfo};
 use crate::mv;
 
-use super::bitboards::PlayerBitboards;
+use self::internal_searchable_game::InternalSearchableGame;
 
 pub struct ReversableMove {
     mv: Move,
@@ -54,7 +53,7 @@ pub trait PlayableGame<'a> {
     fn do_move_no_checks(&mut self, mv: &Move);
 }
 
-trait PlayableGamePrivate<'a>: PlayableGame<'a> {
+trait PlayableGamePrivate<'a>: PlayableGame<'a> + ModifiableBoard {
     fn do_move_no_checks_private(&mut self, mv: &Move) {
         let square_opt = self.as_ref().board.square(&mv.source);
         assert!(
@@ -95,7 +94,7 @@ trait PlayableGamePrivate<'a>: PlayableGame<'a> {
             _ => MoveExtraInfo::Other,
         };
 
-        self.move_piece(mv);
+        self.move_piece(&mv.source, &mv.target);
 
         match move_info {
             MoveExtraInfo::EnPassant => {
@@ -115,12 +114,12 @@ trait PlayableGamePrivate<'a>: PlayableGame<'a> {
             MoveExtraInfo::CastleKingside => {
                 let rook_source = try_move(&mv.source, &dir!(0, 3)).unwrap();
                 let rook_target = try_move(&mv.source, &dir!(0, 1)).unwrap();
-                self.move_piece(&mv!(rook_source, rook_target));
+                self.move_piece(&rook_source, &rook_target);
             }
             MoveExtraInfo::CastleQueenside => {
                 let rook_source = try_move(&mv.source, &dir!(0, -4)).unwrap();
                 let rook_target = try_move(&mv.source, &dir!(0, -1)).unwrap();
-                self.move_piece(&mv!(rook_source, rook_target));
+                self.move_piece(&rook_source, &rook_target);
             }
             _ => (),
         }
@@ -142,20 +141,57 @@ trait PlayableGamePrivate<'a>: PlayableGame<'a> {
             info: move_info,
         });
     }
+}
 
-    fn move_piece(&mut self, mv: &Move);
+#[cfg(not(feature = "bitboards"))]
+mod internal_searchable_game {
+    use super::*;
 
-    fn update(&mut self, pos: &Position, value: Square);
+    #[derive(Clone)]
+    pub struct InternalSearchableGame(Game);
+
+    impl InternalSearchableGame {
+        pub fn as_ref(&self) -> &Game {
+            &self.0
+        }
+
+        pub fn as_mut(&mut self) -> &mut Game {
+            &mut self.0
+        }
+    }
+
+    impl From<&Game> for InternalSearchableGame {
+        fn from(value: &Game) -> Self {
+            InternalSearchableGame(value.clone())
+        }
+    }
+
+    impl ModifiableBoard for InternalSearchableGame {
+        fn move_piece(&mut self, _source: &Position, _target: &Position) {
+            // do nothing
+        }
+
+        fn update(&mut self, _pos: &Position, _value: Square) {
+            // do nothing
+        }
+    }
+}
+
+#[cfg(feature = "bitboards")]
+mod internal_searchable_game {
+    use crate::eval::bitboards::BitboardGame;
+
+    pub type InternalSearchableGame = BitboardGame;
 }
 
 pub struct SearchableGame {
-    bitboard_game: BitboardGame,
+    game: internal_searchable_game::InternalSearchableGame,
 }
 
 impl SearchableGame {
     pub fn new_from_move(&self, mv: &Move) -> SearchableGame {
         let mut new_game = SearchableGame {
-            bitboard_game: self.bitboard_game.clone(),
+            game: self.game.clone(),
         };
 
         new_game.do_move_no_checks(mv);
@@ -164,25 +200,29 @@ impl SearchableGame {
     }
 
     pub fn as_ref(&self) -> &Game {
-        &self.bitboard_game.as_ref()
+        &self.game.as_ref()
     }
 
     pub fn as_mut(&mut self) -> &mut Game {
-        self.bitboard_game.as_mut()
+        self.game.as_mut()
     }
 
-    pub fn bitboards_by_player(&self, player: &Player) -> &PlayerBitboards {
-        &self.bitboard_game.by_player(player)
+    #[cfg(feature = "bitboards")]
+    pub fn bitboards_by_player(
+        &self,
+        player: &crate::board::Player,
+    ) -> &super::bitboards::PlayerBitboards {
+        &self.game.by_player(player)
     }
 }
 
 impl<'a> PlayableGame<'a> for SearchableGame {
     fn as_ref(&self) -> &Game {
-        &self.bitboard_game.as_ref()
+        &self.game.as_ref()
     }
 
     fn as_mut(&mut self) -> &mut Game {
-        self.bitboard_game.as_mut()
+        self.game.as_mut()
     }
 
     fn do_move_no_checks(&mut self, mv: &Move) {
@@ -193,22 +233,25 @@ impl<'a> PlayableGame<'a> for SearchableGame {
 impl From<&Game> for SearchableGame {
     fn from(game: &Game) -> SearchableGame {
         SearchableGame {
-            bitboard_game: BitboardGame::from(game),
+            game: InternalSearchableGame::from(game),
         }
     }
 }
 
-impl<'a> PlayableGamePrivate<'a> for SearchableGame {
-    fn move_piece(&mut self, mv: &Move) {
-        self.bitboard_game.move_piece(&mv.source, &mv.target);
+impl ModifiableBoard for SearchableGame {
+    fn move_piece(&mut self, source: &Position, target: &Position) {
+        let mv = mv!(*source, *target);
+        self.game.move_piece(&mv.source, &mv.target);
         self.as_mut().board.move_piece(&mv.source, &mv.target);
     }
 
     fn update(&mut self, pos: &Position, value: Square) {
-        self.bitboard_game.update(pos, value);
+        self.game.update(pos, value);
         self.as_mut().board.update(&pos, value);
     }
 }
+
+impl<'a> PlayableGamePrivate<'a> for SearchableGame {}
 
 pub struct ReversableGame<'a> {
     game: &'a mut Game,
@@ -234,10 +277,11 @@ impl<'a> PlayableGame<'a> for ReversableGame<'a> {
     }
 }
 
-impl<'a> PlayableGamePrivate<'a> for ReversableGame<'a> {
-    fn move_piece(&mut self, mv: &Move) {
+impl<'a> ModifiableBoard for ReversableGame<'a> {
+    fn move_piece(&mut self, source: &Position, target: &Position) {
+        let mv = mv!(*source, *target);
         self.moves.push(ReversableMove {
-            mv: *mv,
+            mv,
             previous_piece: self.as_ref().board.square(&mv.target),
         });
         self.as_mut().board.move_piece(&mv.source, &mv.target);
@@ -251,6 +295,8 @@ impl<'a> PlayableGamePrivate<'a> for ReversableGame<'a> {
         self.as_mut().board.update(&pos, value);
     }
 }
+
+impl<'a> PlayableGamePrivate<'a> for ReversableGame<'a> {}
 
 impl<'a> ReversableGame<'a> {
     pub fn from(game: &'a mut Game) -> Self {
