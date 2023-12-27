@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 usage() {
     echo "Usage: $0 <major> <minor> <patch>"
@@ -26,4 +26,4 @@ cd src-tauri
 cargo bump "$new_ver"
 
 echo Updating tauri.conf.json
-sed -E -i '' "s/\"version\": \"[0-9.]+\"/\"version\": \"$new_ver\"/" tauri.conf.json
+sed -E -i'' "s/\"version\": \"[0-9.]+\"/\"version\": \"$new_ver\"/" tauri.conf.json

@@ -1,27 +1,30 @@
+#[cfg(feature = "bitboards")]
+mod bitboards;
 mod check;
 mod conditions;
 mod feedback;
 mod iter;
 mod play;
 
-use crate::board::{
-    Board, Game, GameInfo, Move, MoveInfo, Piece, PieceType, Player, Position, Ranks,
+use self::check::{
+    find_player_king, find_player_king_fast, only_empty_and_safe, piece_is_unsafe,
+    piece_is_unsafe_fast,
 };
-use crate::moves::check::{find_player_king, only_empty_and_safe, piece_is_unsafe};
-pub use crate::moves::feedback::{EngineFeedback, EngineFeedbackMessage, SilentSearchFeedback};
-use crate::moves::feedback::{PeriodicalSearchFeedback, SearchFeedback, StdoutFeedback};
-use crate::moves::play::SearchableGame;
+use self::conditions::{enemy, try_move, Direction};
+pub use self::feedback::{
+    EngineFeedback, EngineFeedbackMessage, EngineMessage, SilentSearchFeedback, StdoutFeedback,
+};
+use self::feedback::{PeriodicalSearchFeedback, SearchFeedback};
+use self::iter::{dir, piece_into_iter, player_pieces_iter, BoardIter, PlayerPiecesIter};
+use self::play::{PlayableGame, ReversableGame, SearchableGame};
+use crate::board::{Board, Piece, PieceType, Player, Position, Ranks};
+use crate::game::{Game, GameInfo, Move, MoveInfo};
 use crate::{mv, pos};
-use conditions::{enemy, Direction};
-use iter::{dir, piece_into_iter, player_pieces_iter, BoardIter, PlayerPiecesIter};
 
 use core::panic;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::time::Instant;
-
-use self::conditions::try_move;
-use self::play::{PlayableGame, ReversableGame};
 
 pub trait HasStopSignal {
     fn stop(&mut self) -> bool;
@@ -138,21 +141,20 @@ struct SearchResult {
     stopped: bool,
 }
 
-fn move_with_checks(game: &mut SearchableGame, mv: &Move, king_position: &Position) -> bool {
+fn move_with_checks(
+    game: &SearchableGame,
+    mv: &Move,
+    king_position: &Position,
+) -> Option<SearchableGame> {
     let is_king = mv.source == *king_position;
+    let player = game.as_ref().board.square(king_position).unwrap().player;
 
     // Before moving, check if it is a castling and it is valid
     if is_king && mv.source.file.abs_diff(mv.target.file) == 2 {
-        let player = game.as_ref().board.square(king_position).unwrap().player;
         let is_valid_castling_square = |direction: &Direction| {
-            only_empty_and_safe(
-                &game.as_ref().board,
-                try_move(&mv.source, &direction),
-                &player,
-            )
-            .is_some()
+            only_empty_and_safe(&game, try_move(&mv.source, &direction), &player).is_some()
         };
-        let castling_is_safe = match mv.target.file {
+        let can_castle = match mv.target.file {
             // Queenside
             2 => is_valid_castling_square(&dir!(0, -1)) && is_valid_castling_square(&dir!(0, -2)),
             // Kingside
@@ -163,21 +165,26 @@ fn move_with_checks(game: &mut SearchableGame, mv: &Move, king_position: &Positi
                 game.as_ref().board,
                 game.as_ref().info
             ),
-        } && !piece_is_unsafe(&game.as_ref().board, king_position);
+        };
+        let castling_is_safe = can_castle && !piece_is_unsafe_fast(&game, king_position);
 
         if !castling_is_safe {
-            return false;
+            return None;
         }
     }
 
     // Move
-    game.do_move_no_checks(mv);
+    let new_game = game.new_from_move(mv);
 
     // After moving, check if the king is in check
 
     let current_king_position = if is_king { &mv.target } else { king_position };
 
-    !piece_is_unsafe(&game.as_ref().board, &current_king_position)
+    if piece_is_unsafe_fast(&new_game, &current_king_position) {
+        return None;
+    }
+
+    Some(new_game)
 }
 
 fn get_possible_moves_iter<'a>(
@@ -198,6 +205,35 @@ fn get_possible_moves_no_checks(
     get_possible_moves_iter(board, last_move, game_info, position).collect::<Vec<Position>>()
 }
 
+fn get_possible_moves_from_game(game: &SearchableGame, position: Position) -> Vec<Position> {
+    let square = game.as_ref().board.square(&position);
+    if square.is_none() {
+        return vec![];
+    }
+    let is_king = square.unwrap().piece == PieceType::King;
+
+    let king_position = if is_king {
+        position
+    } else {
+        find_player_king(&game.as_ref().board, &game.as_ref().player)
+    };
+
+    get_possible_moves_no_checks(
+        &game.as_ref().board,
+        &game.as_ref().last_move,
+        &game.as_ref().info,
+        position,
+    )
+    .iter()
+    .filter(|possible_position| {
+        let mv = mv!(position, **possible_position);
+
+        move_with_checks(&game, &mv, &king_position).is_some()
+    })
+    .copied()
+    .collect()
+}
+
 pub fn get_possible_moves(
     board: &Board,
     last_move: &Option<MoveInfo>,
@@ -210,31 +246,15 @@ pub fn get_possible_moves(
     }
 
     let player = square.unwrap().player;
-    let is_king = square.unwrap().piece == PieceType::King;
 
-    let king_position = if is_king {
-        position
-    } else {
-        find_player_king(&board, &player)
-    };
-
-    let mut game = Game {
+    let game = SearchableGame::from(&Game {
         board: *board,
         player,
         last_move: *last_move,
         info: *game_info,
-    };
-    get_possible_moves_no_checks(board, last_move, game_info, position)
-        .iter()
-        .filter(|possible_position| {
-            let mv = mv!(position, **possible_position);
+    });
 
-            let mut rev_game = SearchableGame::from_game(&mut game);
-
-            move_with_checks(&mut rev_game, &mv, &king_position)
-        })
-        .copied()
-        .collect()
+    get_possible_moves_from_game(&game, position)
 }
 
 pub fn move_name(
@@ -245,11 +265,9 @@ pub fn move_name(
     mv: &Move,
 ) -> Option<String> {
     let mut name = String::new();
-    let src_piece_opt = board.square(&mv.source);
-    if src_piece_opt.is_none() {
+    let Some(src_piece) = board.square(&mv.source) else {
         return None;
-    }
-    let src_piece = src_piece_opt.unwrap();
+    };
 
     let is_castling =
         src_piece.piece == PieceType::King && mv.source.file.abs_diff(mv.target.file) == 2;
@@ -283,6 +301,7 @@ pub fn move_name(
         let is_en_passant =
             is_pawn && mv.source.file != mv.target.file && board.square(&mv.target).is_none();
 
+        let mut ambiguous_piece_exists = false;
         let mut piece_in_same_file = false;
         let mut piece_in_same_rank = false;
 
@@ -304,6 +323,7 @@ pub fn move_name(
                 .find(|possible_position| *possible_position == mv.target)
                 .is_some()
             {
+                ambiguous_piece_exists = true;
                 if player_piece_position.rank == mv.source.rank {
                     piece_in_same_rank = true;
                 } else if player_piece_position.file == mv.source.file {
@@ -329,6 +349,9 @@ pub fn move_name(
         } else if piece_in_same_file {
             // Same type of pieces in same file but different rank: rank suffix
             name.push(source_rank);
+        } else if ambiguous_piece_exists {
+            // Another piece not in the same rank or file: file and rank suffix
+            name.push_str(source_suffix.as_str());
         }
 
         if is_capture {
@@ -408,7 +431,7 @@ fn get_piece_value(piece: PieceType) -> Score {
 
 // Negamax with alpha-beta pruning
 fn get_best_move_recursive_alpha_beta(
-    game: &mut Game,
+    game: &SearchableGame,
     current_depth: u32,
     max_depth: u32,
     alpha: Score,
@@ -417,15 +440,16 @@ fn get_best_move_recursive_alpha_beta(
     stop_signal: &mut impl HasStopSignal,
     feedback: &mut impl SearchFeedback,
 ) -> SearchResult {
-    let pieces_iter =
-        player_pieces_iter!(board: &game.board, player: &game.player).collect::<Vec<Position>>();
+    let board = &game.as_ref().board;
+    let player = &game.as_ref().player;
+
+    let pieces_iter = player_pieces_iter!(board: board, player: player).collect::<Vec<Position>>();
 
     let mut best_move: Option<Branch> = None;
 
     let mut searched_moves: u32 = 0;
 
-    let player = game.player;
-    let king_position = find_player_king(&game.board, &game.player);
+    let king_position = find_player_king_fast(game, player);
 
     let mut local_alpha = alpha;
 
@@ -440,12 +464,12 @@ fn get_best_move_recursive_alpha_beta(
     };
 
     'main_loop: for player_piece_position in pieces_iter {
-        let current_piece = &game.board.square(&player_piece_position).unwrap().piece;
+        let current_piece = &board.square(&player_piece_position).unwrap().piece;
 
         for possible_position in get_possible_moves_no_checks(
-            &game.board,
-            &game.last_move,
-            &game.info,
+            &board,
+            &game.as_ref().last_move,
+            &game.as_ref().info,
             player_piece_position,
         ) {
             if stop_signal.stop() {
@@ -456,7 +480,7 @@ fn get_best_move_recursive_alpha_beta(
             searched_moves += 1;
 
             // Evaluate this move locally
-            let local_score = match &game.board.square(&possible_position) {
+            let local_score = match &board.square(&possible_position) {
                 Some(piece) => get_piece_value(piece.piece),
                 None => {
                     if *current_piece == PieceType::Pawn
@@ -472,12 +496,14 @@ fn get_best_move_recursive_alpha_beta(
 
             let mv = mv!(player_piece_position, possible_position);
 
-            let mut rev_game = SearchableGame::from_game(game);
+            let recursive_game_result = move_with_checks(game, &mv, &king_position);
 
             // Check if the move is legal
-            if !move_with_checks(&mut rev_game, &mv, &king_position) {
+            if recursive_game_result.is_none() {
                 continue;
             }
+
+            let recursive_game = recursive_game_result.as_ref().unwrap();
 
             let mut branch = Branch {
                 moves: vec![WeightedMove {
@@ -492,8 +518,9 @@ fn get_best_move_recursive_alpha_beta(
             feedback.update(current_depth, searched_moves, branch.score.into());
 
             #[cfg(feature = "verbose-search")]
-            if !silent {
-                println!(
+            {
+                let _ = writeln!(
+                    feedback,
                     "{}{} {} {:+} α: {}, β: {}{}",
                     indent(current_depth),
                     player,
@@ -508,7 +535,7 @@ fn get_best_move_recursive_alpha_beta(
             // Recursion
             if !is_leaf_node {
                 let mut search_result = get_best_move_recursive_alpha_beta(
-                    rev_game.as_mut(),
+                    recursive_game,
                     current_depth + 1,
                     max_depth,
                     // beta becomes the alpha of the other player, and viceversa
@@ -525,25 +552,28 @@ fn get_best_move_recursive_alpha_beta(
                 let is_check_mate = if next_moves_opt.is_none() {
                     // check or stale mate?
                     let enemy_player_king_position =
-                        find_player_king(&rev_game.as_ref().board, &enemy(&player));
+                        find_player_king_fast(recursive_game, &enemy(&player));
 
-                    piece_is_unsafe(&rev_game.as_ref().board, &enemy_player_king_position)
+                    piece_is_unsafe_fast(&recursive_game, &enemy_player_king_position)
                 } else {
                     false
                 };
 
                 #[cfg(feature = "verbose-search")]
-                if !silent {
-                    println!(
+                {
+                    let _ = writeln!(
+                        feedback,
                         "{}Best child: {}",
                         indent(current_depth + 1),
                         next_moves_opt
                             .as_ref()
-                            .map_or("<mate>".to_string(), |sub_branch| format!(
-                                "{}{:+}",
-                                sub_branch.moves.first().unwrap().mv,
-                                sub_branch.score
-                            ))
+                            .map_or("<mate>".to_string(), |sub_branch| {
+                                format!(
+                                    "{}{:+}",
+                                    sub_branch.moves.first().unwrap().mv,
+                                    sub_branch.score
+                                )
+                            })
                     );
                 }
 
@@ -562,16 +592,17 @@ fn get_best_move_recursive_alpha_beta(
                 searched_moves += branch.searched;
 
                 #[cfg(feature = "verbose-search")]
-                if !silent {
-                    println!("{}}}", indent(current_depth));
+                {
+                    let _ = writeln!(feedback, "{}}}", indent(current_depth));
                 }
 
                 if branch.score >= beta && branch.score < Score::MAX {
                     // Fail hard beta cutoff
 
                     #[cfg(feature = "verbose-search")]
-                    if !silent {
-                        println!(
+                    {
+                        let _ = writeln!(
+                            feedback,
                             "{}β cutoff: {} >= {}",
                             indent(current_depth),
                             branch.score,
@@ -627,7 +658,7 @@ fn get_best_move_recursive_alpha_beta(
 
 fn get_best_move_shallow(game: &mut Game) -> Option<Branch> {
     get_best_move_recursive_alpha_beta(
-        game,
+        &mut SearchableGame::from(game as &Game),
         0,
         0,
         Score::MIN,
@@ -646,7 +677,7 @@ pub fn get_best_move_recursive(
     feedback: &mut impl SearchFeedback,
 ) -> Option<Branch> {
     get_best_move_recursive_alpha_beta(
-        game,
+        &mut SearchableGame::from(game as &Game),
         0,
         search_depth,
         Score::MIN,
@@ -828,7 +859,7 @@ pub fn do_move(game: &mut Game, mv: &Move) -> Option<Vec<Piece>> {
         }
     }
 
-    let mut rev_game = <ReversableGame as PlayableGame>::from_game(game);
+    let mut rev_game = ReversableGame::from(game);
     let result = rev_game.do_move(mv);
 
     if result {
@@ -868,7 +899,8 @@ pub fn do_move(game: &mut Game, mv: &Move) -> Option<Vec<Piece>> {
 mod tests {
     use super::play::{PlayableGame, ReversableGame};
     use super::{do_move, get_possible_moves, move_name, mv, piece_is_unsafe};
-    use crate::board::{Board, Game, Move, Piece, PieceType, Player, Position};
+    use crate::board::{Board, ModifiableBoard, Piece, PieceType, Player, Position};
+    use crate::game::{Game, Move};
     use crate::{p, pos};
 
     struct PiecePosition {
@@ -1049,7 +1081,7 @@ mod tests {
 
             let original_board = game.board.clone();
 
-            let mut rev_game = <ReversableGame as PlayableGame>::from_game(&mut game);
+            let mut rev_game = ReversableGame::from(&mut game);
 
             // Do move
             assert!(
@@ -1144,12 +1176,12 @@ mod tests {
                 board: Some(
                     "  a  b  c  d  e  f  g  h \n\
                     8 [ ][ ][ ][ ][ ][♝][♝][♚]\n\
-                    7 [ ][ ][ ][ ][ ][ ][ ][ ]\n\
+                    7 [ ][ ][ ][ ][ ][ ][ ][♝]\n\
                     6 [ ][ ][ ][ ][ ][ ][ ][ ]\n\
                     5 [ ][ ][ ][ ][ ][ ][ ][ ]\n\
                     4 [ ][ ][ ][ ][ ][ ][ ][ ]\n\
                     3 [ ][ ][ ][ ][ ][ ][ ][ ]\n\
-                    2 [ ][ ][♟][ ][ ][ ][ ][ ]\n\
+                    2 [ ][ ][ ][ ][ ][ ][ ][ ]\n\
                     1 [♔][ ][ ][ ][ ][ ][ ][ ]",
                 ),
                 initial_moves: vec![],
@@ -1165,8 +1197,8 @@ mod tests {
                     5 [♞][ ][ ][ ][ ][ ][ ][ ]\n\
                     4 [ ][ ][ ][ ][ ][ ][ ][ ]\n\
                     3 [ ][ ][♞][ ][ ][ ][ ][ ]\n\
-                    2 [ ][ ][ ][ ][ ][ ][ ][♜]\n\
-                    1 [♔][ ][ ][ ][ ][ ][ ][ ]",
+                    2 [ ][ ][ ][ ][ ][ ][ ][ ]\n\
+                    1 [♔][ ][ ][♞][ ][ ][ ][ ]",
                 ),
                 initial_moves: vec![],
                 mv: mv!(a5 => b3),
@@ -1208,14 +1240,14 @@ mod tests {
             .unwrap();
             assert!(
                 name.ends_with("#"),
-                "notation {} for move {} doesn't show checkmate sign # in:\n{}",
+                "notation `{}` for move {} doesn't show checkmate sign # in:\n{}",
                 name,
                 test_board.mv,
                 game.board
             );
 
             // Do move
-            let mut rev_game = <ReversableGame as PlayableGame>::from_game(&mut game);
+            let mut rev_game = ReversableGame::from(&mut game);
 
             assert!(
                 rev_game.do_move(&test_board.mv),
@@ -1259,14 +1291,14 @@ mod tests {
         let test_boards = [TestBoard {
             board: Some(
                 "  a  b  c  d  e  f  g  h \n\
-                    8 [♜][♞][ ][♛][♚][♝][♞][ ]\n\
-                    7 [ ][♝][♟][♟][♟][♟][♟][♜]\n\
-                    6 [ ][♟][ ][ ][ ][ ][ ][ ]\n\
-                    5 [♟][ ][ ][ ][ ][ ][ ][ ]\n\
-                    4 [♙][ ][ ][♙][♙][ ][ ][♙]\n\
-                    3 [ ][♙][♘][ ][♗][♘][♙][ ]\n\
-                    2 [ ][ ][♙][♕][ ][ ][ ][ ]\n\
-                    1 [♖][ ][ ][ ][♔][ ][ ][♖]",
+                8 [♜][♞][ ][♛][♚][♝][♞][ ]\n\
+                7 [ ][♝][♟][♟][♟][♟][♟][♜]\n\
+                6 [ ][♟][ ][ ][ ][ ][ ][ ]\n\
+                5 [♟][ ][ ][ ][ ][ ][ ][ ]\n\
+                4 [♙][ ][ ][♙][♙][ ][ ][♙]\n\
+                3 [ ][♙][♘][ ][♗][♘][♙][ ]\n\
+                2 [ ][ ][♙][♕][ ][ ][ ][ ]\n\
+                1 [♖][ ][ ][ ][♔][ ][ ][♖]",
             ),
             initial_moves: vec![],
             mv: mv!(e1 => c1),
@@ -1296,7 +1328,7 @@ mod tests {
             }
 
             // Do move
-            let mut rev_game = <ReversableGame as PlayableGame>::from_game(&mut game);
+            let mut rev_game = ReversableGame::from(&mut game);
 
             assert!(
                 rev_game.do_move(&test_board.mv),

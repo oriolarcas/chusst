@@ -1,6 +1,6 @@
 use atty;
 use colored::Colorize;
-use serde::Serialize;
+use serde::{ser::SerializeMap, ser::SerializeSeq, Serialize};
 use std::fmt;
 
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq, Serialize)]
@@ -141,7 +141,7 @@ pub struct Position {
 }
 
 impl Position {
-    fn try_from_str(pos_str: &str) -> Option<Position> {
+    pub fn try_from_str(pos_str: &str) -> Option<Position> {
         if pos_str.len() != 2 {
             return None;
         }
@@ -381,26 +381,50 @@ macro_rules! pos {
 
 pub type Square = Option<Piece>;
 
-pub type Rank<T> = [T; 8];
-pub type Ranks<T> = Rank<Rank<T>>;
+pub type Files<T> = [T; 8];
+pub type Ranks<T> = [Files<T>; 8];
 
-#[derive(Copy, Clone, Debug, Default, PartialEq, Serialize)]
-pub struct Board {
-    // ranks[x][y], where x = 0..7 = ranks 1..8, and y = 0..7 = files a..h
-    // for instance, e4 is Board.ranks[3][4]
+pub trait ModifiableBoard {
+    fn update(&mut self, pos: &Position, value: Square);
 
+    fn move_piece(&mut self, source: &Position, target: &Position);
+}
+
+#[cfg(not(feature = "compact-board"))]
+mod internal_representation {
+    use super::Square;
+
+    pub type BoardSquare = Square;
+
+    pub const EMPTY_SQUARE: BoardSquare = None;
+
+    pub const fn internal_to_square(value: BoardSquare) -> Square {
+        value
+    }
+
+    pub const fn square_to_internal(value: &Square) -> BoardSquare {
+        *value
+    }
+}
+
+#[cfg(feature = "compact-board")]
+mod internal_representation {
     // Binary representation of a Square:
     // 0b000vPppp where:
     // v = 1 if the square is valid, 0 if it is not
     // P = 0 if the piece is white, 1 if it is black
     // pppp = piece type, 0..5 = pawn..king
-    ranks: Ranks<u8>,
-}
 
-impl Board {
-    const EMPTY_SQUARE: u8 = 0b0000_0000;
+    use super::{Piece, PieceType, Player, Ranks, Square};
 
-    const fn u8_to_square(square_byte: u8) -> Square {
+    pub type BoardSquare = u8;
+
+    pub const EMPTY_SQUARE: BoardSquare = 0b0000_0000;
+
+    #[allow(dead_code)]
+    const SIZE_ASSERTION: [u8; 64] = [0; std::mem::size_of::<Ranks<BoardSquare>>()];
+
+    pub const fn internal_to_square(square_byte: BoardSquare) -> Square {
         if square_byte & 0b0010_0000 == 0 {
             return None;
         }
@@ -423,7 +447,7 @@ impl Board {
         Some(Piece { piece, player })
     }
 
-    const fn square_to_u8(square: &Square) -> u8 {
+    pub const fn square_to_internal(square: &Square) -> BoardSquare {
         match square {
             Some(piece) => {
                 let mut square_byte = 0b0010_0000;
@@ -444,9 +468,22 @@ impl Board {
             None => 0,
         }
     }
+}
 
+#[derive(Copy, Clone, Debug, Default, PartialEq)]
+pub struct Board {
+    // ranks[x][y], where x = 0..7 = ranks 1..8, and y = 0..7 = files a..h
+    // for instance, e4 is Board.ranks[3][4]
+    ranks: Ranks<internal_representation::BoardSquare>,
+}
+
+impl Board {
     fn as_square(&self, pos: &Position) -> Square {
-        Board::u8_to_square(self.ranks[pos.rank][pos.file])
+        internal_representation::internal_to_square(self.ranks[pos.rank][pos.file])
+    }
+
+    pub const fn new() -> Board {
+        INITIAL_BOARD
     }
 
     pub fn try_from_fen(fen: &str) -> Option<Board> {
@@ -517,15 +554,6 @@ impl Board {
         self.as_square(pos)
     }
 
-    pub fn update(&mut self, pos: &Position, value: Square) {
-        self.ranks[pos.rank][pos.file] = Board::square_to_u8(&value);
-    }
-
-    pub fn move_piece(&mut self, source: &Position, target: &Position) {
-        self.ranks[target.rank][target.file] = self.ranks[source.rank][source.file];
-        self.ranks[source.rank][source.file] = Board::EMPTY_SQUARE;
-    }
-
     pub fn home_rank(player: &Player) -> usize {
         match player {
             Player::White => 0,
@@ -545,6 +573,17 @@ impl Board {
             Player::White => 1,
             Player::Black => -1,
         }
+    }
+}
+
+impl ModifiableBoard for Board {
+    fn update(&mut self, pos: &Position, value: Square) {
+        self.ranks[pos.rank][pos.file] = internal_representation::square_to_internal(&value);
+    }
+
+    fn move_piece(&mut self, source: &Position, target: &Position) {
+        self.ranks[target.rank][target.file] = self.ranks[source.rank][source.file];
+        self.ranks[source.rank][source.file] = internal_representation::EMPTY_SQUARE;
     }
 }
 
@@ -578,7 +617,7 @@ impl fmt::Display for Board {
         for (rank, rank_pieces) in self.ranks.iter().rev().enumerate() {
             let mut row_str = String::from(format!("{} ", 8 - rank));
             for (file, square_byte) in rank_pieces.iter().enumerate() {
-                let piece = match Board::u8_to_square(*square_byte) {
+                let piece = match internal_representation::internal_to_square(*square_byte) {
                     Some(square_value) => Some((
                         get_unicode_piece(square_value.piece, square_value.player),
                         square_value.player,
@@ -620,279 +659,94 @@ impl fmt::Display for Board {
     }
 }
 
-macro_rules! pu8 {
+struct SerializableBoardRanks<'a> {
+    ranks: &'a Ranks<internal_representation::BoardSquare>,
+}
+
+impl<'a> Serialize for SerializableBoardRanks<'a> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut seq = serializer.serialize_seq(Some(self.ranks.len()))?;
+        for rank in self.ranks {
+            let rank_of_squares = rank
+                .iter()
+                .map(|square_byte| internal_representation::internal_to_square(*square_byte));
+            seq.serialize_element(&rank_of_squares.collect::<Vec<Square>>())?;
+        }
+        seq.end()
+    }
+}
+
+impl Serialize for Board {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut map = serializer.serialize_map(Some(1))?;
+        map.serialize_entry("ranks", &SerializableBoardRanks { ranks: &self.ranks })?;
+        map.end()
+    }
+}
+
+macro_rules! piece_repr {
     ($piece:ident) => {
-        Board::square_to_u8(&p!($piece))
+        internal_representation::square_to_internal(&p!($piece))
     };
 
     () => {
-        Board::EMPTY_SQUARE
+        internal_representation::EMPTY_SQUARE
     };
 }
 
-const INITIAL_BOARD: Board = Board {
+pub const INITIAL_BOARD: Board = Board {
     // Initial board
     // Note that white pieces are at the top, because arrays are defined top-down, while chess rows go bottom-up
     ranks: [
         [
-            pu8!(rw),
-            pu8!(nw),
-            pu8!(bw),
-            pu8!(qw),
-            pu8!(kw),
-            pu8!(bw),
-            pu8!(nw),
-            pu8!(rw),
+            piece_repr!(rw),
+            piece_repr!(nw),
+            piece_repr!(bw),
+            piece_repr!(qw),
+            piece_repr!(kw),
+            piece_repr!(bw),
+            piece_repr!(nw),
+            piece_repr!(rw),
         ],
         [
-            pu8!(pw),
-            pu8!(pw),
-            pu8!(pw),
-            pu8!(pw),
-            pu8!(pw),
-            pu8!(pw),
-            pu8!(pw),
-            pu8!(pw),
+            piece_repr!(pw),
+            piece_repr!(pw),
+            piece_repr!(pw),
+            piece_repr!(pw),
+            piece_repr!(pw),
+            piece_repr!(pw),
+            piece_repr!(pw),
+            piece_repr!(pw),
         ],
-        [pu8!(); 8],
-        [pu8!(); 8],
-        [pu8!(); 8],
-        [pu8!(); 8],
+        [piece_repr!(); 8],
+        [piece_repr!(); 8],
+        [piece_repr!(); 8],
+        [piece_repr!(); 8],
         [
-            pu8!(pb),
-            pu8!(pb),
-            pu8!(pb),
-            pu8!(pb),
-            pu8!(pb),
-            pu8!(pb),
-            pu8!(pb),
-            pu8!(pb),
+            piece_repr!(pb),
+            piece_repr!(pb),
+            piece_repr!(pb),
+            piece_repr!(pb),
+            piece_repr!(pb),
+            piece_repr!(pb),
+            piece_repr!(pb),
+            piece_repr!(pb),
         ],
         [
-            pu8!(rb),
-            pu8!(nb),
-            pu8!(bb),
-            pu8!(qb),
-            pu8!(kb),
-            pu8!(bb),
-            pu8!(nb),
-            pu8!(rb),
+            piece_repr!(rb),
+            piece_repr!(nb),
+            piece_repr!(bb),
+            piece_repr!(qb),
+            piece_repr!(kb),
+            piece_repr!(bb),
+            piece_repr!(nb),
+            piece_repr!(rb),
         ],
     ],
 };
-
-impl Board {
-    pub const fn new() -> Board {
-        INITIAL_BOARD
-    }
-}
-
-#[derive(Copy, Clone, Debug, PartialEq, Serialize)]
-pub struct Move {
-    pub source: Position,
-    pub target: Position,
-}
-
-#[macro_export]
-macro_rules! mv {
-    ($src:expr, $tgt:expr) => {
-        Move {
-            source: $src,
-            target: $tgt,
-        }
-    };
-    ($src:ident => $tgt:ident) => {
-        Move {
-            source: pos!($src),
-            target: pos!($tgt),
-        }
-    };
-}
-
-impl Move {
-    pub fn try_from_long_algebraic_str(mv_str: &str) -> Option<Move> {
-        if mv_str.len() != 4 {
-            return None;
-        }
-        let source = Position::try_from_str(&mv_str[0..2]);
-        let target = Position::try_from_str(&mv_str[2..4]);
-
-        match (source, target) {
-            (Some(src_mv), Some(tgt_mv)) => Some(mv!(src_mv, tgt_mv)),
-            _ => None,
-        }
-    }
-}
-
-impl fmt::Display for Move {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{} -> {}", self.source, self.target)
-    }
-}
-
-#[derive(Copy, Clone, Debug, PartialEq, Serialize)]
-pub enum MoveExtraInfo {
-    Other,
-    Promotion(PieceType),
-    Passed,
-    EnPassant,
-    CastleKingside,
-    CastleQueenside,
-}
-
-#[derive(Copy, Clone, Debug, PartialEq, Serialize)]
-pub struct MoveInfo {
-    pub mv: Move,
-    pub info: MoveExtraInfo,
-}
-
-#[derive(Copy, Clone, Debug, PartialEq, Serialize)]
-pub struct GameInfo {
-    white_kingside_castling_allowed: bool,
-    white_queenside_castling_allowed: bool,
-    black_kingside_castling_allowed: bool,
-    black_queenside_castling_allowed: bool,
-}
-
-impl GameInfo {
-    pub const fn new() -> GameInfo {
-        Self {
-            white_kingside_castling_allowed: true,
-            white_queenside_castling_allowed: true,
-            black_kingside_castling_allowed: true,
-            black_queenside_castling_allowed: true,
-        }
-    }
-
-    pub fn can_castle_kingside(&self, player: &Player) -> bool {
-        match player {
-            Player::White => self.white_kingside_castling_allowed,
-            Player::Black => self.black_kingside_castling_allowed,
-        }
-    }
-
-    pub fn can_castle_queenside(&self, player: &Player) -> bool {
-        match player {
-            Player::White => self.white_queenside_castling_allowed,
-            Player::Black => self.black_queenside_castling_allowed,
-        }
-    }
-
-    pub fn disable_castle_kingside(&mut self, player: &Player) {
-        match player {
-            Player::White => self.white_kingside_castling_allowed = false,
-            Player::Black => self.black_kingside_castling_allowed = false,
-        }
-    }
-
-    pub fn disable_castle_queenside(&mut self, player: &Player) {
-        match player {
-            Player::White => self.white_queenside_castling_allowed = false,
-            Player::Black => self.black_queenside_castling_allowed = false,
-        }
-    }
-}
-
-impl fmt::Display for GameInfo {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "{{white: {{kingside: {}, queenside: {}}}, black: {{kingside: {}, queenside: {}}}",
-            self.white_kingside_castling_allowed,
-            self.white_queenside_castling_allowed,
-            self.black_kingside_castling_allowed,
-            self.black_queenside_castling_allowed
-        )
-    }
-}
-
-impl Default for GameInfo {
-    fn default() -> Self {
-        GameInfo::new()
-    }
-}
-
-#[derive(Copy, Clone, Debug, PartialEq, Serialize)]
-pub struct Game {
-    pub board: Board,
-    pub player: Player,
-    pub last_move: Option<MoveInfo>,
-    pub info: GameInfo,
-}
-
-impl Game {
-    pub const fn new() -> Game {
-        Game {
-            board: INITIAL_BOARD,
-            player: Player::White,
-            last_move: None,
-            info: GameInfo::new(),
-        }
-    }
-
-    pub fn try_from_fen(fen: &[&str]) -> Option<Game> {
-        // rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1
-        // ^                                           ^ ^    ^ ^ ^
-        // |                                           | |    | | ` Fullmove number
-        // |                                           | |    | ` Halfmove clock
-        // |                                           | |    ` En passant target square
-        // |                                           | ` Castling availability
-        // |                                           ` Active color
-        // ` Pieces
-
-        if fen.len() != 6 {
-            return None;
-        }
-
-        let [pieces, player_str, castling, en_passant, _halfmove, _fullmove] = fen else { return None; };
-
-        let board = Board::try_from_fen(pieces)?;
-
-        let player = match *player_str {
-            "w" => Player::White,
-            "b" => Player::Black,
-            _ => return None,
-        };
-
-        let last_move = if *en_passant != "-" {
-            let en_passant_pos = Position::try_from_str(en_passant)?;
-            // Player who made the en passant in the previous move
-            let passed_pawn_player = match player {
-                Player::White => Player::Black,
-                Player::Black => Player::White,
-            };
-            let (source_rank, passed_rank, target_rank) = match passed_pawn_player {
-                Player::White => (1, 2, 3),
-                Player::Black => (6, 5, 4),
-            };
-
-            if en_passant_pos.rank != passed_rank {
-                return None;
-            }
-
-            Some(MoveInfo {
-                mv: mv!(
-                    pos!(source_rank, en_passant_pos.file),
-                    pos!(target_rank, en_passant_pos.file)
-                ),
-                info: MoveExtraInfo::EnPassant,
-            })
-        } else {
-            None
-        };
-
-        let info = GameInfo {
-            white_kingside_castling_allowed: castling.contains('K'),
-            white_queenside_castling_allowed: castling.contains('Q'),
-            black_kingside_castling_allowed: castling.contains('k'),
-            black_queenside_castling_allowed: castling.contains('q'),
-        };
-
-        Some(Game {
-            board,
-            player,
-            last_move,
-            info,
-        })
-    }
-}

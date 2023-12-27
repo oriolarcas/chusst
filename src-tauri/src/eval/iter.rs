@@ -1,7 +1,8 @@
-use crate::board::{Board, GameInfo, MoveInfo, PieceType, Player, Position};
-use crate::moves::conditions::{
+use crate::board::{Board, PieceType, Player, Position};
+use crate::eval::conditions::{
     only_empty, only_empty_or_enemy, only_en_passant, only_enemy, try_move, Direction,
 };
+use crate::game::{GameInfo, MoveInfo};
 use crate::pos;
 
 pub struct BoardIter {
