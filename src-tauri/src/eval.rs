@@ -287,9 +287,7 @@ pub fn move_name(
     mv: &Move,
 ) -> Option<String> {
     let mut name = String::new();
-    let src_piece = if let Some(piece) = board.square(&mv.source) {
-        piece
-    } else {
+    let Some(src_piece) = board.square(&mv.source) else {
         return None;
     };
 

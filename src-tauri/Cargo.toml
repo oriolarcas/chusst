@@ -23,10 +23,12 @@ atty = "0.2.14"
 bencher = "0.1.5"
 
 [features]
-# DO NOT set 'default', breaks production build
+default = ["compact-board", "bitboards"]
 
-# Do NOT use a memory-efficient representation of the board (1 byte per square)
-sparse-board = []
+# Use bitboards to evaluate valid moves
+bitboards = []
+# Use a memory-efficient representation of the board (1 byte per square)
+compact-board = []
 # Build with this feature to print the search tree to stdout
 verbose-search = []
 

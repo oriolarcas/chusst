@@ -390,7 +390,7 @@ pub trait ModifiableBoard {
     fn move_piece(&mut self, source: &Position, target: &Position);
 }
 
-#[cfg(feature = "sparse-board")]
+#[cfg(not(feature = "compact-board"))]
 mod internal_representation {
     use super::Square;
 
@@ -407,8 +407,14 @@ mod internal_representation {
     }
 }
 
-#[cfg(not(feature = "sparse-board"))]
+#[cfg(feature = "compact-board")]
 mod internal_representation {
+    // Binary representation of a Square:
+    // 0b000vPppp where:
+    // v = 1 if the square is valid, 0 if it is not
+    // P = 0 if the piece is white, 1 if it is black
+    // pppp = piece type, 0..5 = pawn..king
+
     use super::{Piece, PieceType, Player, Ranks, Square};
 
     pub type BoardSquare = u8;
@@ -468,12 +474,6 @@ mod internal_representation {
 pub struct Board {
     // ranks[x][y], where x = 0..7 = ranks 1..8, and y = 0..7 = files a..h
     // for instance, e4 is Board.ranks[3][4]
-
-    // Binary representation of a Square:
-    // 0b000vPppp where:
-    // v = 1 if the square is valid, 0 if it is not
-    // P = 0 if the piece is white, 1 if it is black
-    // pppp = piece type, 0..5 = pawn..king
     ranks: Ranks<internal_representation::BoardSquare>,
 }
 
