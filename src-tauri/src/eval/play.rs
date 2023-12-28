@@ -1,4 +1,4 @@
-use crate::board::{Board, ModifiableBoard, Piece, PieceType, Position, Square};
+use crate::board::{Board, ModifiableBoard, Piece, PieceType, Player, Position, Square};
 use crate::eval::conditions::{enemy, only_enemy, try_move, Direction};
 use crate::eval::get_possible_moves;
 use crate::eval::iter::dir;
@@ -55,17 +55,12 @@ pub trait PlayableGame<'a> {
 
 trait PlayableGamePrivate<'a>: PlayableGame<'a> + ModifiableBoard {
     fn do_move_no_checks_private(&mut self, mv: &Move) {
-        let square_opt = self.as_ref().board.square(&mv.source);
-        assert!(
-            square_opt.is_some(),
-            "move {} from empty square:\n{}",
-            mv,
-            self.as_ref().board
-        );
-        let square = square_opt.unwrap();
+        let Some(source_square) = self.as_ref().board.square(&mv.source) else {
+            panic!("Move {} from empty square:\n{}", mv, self.as_ref().board);
+        };
 
-        let player = square.player;
-        let moved_piece = square.piece;
+        let player = source_square.player;
+        let moved_piece = source_square.piece;
         let move_info = match moved_piece {
             PieceType::Pawn => {
                 if mv.source.rank.abs_diff(mv.target.rank) == 2 {
@@ -94,6 +89,8 @@ trait PlayableGamePrivate<'a>: PlayableGame<'a> + ModifiableBoard {
             _ => MoveExtraInfo::Other,
         };
 
+        let mut capture = self.as_ref().board.square(&mv.target).is_some();
+
         self.move_piece(&mv.source, &mv.target);
 
         match move_info {
@@ -107,6 +104,7 @@ trait PlayableGamePrivate<'a>: PlayableGame<'a> + ModifiableBoard {
                 )
                 .unwrap();
                 self.update(&passed, None);
+                capture = true;
             }
             MoveExtraInfo::Promotion(piece) => {
                 self.update(&mv.target, Some(Piece { piece, player }));
@@ -135,6 +133,14 @@ trait PlayableGamePrivate<'a>: PlayableGame<'a> + ModifiableBoard {
             }
         }
 
+        if self.as_ref().player == Player::Black {
+            self.as_mut().info.increment_fullmove();
+        }
+        if capture || moved_piece == PieceType::Pawn {
+            self.as_mut().info.reset_halfmove();
+        } else {
+            self.as_mut().info.increment_halfmove();
+        }
         self.as_mut().player = enemy(&self.as_ref().player);
         self.as_mut().last_move = Some(MoveInfo {
             mv: *mv,
@@ -189,7 +195,7 @@ pub struct SearchableGame {
 }
 
 impl SearchableGame {
-    pub fn new_from_move(&self, mv: &Move) -> SearchableGame {
+    pub fn clone_and_move(&self, mv: &Move) -> SearchableGame {
         let mut new_game = SearchableGame {
             game: self.game.clone(),
         };

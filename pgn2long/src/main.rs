@@ -105,9 +105,7 @@ fn parse_pgn_file(pgn_file_path: String) -> Option<PGN> {
 
 fn find_move_by_name(game: &Game, move_str: &str) -> chusst::game::Move {
     for mv in chusst::eval::get_all_possible_moves(&game) {
-        let mv_name =
-            chusst::eval::move_name(&game.board, &game.last_move, &game.info, &game.player, &mv)
-                .unwrap();
+        let mv_name = chusst::eval::move_name(&game, &mv).unwrap();
 
         if mv_name == move_str {
             return mv;

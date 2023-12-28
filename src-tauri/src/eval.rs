@@ -174,7 +174,7 @@ fn move_with_checks(
     }
 
     // Move
-    let new_game = game.new_from_move(mv);
+    let new_game = game.clone_and_move(mv);
 
     // After moving, check if the king is in check
 
@@ -188,21 +188,14 @@ fn move_with_checks(
 }
 
 fn get_possible_moves_iter<'a>(
-    board: &'a Board,
-    last_move: &'a Option<MoveInfo>,
-    game_info: &'a GameInfo,
+    game: &'a Game,
     position: Position,
 ) -> impl Iterator<Item = Position> + 'a {
-    piece_into_iter(board, last_move, game_info, position)
+    piece_into_iter(game, position)
 }
 
-fn get_possible_moves_no_checks(
-    board: &Board,
-    last_move: &Option<MoveInfo>,
-    game_info: &GameInfo,
-    position: Position,
-) -> Vec<Position> {
-    get_possible_moves_iter(board, last_move, game_info, position).collect::<Vec<Position>>()
+fn get_possible_moves_no_checks(game: &Game, position: Position) -> Vec<Position> {
+    get_possible_moves_iter(game, position).collect::<Vec<Position>>()
 }
 
 fn get_possible_moves_from_game(game: &SearchableGame, position: Position) -> Vec<Position> {
@@ -218,20 +211,15 @@ fn get_possible_moves_from_game(game: &SearchableGame, position: Position) -> Ve
         find_player_king(&game.as_ref().board, &game.as_ref().player)
     };
 
-    get_possible_moves_no_checks(
-        &game.as_ref().board,
-        &game.as_ref().last_move,
-        &game.as_ref().info,
-        position,
-    )
-    .iter()
-    .filter(|possible_position| {
-        let mv = mv!(position, **possible_position);
+    get_possible_moves_no_checks(game.as_ref(), position)
+        .iter()
+        .filter(|possible_position| {
+            let mv = mv!(position, **possible_position);
 
-        move_with_checks(&game, &mv, &king_position).is_some()
-    })
-    .copied()
-    .collect()
+            move_with_checks(&game, &mv, &king_position).is_some()
+        })
+        .copied()
+        .collect()
 }
 
 pub fn get_possible_moves(
@@ -273,13 +261,9 @@ pub fn get_all_possible_moves(game: &Game) -> Vec<Move> {
     moves
 }
 
-pub fn move_name(
-    board: &Board,
-    last_move: &Option<MoveInfo>,
-    game_info: &GameInfo,
-    player: &Player,
-    mv: &Move,
-) -> Option<String> {
+pub fn move_name(game: &Game, mv: &Move) -> Option<String> {
+    let board = &game.board;
+    let player = &game.player;
     let mut name = String::new();
     let Some(src_piece) = board.square(&mv.source) else {
         return None;
@@ -335,7 +319,7 @@ pub fn move_name(
                 None => {}
             }
 
-            if get_possible_moves_iter(board, last_move, game_info, player_piece_position)
+            if get_possible_moves_iter(&game, player_piece_position)
                 .find(|possible_position| *possible_position == mv.target)
                 .is_some()
             {
@@ -384,28 +368,24 @@ pub fn move_name(
     }
 
     // Is check?
-    let mut game = Game {
-        board: *board,
-        player: src_piece.player,
-        last_move: *last_move,
-        info: *game_info,
-    };
+    let mut new_game = game.clone();
 
-    if do_move(&mut game, mv).is_some() {
-        let enemy_king_position = find_player_king(&game.board, &enemy(player));
-        let causes_check =
-            get_possible_captures_of_position(&game.board, last_move, game_info, &mv.target)
-                .iter()
-                .find(|position| **position == enemy_king_position)
-                .is_some();
+    if do_move(&mut new_game, mv).is_some() {
+        let enemy_king_position = find_player_king(&new_game.board, &enemy(player));
+        let causes_check = get_possible_captures_of_position(&new_game, &mv.target)
+            .iter()
+            .find(|position| **position == enemy_king_position)
+            .is_some();
         if causes_check {
-            let is_checkmate = get_best_move_shallow(&mut game).is_none();
+            let is_checkmate = get_best_move_shallow(&new_game).is_none();
 
             name.push(if is_checkmate { '#' } else { '+' });
         }
-    }
 
-    Some(name)
+        Some(name)
+    } else {
+        None
+    }
 }
 
 pub fn move_branch_names(
@@ -424,8 +404,7 @@ pub fn move_branch_names(
     let mut move_names = vec![];
 
     for mv in moves {
-        move_names
-            .push(move_name(&game.board, &game.last_move, &game.info, &game.player, &mv).unwrap());
+        move_names.push(move_name(&game, &mv).unwrap());
 
         assert!(do_move(&mut game, *mv).is_some());
     }
@@ -482,12 +461,8 @@ fn get_best_move_recursive_alpha_beta(
     'main_loop: for player_piece_position in pieces_iter {
         let current_piece = &board.square(&player_piece_position).unwrap().piece;
 
-        for possible_position in get_possible_moves_no_checks(
-            &board,
-            &game.as_ref().last_move,
-            &game.as_ref().info,
-            player_piece_position,
-        ) {
+        for possible_position in get_possible_moves_no_checks(game.as_ref(), player_piece_position)
+        {
             if stop_signal.stop() {
                 let _ = writeln!(feedback, "Search stopped");
                 break 'main_loop;
@@ -672,7 +647,7 @@ fn get_best_move_recursive_alpha_beta(
     }
 }
 
-fn get_best_move_shallow(game: &mut Game) -> Option<Branch> {
+fn get_best_move_shallow(game: &Game) -> Option<Branch> {
     get_best_move_recursive_alpha_beta(
         &mut SearchableGame::from(game as &Game),
         0,
@@ -687,7 +662,7 @@ fn get_best_move_shallow(game: &mut Game) -> Option<Branch> {
 }
 
 pub fn get_best_move_recursive(
-    game: &mut Game,
+    game: &Game,
     search_depth: u32,
     stop_signal: &mut impl HasStopSignal,
     feedback: &mut impl SearchFeedback,
@@ -705,19 +680,13 @@ pub fn get_best_move_recursive(
     .branch
 }
 
-fn get_possible_captures_of_position(
-    board: &Board,
-    last_move: &Option<MoveInfo>,
-    game_info: &GameInfo,
-    position: &Position,
-) -> Vec<Position> {
+fn get_possible_captures_of_position(game: &Game, position: &Position) -> Vec<Position> {
     let mut captures: Vec<Position> = Vec::new();
 
-    match board.square(position) {
+    match game.board.square(position) {
         Some(square) => {
-            for possible_position in get_possible_moves_iter(board, last_move, game_info, *position)
-            {
-                let is_capture = board.square(&possible_position).is_some();
+            for possible_position in get_possible_moves_iter(game, *position) {
+                let is_capture = game.board.square(&possible_position).is_some();
 
                 if is_capture {
                     captures.push(possible_position);
@@ -740,18 +709,12 @@ fn get_possible_captures_of_position(
     captures
 }
 
-pub fn get_possible_captures(
-    board: &Board,
-    last_move: &Option<MoveInfo>,
-    game_info: &GameInfo,
-) -> BoardCaptures {
+pub fn get_possible_captures(game: &Game) -> BoardCaptures {
     let board_iter: BoardIter = Default::default();
     let mut board_captures: BoardCaptures = Default::default();
 
     for source_position in board_iter.into_iter() {
-        for capture in
-            get_possible_captures_of_position(board, last_move, game_info, &source_position)
-        {
+        for capture in get_possible_captures_of_position(game, &source_position) {
             board_captures[capture.rank][capture.file].push(source_position);
         }
     }
@@ -1246,14 +1209,7 @@ mod tests {
                 );
             }
 
-            let name = move_name(
-                &game.board,
-                &game.last_move,
-                &game.info,
-                &game.player,
-                &test_board.mv,
-            )
-            .unwrap();
+            let name = move_name(&game, &test_board.mv).unwrap();
             assert!(
                 name.ends_with("#"),
                 "notation `{}` for move {} doesn't show checkmate sign # in:\n{}",
