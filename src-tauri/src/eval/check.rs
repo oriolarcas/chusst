@@ -128,15 +128,8 @@ mod bitboards_search {
         player_bitboards: &PlayerBitboards,
         enemy_bitboards: &PlayerBitboards,
         position: &Position,
-        player: &Player,
     ) -> bool {
-        let enemy_player = enemy(&player);
         let all_pieces_bitboard = player_bitboards.combined() | enemy_bitboards.combined();
-
-        let is_enemy_piece = |position: &Option<Position>, piece: &PieceType| match position {
-            Some(pos) => enemy_bitboards.has_piece(pos, piece),
-            None => false,
-        };
 
         let attacker_in_rank =
             |attacker_position: &Position| attacker_position.rank == position.rank;
@@ -190,24 +183,12 @@ mod bitboards_search {
         };
 
         // 1. Pawns
-        let pd = -Board::pawn_progress_direction(&enemy_player);
-
-        if is_enemy_piece(&try_move(&position, &dir!(pd, -1)), &PieceType::Pawn)
-            || is_enemy_piece(&try_move(&position, &dir!(pd, 1)), &PieceType::Pawn)
-        {
+        if enemy_bitboards.pawn_can_attack(position) {
             return true;
         }
 
         // 2. Knights
-        if is_enemy_piece(&try_move(&position, &dir!(-1, -2)), &PieceType::Knight)
-            || is_enemy_piece(&try_move(&position, &dir!(-1, 2)), &PieceType::Knight)
-            || is_enemy_piece(&try_move(&position, &dir!(-2, -1)), &PieceType::Knight)
-            || is_enemy_piece(&try_move(&position, &dir!(-2, 1)), &PieceType::Knight)
-            || is_enemy_piece(&try_move(&position, &dir!(2, -1)), &PieceType::Knight)
-            || is_enemy_piece(&try_move(&position, &dir!(2, 1)), &PieceType::Knight)
-            || is_enemy_piece(&try_move(&position, &dir!(1, -2)), &PieceType::Knight)
-            || is_enemy_piece(&try_move(&position, &dir!(1, 2)), &PieceType::Knight)
-        {
+        if enemy_bitboards.knight_can_attack(position) {
             return true;
         }
 
@@ -227,15 +208,7 @@ mod bitboards_search {
         }
 
         // 6. King
-        if is_enemy_piece(&try_move(&position, &dir!(-1, -1)), &PieceType::King)
-            || is_enemy_piece(&try_move(&position, &dir!(-1, 0)), &PieceType::King)
-            || is_enemy_piece(&try_move(&position, &dir!(-1, 1)), &PieceType::King)
-            || is_enemy_piece(&try_move(&position, &dir!(0, -1)), &PieceType::King)
-            || is_enemy_piece(&try_move(&position, &dir!(0, 1)), &PieceType::King)
-            || is_enemy_piece(&try_move(&position, &dir!(1, -1)), &PieceType::King)
-            || is_enemy_piece(&try_move(&position, &dir!(1, 0)), &PieceType::King)
-            || is_enemy_piece(&try_move(&position, &dir!(1, 1)), &PieceType::King)
-        {
+        if enemy_bitboards.king_can_attack(position) {
             return true;
         }
 
@@ -250,7 +223,6 @@ fn position_is_unsafe(game: &SearchableGame, position: &Position, player: &Playe
             game.bitboards_by_player(player),
             game.bitboards_by_player(&enemy(player)),
             position,
-            player,
         )
     }
     #[cfg(not(feature = "bitboards"))]

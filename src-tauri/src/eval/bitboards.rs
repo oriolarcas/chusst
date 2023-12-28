@@ -1,3 +1,4 @@
+mod attack;
 mod in_between;
 
 use crate::board::{Board, ModifiableBoard, Piece, PieceType, Player, Position, Square};
@@ -88,25 +89,8 @@ impl PlayerBitboards {
         }
     }
 
-    pub fn in_between(source: &Position, target: &Position) -> Bitboard {
-        let source_index = position_to_bitboard_index(source);
-        let target_index = position_to_bitboard_index(target);
-        in_between::IN_BETWEEN_TABLE[source_index][target_index]
-    }
-
     pub fn has_position(&self, position: &Position) -> bool {
         check_bitboard(self.combined(), position)
-    }
-
-    pub fn has_piece(&self, position: &Position, piece: &PieceType) -> bool {
-        match piece {
-            PieceType::Pawn => check_bitboard(self.pawns, position),
-            PieceType::Knight => check_bitboard(self.knights, position),
-            PieceType::Bishop => check_bitboard(self.bishops, position),
-            PieceType::Rook => check_bitboard(self.rooks, position),
-            PieceType::Queen => check_bitboard(self.queens, position),
-            PieceType::King => check_bitboard(self.kings, position),
-        }
     }
 
     pub fn into_iter(bitboard: Bitboard) -> BitboardIter {
@@ -132,6 +116,32 @@ impl PlayerBitboards {
             PieceType::Queen => self.queens,
             PieceType::King => self.kings,
         }
+    }
+
+    // Tables
+
+    pub fn in_between(source: &Position, target: &Position) -> Bitboard {
+        let source_index = position_to_bitboard_index(source);
+        let target_index = position_to_bitboard_index(target);
+        in_between::IN_BETWEEN_TABLE[source_index][target_index]
+    }
+
+    pub fn pawn_can_attack(&self, target_position: &Position) -> bool {
+        let target_index = position_to_bitboard_index(target_position);
+        match self.player {
+            Player::White => self.pawns & attack::BLACK_ATTACKED_BY_PAWN_TABLE[target_index] != 0,
+            Player::Black => self.pawns & attack::WHITE_ATTACKED_BY_PAWN_TABLE[target_index] != 0,
+        }
+    }
+
+    pub fn knight_can_attack(&self, target_position: &Position) -> bool {
+        let target_index = position_to_bitboard_index(target_position);
+        self.knights & attack::ATTACKED_BY_KNIGHT_TABLE[target_index] != 0
+    }
+
+    pub fn king_can_attack(&self, target_position: &Position) -> bool {
+        let target_index = position_to_bitboard_index(target_position);
+        self.kings & attack::ATTACKED_BY_KING_TABLE[target_index] != 0
     }
 }
 
