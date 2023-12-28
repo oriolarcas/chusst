@@ -257,6 +257,22 @@ pub fn get_possible_moves(
     get_possible_moves_from_game(&game, position)
 }
 
+pub fn get_all_possible_moves(game: &Game) -> Vec<Move> {
+    let mut moves: Vec<Move> = vec![];
+
+    for piece_position in player_pieces_iter!(board: &game.board, player: &game.player) {
+        let search_game = SearchableGame::from(game);
+        let possible_piece_moves = get_possible_moves_from_game(&search_game, piece_position);
+        moves.extend(
+            possible_piece_moves
+                .iter()
+                .map(|target_position| mv!(piece_position, *target_position)),
+        );
+    }
+
+    moves
+}
+
 pub fn move_name(
     board: &Board,
     last_move: &Option<MoveInfo>,
