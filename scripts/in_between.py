@@ -1,9 +1,9 @@
-print("const IN_BETWEEN_TABLE: [[u64; 64]; 64] = [")
-
 def index_to_rank_and_file(index):
     rank = index // 8
     file = index % 8
     return rank, file
+
+print("const IN_BETWEEN_TABLE: [[u64; 64]; 64] = [")
 
 for source_index in range(64):
     print("    [")
