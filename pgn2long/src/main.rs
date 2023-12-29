@@ -103,12 +103,22 @@ fn parse_pgn_file(pgn_file_path: String) -> Option<PGN> {
     Some(pgn)
 }
 
-fn find_move_by_name(game: &Game, move_str: &str) -> chusst::game::Move {
+fn long(mv: &chusst::game::Move) -> String {
+    format!("{}{}", mv.source, mv.target)
+}
+
+fn find_move_by_name(game: &Game, move_str: &str) -> (chusst::game::Move, String) {
     for mv in chusst::eval::get_all_possible_moves(&game) {
         let mv_name = chusst::eval::move_name(&game, &mv).unwrap();
 
         if mv_name == move_str {
-            return mv;
+            if let Some(index) = mv_name.find('=') {
+                if let Some(promoted_piece) = mv_name.chars().nth(index + 1) {
+                    return (mv, format!("{}{}", long(&mv), promoted_piece.to_lowercase()));
+                }
+            }
+
+            return (mv, long(&mv));
         }
     }
 
@@ -116,10 +126,6 @@ fn find_move_by_name(game: &Game, move_str: &str) -> chusst::game::Move {
         "Move {} of player {} not found:\n{}\n",
         move_str, game.player, game.board
     );
-}
-
-fn long(mv: &chusst::game::Move) -> String {
-    format!("{}{}", mv.source, mv.target)
 }
 
 fn pgn_to_long_algebraic(pgn: &PGN) {
@@ -131,17 +137,17 @@ fn pgn_to_long_algebraic(pgn: &PGN) {
             Move::Half(half_move) => half_move.white.as_str(),
         };
 
-        let white_mv = find_move_by_name(&game, white_move_str);
+        let (white_mv, white_mv_str) = find_move_by_name(&game, white_move_str);
 
         chusst::eval::do_move(&mut game, &white_mv);
 
         if let Move::Full(full_move) = mv {
-            let black_mv = find_move_by_name(&game, &full_move.black);
+            let (black_mv, black_mv_str) = find_move_by_name(&game, &full_move.black);
             chusst::eval::do_move(&mut game, &black_mv);
 
-            println!("{}. {} {}", index, long(&white_mv), long(&black_mv));
+            println!("{}. {} {}", index + 1, white_mv_str, black_mv_str);
         } else {
-            println!("{}. {}", index, long(&white_mv));
+            println!("{}. {}", index + 1, white_mv_str);
         }
     }
 }

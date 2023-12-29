@@ -275,8 +275,8 @@ pub fn move_name(game: &Game, mv: &Move) -> Option<String> {
     if is_castling {
         // Castling doesn't need piece or position
         match mv.target.file {
-            2 => name.push_str("0-0-0"),
-            6 => name.push_str("0-0"),
+            2 => name.push_str("O-O-O"),
+            6 => name.push_str("O-O"),
             _ => panic!("invalid castling {} in:\n{}", mv, board),
         }
     } else {
@@ -350,8 +350,8 @@ pub fn move_name(game: &Game, mv: &Move) -> Option<String> {
             // Same type of pieces in same file but different rank: rank suffix
             name.push(source_rank);
         } else if ambiguous_piece_exists {
-            // Another piece not in the same rank or file: file and rank suffix
-            name.push_str(source_suffix.as_str());
+            // Another piece not in the same rank or file: file suffix
+            name.push(source_file);
         }
 
         if is_capture {

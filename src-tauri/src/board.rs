@@ -478,10 +478,6 @@ pub struct Board {
 }
 
 impl Board {
-    fn as_square(&self, pos: &Position) -> Square {
-        internal_representation::internal_to_square(self.ranks[pos.rank][pos.file])
-    }
-
     pub const fn new() -> Board {
         INITIAL_BOARD
     }
@@ -551,7 +547,7 @@ impl Board {
     }
 
     pub fn square(&self, pos: &Position) -> Square {
-        self.as_square(pos)
+        internal_representation::internal_to_square(self.ranks[pos.rank][pos.file])
     }
 
     pub fn home_rank(player: &Player) -> usize {

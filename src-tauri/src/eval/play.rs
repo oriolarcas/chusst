@@ -1,4 +1,4 @@
-use crate::board::{Board, ModifiableBoard, Piece, PieceType, Player, Position, Square};
+use crate::board::{Board, ModifiableBoard, Piece, PieceType, Position, Square};
 use crate::eval::conditions::{enemy, only_enemy, try_move, Direction};
 use crate::eval::get_possible_moves;
 use crate::eval::iter::dir;
@@ -89,8 +89,6 @@ trait PlayableGamePrivate<'a>: PlayableGame<'a> + ModifiableBoard {
             _ => MoveExtraInfo::Other,
         };
 
-        let mut capture = self.as_ref().board.square(&mv.target).is_some();
-
         self.move_piece(&mv.source, &mv.target);
 
         match move_info {
@@ -104,7 +102,6 @@ trait PlayableGamePrivate<'a>: PlayableGame<'a> + ModifiableBoard {
                 )
                 .unwrap();
                 self.update(&passed, None);
-                capture = true;
             }
             MoveExtraInfo::Promotion(piece) => {
                 self.update(&mv.target, Some(Piece { piece, player }));
@@ -133,14 +130,6 @@ trait PlayableGamePrivate<'a>: PlayableGame<'a> + ModifiableBoard {
             }
         }
 
-        if self.as_ref().player == Player::Black {
-            self.as_mut().info.increment_fullmove();
-        }
-        if capture || moved_piece == PieceType::Pawn {
-            self.as_mut().info.reset_halfmove();
-        } else {
-            self.as_mut().info.increment_halfmove();
-        }
         self.as_mut().player = enemy(&self.as_ref().player);
         self.as_mut().last_move = Some(MoveInfo {
             mv: *mv,
