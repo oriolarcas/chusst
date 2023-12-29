@@ -63,7 +63,7 @@ fn parse_pgn_file(pgn_file_path: String) -> Option<PGN> {
         moves_lines.push_str(line);
     }
 
-    println!("<<{}>>", moves_lines);
+    // println!("<<{}>>", moves_lines);
 
     // Parse the moves
     let move_re = Regex::new(r"(\d+)\. (\S+) (\S+)?").unwrap();
