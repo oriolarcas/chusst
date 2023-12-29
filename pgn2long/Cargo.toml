@@ -9,3 +9,5 @@ edition = "2021"
 chusst = { path = "../src-tauri" }
 clap = { version = "4.4.12", features = ["derive"] }
 regex = "1.10.2"
+serde = { version = "1.0.193", features = ["derive"] }
+serde_yaml = "0.9.29"

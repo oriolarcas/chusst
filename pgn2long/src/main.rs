@@ -6,6 +6,7 @@ use chusst::{
 
 use clap::Parser;
 use regex::Regex;
+use serde::{ser::SerializeMap, Serialize};
 use std::io::BufRead;
 
 #[derive(Parser)]
@@ -13,11 +14,10 @@ use std::io::BufRead;
 struct Cli {
     /// PGN file
     file: String,
-}
 
-struct FullMove {
-    white: String,
-    black: String,
+    /// Write a YAML description of the game
+    #[arg(short, long)]
+    export_yaml: Option<String>,
 }
 
 struct Move {
@@ -34,11 +34,18 @@ struct PGN {
 enum MoveType {
     Normal,
     Capture,
-    PassedPawn,
+    PassingPawn,
     EnPassant,
     Promotion(chusst::board::PieceType),
     KingsideCastling,
     QueensideCastling,
+}
+
+enum CheckType {
+    Check,
+    Checkmate,
+    #[allow(dead_code)]
+    Stalemate,
 }
 
 struct DetailedMoveInfo {
@@ -46,6 +53,7 @@ struct DetailedMoveInfo {
     short: String,
     long: String,
     move_type: MoveType,
+    check_type: Option<CheckType>,
 }
 
 struct DetailedMove {
@@ -160,6 +168,14 @@ fn find_move_by_name(game: &Game, move_str: &str) -> DetailedMoveInfo {
         let mv_name = chusst::eval::move_name(&game, &mv).unwrap();
 
         if mv_name == move_str {
+            let check_type = if move_str.contains('#') {
+                Some(CheckType::Checkmate)
+            } else if move_str.contains('+') {
+                Some(CheckType::Check)
+            } else {
+                None
+            };
+
             if let Some(index) = mv_name.find('=') {
                 if let Some(promoted_piece) = mv_name.chars().nth(index + 1) {
                     return DetailedMoveInfo {
@@ -173,6 +189,7 @@ fn find_move_by_name(game: &Game, move_str: &str) -> DetailedMoveInfo {
                             'Q' => chusst::board::PieceType::Queen,
                             _ => unreachable!(),
                         }),
+                        check_type,
                     };
                 }
             }
@@ -189,7 +206,7 @@ fn find_move_by_name(game: &Game, move_str: &str) -> DetailedMoveInfo {
                 short: move_str.to_string(),
                 long: long(&mv),
                 move_type: if piece == PieceType::Pawn && mv_rank_distance == 2 {
-                    MoveType::PassedPawn
+                    MoveType::PassingPawn
                 } else if piece == PieceType::Pawn && target_empty && mv_file_distance == 1 {
                     MoveType::EnPassant
                 } else if move_str == "O-O" {
@@ -201,6 +218,7 @@ fn find_move_by_name(game: &Game, move_str: &str) -> DetailedMoveInfo {
                 } else {
                     MoveType::Normal
                 },
+                check_type,
             };
         }
     }
@@ -225,7 +243,7 @@ fn pgn_to_long_algebraic(pgn: &PGN) -> DetailedGame {
 
     let mut checkmate = false;
 
-    for (index, mv) in pgn.moves.iter().enumerate() {
+    for mv in pgn.moves.iter() {
         let white_short_str = mv.white.as_str();
 
         let detailed_white_mv = find_move_by_name(&game, white_short_str);
@@ -238,13 +256,6 @@ fn pgn_to_long_algebraic(pgn: &PGN) -> DetailedGame {
             let detailed_black_mv = find_move_by_name(&game, black_short_str);
             chusst::eval::do_move(&mut game, &detailed_black_mv.mv);
 
-            println!(
-                "{}. {} {}",
-                index + 1,
-                detailed_white_mv.long,
-                detailed_black_mv.long
-            );
-
             detailed.moves.push(DetailedMove {
                 white: detailed_white_mv,
                 black: Some(detailed_black_mv),
@@ -252,7 +263,6 @@ fn pgn_to_long_algebraic(pgn: &PGN) -> DetailedGame {
 
             checkmate = black_short_str.contains('#');
         } else {
-            println!("{}. {}", index + 1, detailed_white_mv.long);
             detailed.moves.push(DetailedMove {
                 white: detailed_white_mv,
                 black: None,
@@ -260,26 +270,125 @@ fn pgn_to_long_algebraic(pgn: &PGN) -> DetailedGame {
         }
     }
 
-    detailed.ending = match pgn.result.as_str() {
-        "1-0" => {
-            if checkmate {
-                GameEnding::WhiteWinsCheckmate
-            } else {
-                GameEnding::BlackResigned
-            }
+    detailed.ending = if pgn.result.ends_with("1-0") {
+        if checkmate {
+            GameEnding::WhiteWinsCheckmate
+        } else {
+            GameEnding::BlackResigned
         }
-        "0-1" => {
-            if checkmate {
-                GameEnding::BlackWinsCheckmate
-            } else {
-                GameEnding::WhiteResigned
-            }
+    } else if pgn.result.ends_with("0-1") {
+        if checkmate {
+            GameEnding::BlackWinsCheckmate
+        } else {
+            GameEnding::WhiteResigned
         }
-        "1/2-1/2" => GameEnding::Draw,
-        ending @ _ => panic!("Unknown ending: {ending}"),
+    } else if pgn.result.ends_with("1/2-1/2") {
+        GameEnding::Draw
+    } else {
+        panic!("Unknown ending");
     };
     detailed
 }
+
+impl Serialize for DetailedMoveInfo {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut map =
+            serializer.serialize_map(Some(if self.check_type.is_some() { 4 } else { 3 }))?;
+
+        map.serialize_entry("short", &self.short)?;
+        map.serialize_entry("long", &self.long)?;
+        map.serialize_entry(
+            "type",
+            match &self.move_type {
+                MoveType::Normal => "normal",
+                MoveType::Capture => "capture",
+                MoveType::PassingPawn => "passing pawn",
+                MoveType::EnPassant => "en passant",
+                MoveType::Promotion(piece) => match piece {
+                    PieceType::Knight => "promotion to knight",
+                    PieceType::Bishop => "promotion to bishop",
+                    PieceType::Rook => "promotion to rook",
+                    PieceType::Queen => "promotion to queen",
+                    _ => unreachable!(),
+                },
+                MoveType::KingsideCastling => "kingside castling",
+                MoveType::QueensideCastling => "queenside castling",
+            },
+        )?;
+
+        if let Some(check_type) = &self.check_type {
+            map.serialize_entry(
+                "check",
+                match check_type {
+                    CheckType::Check => "check",
+                    CheckType::Checkmate => "checkmate",
+                    CheckType::Stalemate => "stalemate",
+                },
+            )?;
+        }
+
+        map.end()
+    }
+}
+
+impl Serialize for DetailedMove {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        if let Some(black) = &self.black {
+            let mut map = serializer.serialize_map(Some(2))?;
+
+            map.serialize_entry("white", &self.white)?;
+            map.serialize_entry("black", &black)?;
+
+            map.end()
+        } else {
+            let mut map = serializer.serialize_map(Some(1))?;
+
+            map.serialize_entry("white", &self.white)?;
+
+            map.end()
+        }
+    }
+}
+
+impl Serialize for DetailedGame {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut map = serializer.serialize_map(Some(2))?;
+
+        map.serialize_entry(
+            "result",
+            match self.ending {
+                GameEnding::Draw => "Draw",
+                GameEnding::WhiteWinsCheckmate => "White wins: checkmate",
+                GameEnding::BlackWinsCheckmate => "Black wins: checkmate",
+                GameEnding::WhiteResigned => "Black wins: white resigned",
+                GameEnding::BlackResigned => "White wins: black resigned",
+            },
+        )?;
+        map.serialize_entry("moves", &self.moves)?;
+
+        map.end()
+    }
+}
+
+fn write_yaml(yaml_path: &str, game: &DetailedGame) {
+    let Ok(output) = std::fs::File::create(yaml_path) else {
+        println!("Could not open file {yaml_path} for writing");
+        return;
+    };
+
+    if serde_yaml::to_writer(output, game).is_err() {
+        println!("Error writing YAML data to {yaml_path}");
+        return;
+    }
 }
 
 fn main() {
@@ -302,5 +411,9 @@ fn main() {
         GameEnding::BlackWinsCheckmate => println!("Black wins: checkmate"),
         GameEnding::WhiteResigned => println!("Black wins: white resigned"),
         GameEnding::BlackResigned => println!("White wins: black resigned"),
+    }
+
+    if let Some(yaml_path) = cli.export_yaml {
+        write_yaml(&yaml_path, &detailed_game);
     }
 }
