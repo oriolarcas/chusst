@@ -353,7 +353,11 @@ impl<'a> Iterator for PawnIter<'a> {
                 PawnIterStates::PawnIterPass => {
                     self.state = PawnIterStates::PawnIterCaptureLeft;
                     if can_pass
-                        && try_move(&self.game_state.position, &dir!(direction, 0)).is_some()
+                        && only_empty(
+                            &self.game_state.game.board,
+                            try_move(&self.game_state.position, &dir!(direction, 0)),
+                        )
+                        .is_some()
                     {
                         only_empty(
                             &self.game_state.game.board,

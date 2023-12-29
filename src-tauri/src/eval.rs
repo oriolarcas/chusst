@@ -372,10 +372,7 @@ pub fn move_name(game: &Game, mv: &Move) -> Option<String> {
 
     if do_move(&mut new_game, mv).is_some() {
         let enemy_king_position = find_player_king(&new_game.board, &enemy(player));
-        let causes_check = get_possible_captures_of_position(&new_game, &mv.target)
-            .iter()
-            .find(|position| **position == enemy_king_position)
-            .is_some();
+        let causes_check = piece_is_unsafe(&new_game.board, &enemy_king_position);
         if causes_check {
             let is_checkmate = get_best_move_shallow(&new_game).is_none();
 

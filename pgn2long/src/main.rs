@@ -1,4 +1,4 @@
-use chusst::game::Game;
+use chusst::{eval::move_name, game::Game};
 
 use clap::Parser;
 use regex::Regex;
@@ -108,23 +108,35 @@ fn long(mv: &chusst::game::Move) -> String {
 }
 
 fn find_move_by_name(game: &Game, move_str: &str) -> (chusst::game::Move, String) {
-    for mv in chusst::eval::get_all_possible_moves(&game) {
+    let possible_moves = chusst::eval::get_all_possible_moves(&game);
+    for mv in &possible_moves {
         let mv_name = chusst::eval::move_name(&game, &mv).unwrap();
 
         if mv_name == move_str {
             if let Some(index) = mv_name.find('=') {
                 if let Some(promoted_piece) = mv_name.chars().nth(index + 1) {
-                    return (mv, format!("{}{}", long(&mv), promoted_piece.to_lowercase()));
+                    return (
+                        *mv,
+                        format!("{}{}", long(&mv), promoted_piece.to_lowercase()),
+                    );
                 }
             }
 
-            return (mv, long(&mv));
+            return (*mv, long(&mv));
         }
     }
 
     panic!(
-        "Move {} of player {} not found:\n{}\n",
-        move_str, game.player, game.board
+        "Move {} of player {} not found:\n{}\nPossible moves: {}",
+        move_str,
+        game.player,
+        game.board,
+        &possible_moves
+            .iter()
+            .map(|mv| move_name(game, mv))
+            .flatten()
+            .collect::<Vec<String>>()
+            .join(", ")
     );
 }
 
