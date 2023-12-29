@@ -1,4 +1,8 @@
-use chusst::{eval::move_name, game::Game};
+use chusst::{
+    board::{Piece, PieceType},
+    eval::move_name,
+    game::Game,
+};
 
 use clap::Parser;
 use regex::Regex;
@@ -16,19 +20,53 @@ struct FullMove {
     black: String,
 }
 
-struct HalfMove {
+struct Move {
     white: String,
-}
-
-enum Move {
-    Full(FullMove),
-    Half(HalfMove),
+    black: Option<String>,
 }
 
 #[derive(Default)]
 struct PGN {
     moves: Vec<Move>,
     result: String,
+}
+
+enum MoveType {
+    Normal,
+    Capture,
+    PassedPawn,
+    EnPassant,
+    Promotion(chusst::board::PieceType),
+    KingsideCastling,
+    QueensideCastling,
+}
+
+struct DetailedMoveInfo {
+    mv: chusst::game::Move,
+    short: String,
+    long: String,
+    move_type: MoveType,
+}
+
+struct DetailedMove {
+    white: DetailedMoveInfo,
+    black: Option<DetailedMoveInfo>,
+}
+
+#[derive(Default)]
+enum GameEnding {
+    #[default]
+    Draw,
+    WhiteWinsCheckmate,
+    BlackWinsCheckmate,
+    WhiteResigned,
+    BlackResigned,
+}
+
+#[derive(Default)]
+struct DetailedGame {
+    moves: Vec<DetailedMove>,
+    ending: GameEnding,
 }
 
 fn parse_pgn_file(pgn_file_path: String) -> Option<PGN> {
@@ -90,14 +128,23 @@ fn parse_pgn_file(pgn_file_path: String) -> Option<PGN> {
         };
 
         match black_move {
-            Some(black_move_str) => pgn.moves.push(Move::Full(FullMove {
+            Some(black_move_str) => pgn.moves.push(Move {
                 white: white_move.to_string(),
-                black: black_move_str.to_string(),
-            })),
-            None => pgn.moves.push(Move::Half(HalfMove {
+                black: Some(black_move_str.to_string()),
+            }),
+            None => pgn.moves.push(Move {
                 white: white_move.to_string(),
-            })),
+                black: None,
+            }),
         }
+    }
+
+    if moves_lines.ends_with("1-0") {
+        pgn.result = "1-0".to_string();
+    } else if moves_lines.ends_with("0-1") {
+        pgn.result = "0-1".to_string();
+    } else if moves_lines.ends_with("1/2-1/2") {
+        pgn.result = "1/2-1/2".to_string();
     }
 
     Some(pgn)
@@ -107,7 +154,7 @@ fn long(mv: &chusst::game::Move) -> String {
     format!("{}{}", mv.source, mv.target)
 }
 
-fn find_move_by_name(game: &Game, move_str: &str) -> (chusst::game::Move, String) {
+fn find_move_by_name(game: &Game, move_str: &str) -> DetailedMoveInfo {
     let possible_moves = chusst::eval::get_all_possible_moves(&game);
     for mv in &possible_moves {
         let mv_name = chusst::eval::move_name(&game, &mv).unwrap();
@@ -115,14 +162,46 @@ fn find_move_by_name(game: &Game, move_str: &str) -> (chusst::game::Move, String
         if mv_name == move_str {
             if let Some(index) = mv_name.find('=') {
                 if let Some(promoted_piece) = mv_name.chars().nth(index + 1) {
-                    return (
-                        *mv,
-                        format!("{}{}", long(&mv), promoted_piece.to_lowercase()),
-                    );
+                    return DetailedMoveInfo {
+                        mv: *mv,
+                        short: move_str.to_string(),
+                        long: format!("{}{}", long(&mv), promoted_piece.to_lowercase()),
+                        move_type: MoveType::Promotion(match promoted_piece {
+                            'N' => chusst::board::PieceType::Knight,
+                            'B' => chusst::board::PieceType::Bishop,
+                            'R' => chusst::board::PieceType::Rook,
+                            'Q' => chusst::board::PieceType::Queen,
+                            _ => unreachable!(),
+                        }),
+                    };
                 }
             }
 
-            return (*mv, long(&mv));
+            let Some(Piece { piece, player: _ }) = game.board.square(&mv.source) else {
+                panic!("Source square is empty");
+            };
+            let target_empty = game.board.square(&mv.target).is_none();
+            let mv_rank_distance = mv.source.rank.abs_diff(mv.target.rank);
+            let mv_file_distance = mv.source.file.abs_diff(mv.target.file);
+
+            return DetailedMoveInfo {
+                mv: *mv,
+                short: move_str.to_string(),
+                long: long(&mv),
+                move_type: if piece == PieceType::Pawn && mv_rank_distance == 2 {
+                    MoveType::PassedPawn
+                } else if piece == PieceType::Pawn && target_empty && mv_file_distance == 1 {
+                    MoveType::EnPassant
+                } else if move_str == "O-O" {
+                    MoveType::KingsideCastling
+                } else if move_str == "O-O-O" {
+                    MoveType::QueensideCastling
+                } else if move_str.contains('x') {
+                    MoveType::Capture
+                } else {
+                    MoveType::Normal
+                },
+            };
         }
     }
 
@@ -140,28 +219,67 @@ fn find_move_by_name(game: &Game, move_str: &str) -> (chusst::game::Move, String
     );
 }
 
-fn pgn_to_long_algebraic(pgn: &PGN) {
+fn pgn_to_long_algebraic(pgn: &PGN) -> DetailedGame {
     let mut game = Game::new();
+    let mut detailed = DetailedGame::default();
+
+    let mut checkmate = false;
 
     for (index, mv) in pgn.moves.iter().enumerate() {
-        let white_move_str = match mv {
-            Move::Full(full_move) => full_move.white.as_str(),
-            Move::Half(half_move) => half_move.white.as_str(),
-        };
+        let white_short_str = mv.white.as_str();
 
-        let (white_mv, white_mv_str) = find_move_by_name(&game, white_move_str);
+        let detailed_white_mv = find_move_by_name(&game, white_short_str);
 
-        chusst::eval::do_move(&mut game, &white_mv);
+        checkmate = white_short_str.contains('#');
 
-        if let Move::Full(full_move) = mv {
-            let (black_mv, black_mv_str) = find_move_by_name(&game, &full_move.black);
-            chusst::eval::do_move(&mut game, &black_mv);
+        chusst::eval::do_move(&mut game, &detailed_white_mv.mv);
 
-            println!("{}. {} {}", index + 1, white_mv_str, black_mv_str);
+        if let Some(black_short_str) = mv.black.as_deref() {
+            let detailed_black_mv = find_move_by_name(&game, black_short_str);
+            chusst::eval::do_move(&mut game, &detailed_black_mv.mv);
+
+            println!(
+                "{}. {} {}",
+                index + 1,
+                detailed_white_mv.long,
+                detailed_black_mv.long
+            );
+
+            detailed.moves.push(DetailedMove {
+                white: detailed_white_mv,
+                black: Some(detailed_black_mv),
+            });
+
+            checkmate = black_short_str.contains('#');
         } else {
-            println!("{}. {}", index + 1, white_mv_str);
+            println!("{}. {}", index + 1, detailed_white_mv.long);
+            detailed.moves.push(DetailedMove {
+                white: detailed_white_mv,
+                black: None,
+            });
         }
     }
+
+    detailed.ending = match pgn.result.as_str() {
+        "1-0" => {
+            if checkmate {
+                GameEnding::WhiteWinsCheckmate
+            } else {
+                GameEnding::BlackResigned
+            }
+        }
+        "0-1" => {
+            if checkmate {
+                GameEnding::BlackWinsCheckmate
+            } else {
+                GameEnding::WhiteResigned
+            }
+        }
+        "1/2-1/2" => GameEnding::Draw,
+        ending @ _ => panic!("Unknown ending: {ending}"),
+    };
+    detailed
+}
 }
 
 fn main() {
@@ -169,17 +287,20 @@ fn main() {
 
     let pgn = parse_pgn_file(cli.file).unwrap();
 
-    // for (index, mv) in pgn.moves.iter().enumerate() {
-    //     match mv {
-    //         Move::Full(full_move) => {
-    //             println!("{}. {} {}", index + 1, full_move.white, full_move.black);
-    //         }
-    //         Move::Half(half_move) => {
-    //             println!("{}. {}", index + 1, half_move.white);
-    //         }
-    //     }
-    // }
-    // println!("{}", pgn.result);
+    let detailed_game = pgn_to_long_algebraic(&pgn);
 
-    pgn_to_long_algebraic(&pgn);
+    for (index, mv) in detailed_game.moves.iter().enumerate() {
+        if let Some(black_mv) = &mv.black {
+            println!("{}. {} {}", index + 1, mv.white.long, black_mv.long);
+        } else {
+            println!("{}. {}", index + 1, mv.white.long);
+        }
+    }
+    match detailed_game.ending {
+        GameEnding::Draw => println!("Draw"),
+        GameEnding::WhiteWinsCheckmate => println!("White wins: checkmate"),
+        GameEnding::BlackWinsCheckmate => println!("Black wins: checkmate"),
+        GameEnding::WhiteResigned => println!("Black wins: white resigned"),
+        GameEnding::BlackResigned => println!("White wins: black resigned"),
+    }
 }
