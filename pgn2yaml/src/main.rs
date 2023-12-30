@@ -4,10 +4,12 @@ use chusst::{
     game::Game,
 };
 
+use anyhow::bail;
+use anyhow::{Context, Result};
 use clap::Parser;
 use regex::Regex;
 use serde::{ser::SerializeMap, Serialize};
-use std::{io::BufRead, path::PathBuf, process::ExitCode};
+use std::{io::BufRead, path::PathBuf};
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -31,6 +33,7 @@ struct PGN {
     result: String,
 }
 
+#[derive(PartialEq)]
 enum MoveType {
     Normal,
     Capture,
@@ -77,19 +80,17 @@ struct DetailedGame {
     ending: GameEnding,
 }
 
-fn parse_pgn_file(pgn_file_path: &PathBuf) -> Option<PGN> {
+fn parse_pgn_file(pgn_file_path: &PathBuf) -> Result<PGN> {
     let mut pgn = PGN::default();
 
-    let file = std::fs::File::open(pgn_file_path).ok()?;
+    let file = std::fs::File::open(pgn_file_path)?;
     let lines = std::io::BufReader::new(file).lines();
 
     // Extract only the moves data
     let mut moves_lines = String::new();
 
     for line_result in lines {
-        let Ok(line_content) = line_result else {
-            return None;
-        };
+        let line_content = line_result?;
 
         let line = line_content.trim();
 
@@ -112,23 +113,32 @@ fn parse_pgn_file(pgn_file_path: &PathBuf) -> Option<PGN> {
     // println!("<<{}>>", moves_lines);
 
     // Parse the moves
-    let move_re = Regex::new(r"(\d+)\. (\S+) (\S+)?").unwrap();
+    let move_re = Regex::new(r"(\d+)\. (\S+) (\S+)?")?;
     for full_move_match in move_re.captures_iter(&moves_lines) {
-        let move_number = full_move_match.get(1)?.as_str().parse::<u32>().ok()?;
-        assert_eq!(
-            move_number as usize,
-            pgn.moves.len() + 1,
-            "Invalid move number"
-        );
+        let move_number = full_move_match
+            .get(1)
+            .context("Error parsing turn number")?
+            .as_str()
+            .parse::<u32>()?;
+        if move_number as usize != pgn.moves.len() + 1 {
+            bail!(
+                "Invalid move number {}, expected {}",
+                move_number,
+                pgn.moves.len() + 1
+            );
+        }
 
-        let white_move = full_move_match.get(2)?.as_str();
+        let white_move = full_move_match
+            .get(2)
+            .context("Error parsing white move data")?
+            .as_str();
         let black_move = if let Some(black_move) = full_move_match.get(3) {
             match black_move.as_str() {
                 result_str @ "1-0" | result_str @ "0-1" | result_str @ "1/2-1/2" => {
                     pgn.result = result_str.to_string();
                     None
                 }
-                "*" => panic!("Unfinished game"),
+                "*" => bail!("Unfinished game"),
                 move_str => Some(move_str),
             }
         } else {
@@ -155,14 +165,14 @@ fn parse_pgn_file(pgn_file_path: &PathBuf) -> Option<PGN> {
         pgn.result = "1/2-1/2".to_string();
     }
 
-    Some(pgn)
+    Ok(pgn)
 }
 
 fn long(mv: &chusst::game::Move) -> String {
     format!("{}{}", mv.source, mv.target)
 }
 
-fn find_move_by_name(game: &Game, move_str: &str) -> DetailedMoveInfo {
+fn find_move_by_name(game: &Game, move_str: &str) -> Result<DetailedMoveInfo> {
     let possible_moves = chusst::eval::get_all_possible_moves(&game);
     for mv in &possible_moves {
         let mv_name = chusst::eval::move_name(&game, &mv).unwrap();
@@ -178,7 +188,7 @@ fn find_move_by_name(game: &Game, move_str: &str) -> DetailedMoveInfo {
 
             if let Some(index) = mv_name.find('=') {
                 if let Some(promoted_piece) = mv_name.chars().nth(index + 1) {
-                    return DetailedMoveInfo {
+                    return Ok(DetailedMoveInfo {
                         mv: *mv,
                         short: move_str.to_string(),
                         long: format!("{}{}", long(&mv), promoted_piece.to_lowercase()),
@@ -190,18 +200,18 @@ fn find_move_by_name(game: &Game, move_str: &str) -> DetailedMoveInfo {
                             _ => unreachable!(),
                         }),
                         check_type,
-                    };
+                    });
                 }
             }
 
             let Some(Piece { piece, player: _ }) = game.board.square(&mv.source) else {
-                panic!("Source square is empty");
+                bail!("Source square is empty");
             };
             let target_empty = game.board.square(&mv.target).is_none();
             let mv_rank_distance = mv.source.rank.abs_diff(mv.target.rank);
             let mv_file_distance = mv.source.file.abs_diff(mv.target.file);
 
-            return DetailedMoveInfo {
+            return Ok(DetailedMoveInfo {
                 mv: *mv,
                 short: move_str.to_string(),
                 long: long(&mv),
@@ -219,12 +229,12 @@ fn find_move_by_name(game: &Game, move_str: &str) -> DetailedMoveInfo {
                     MoveType::Normal
                 },
                 check_type,
-            };
+            });
         }
     }
 
-    panic!(
-        "Move {} of player {} not found:\n{}\nPossible moves: {}",
+    bail!(
+        "Invalid notation or ilegal move {} of player {}:\n{}\nPossible moves: {}",
         move_str,
         game.player,
         game.board,
@@ -237,7 +247,7 @@ fn find_move_by_name(game: &Game, move_str: &str) -> DetailedMoveInfo {
     );
 }
 
-fn pgn_to_long_algebraic(pgn: &PGN) -> DetailedGame {
+fn pgn_to_long_algebraic(pgn: &PGN) -> Result<DetailedGame> {
     let mut game = Game::new();
     let mut detailed = DetailedGame::default();
 
@@ -246,14 +256,14 @@ fn pgn_to_long_algebraic(pgn: &PGN) -> DetailedGame {
     for mv in pgn.moves.iter() {
         let white_short_str = mv.white.as_str();
 
-        let detailed_white_mv = find_move_by_name(&game, white_short_str);
+        let detailed_white_mv = find_move_by_name(&game, white_short_str)?;
 
         checkmate = white_short_str.contains('#');
 
         chusst::eval::do_move(&mut game, &detailed_white_mv.mv);
 
         if let Some(black_short_str) = mv.black.as_deref() {
-            let detailed_black_mv = find_move_by_name(&game, black_short_str);
+            let detailed_black_mv = find_move_by_name(&game, black_short_str)?;
             chusst::eval::do_move(&mut game, &detailed_black_mv.mv);
 
             detailed.moves.push(DetailedMove {
@@ -285,9 +295,9 @@ fn pgn_to_long_algebraic(pgn: &PGN) -> DetailedGame {
     } else if pgn.result.ends_with("1/2-1/2") {
         GameEnding::Draw
     } else {
-        panic!("Unknown ending");
+        bail!("Unexpected ending value");
     };
-    detailed
+    Ok(detailed)
 }
 
 impl Serialize for DetailedMoveInfo {
@@ -295,29 +305,38 @@ impl Serialize for DetailedMoveInfo {
     where
         S: serde::Serializer,
     {
-        let mut map =
-            serializer.serialize_map(Some(if self.check_type.is_some() { 4 } else { 3 }))?;
+        let mut entries = 2;
+        if self.move_type != MoveType::Normal {
+            entries += 1;
+        }
+        if self.check_type.is_some() {
+            entries += 1;
+        }
+
+        let mut map = serializer.serialize_map(Some(entries))?;
 
         map.serialize_entry("short", &self.short)?;
         map.serialize_entry("long", &self.long)?;
-        map.serialize_entry(
-            "type",
-            match &self.move_type {
-                MoveType::Normal => "normal",
-                MoveType::Capture => "capture",
-                MoveType::PassingPawn => "passing pawn",
-                MoveType::EnPassant => "en passant",
-                MoveType::Promotion(piece) => match piece {
-                    PieceType::Knight => "promotion to knight",
-                    PieceType::Bishop => "promotion to bishop",
-                    PieceType::Rook => "promotion to rook",
-                    PieceType::Queen => "promotion to queen",
-                    _ => unreachable!(),
+        if self.move_type != MoveType::Normal {
+            map.serialize_entry(
+                "type",
+                match &self.move_type {
+                    MoveType::Normal => unreachable!(),
+                    MoveType::Capture => "capture",
+                    MoveType::PassingPawn => "passing pawn",
+                    MoveType::EnPassant => "en passant",
+                    MoveType::Promotion(piece) => match piece {
+                        PieceType::Knight => "promotion to knight",
+                        PieceType::Bishop => "promotion to bishop",
+                        PieceType::Rook => "promotion to rook",
+                        PieceType::Queen => "promotion to queen",
+                        _ => unreachable!(),
+                    },
+                    MoveType::KingsideCastling => "kingside castling",
+                    MoveType::QueensideCastling => "queenside castling",
                 },
-                MoveType::KingsideCastling => "kingside castling",
-                MoveType::QueensideCastling => "queenside castling",
-            },
-        )?;
+            )?;
+        }
 
         if let Some(check_type) = &self.check_type {
             map.serialize_entry(
@@ -379,26 +398,27 @@ impl Serialize for DetailedGame {
     }
 }
 
-fn write_yaml(yaml_path: &PathBuf, game: &DetailedGame) -> Result<(), String> {
-    let output = std::fs::File::create(yaml_path).map_err(|_| {
-        format!(
-            "Could not open file {} for writing",
-            yaml_path.to_string_lossy()
-        )
-    })?;
+fn write_yaml(yaml_path: &PathBuf, game: &DetailedGame) -> Result<()> {
+    let output = std::fs::File::create(yaml_path).context(format!(
+        "Could not open file {} for writing",
+        yaml_path.to_string_lossy()
+    ))?;
 
-    serde_yaml::to_writer(output, game)
-        .map_err(|_| format!("Error writing YAML data to {}", yaml_path.to_string_lossy()))
+    serde_yaml::to_writer(output, game).context(format!(
+        "Error writing YAML data to {}",
+        yaml_path.to_string_lossy()
+    ))
 }
 
-fn main() -> ExitCode {
+fn main() -> Result<()> {
     let cli = Cli::parse();
 
     let pgn_path = PathBuf::from(cli.file);
 
-    let pgn = parse_pgn_file(&pgn_path).unwrap();
+    let pgn = parse_pgn_file(&pgn_path).context("Unable to parse PGN file")?;
 
-    let detailed_game = pgn_to_long_algebraic(&pgn);
+    let detailed_game =
+        pgn_to_long_algebraic(&pgn).context("Cannot convert to long algebraic form")?;
 
     let yaml_path = cli.output.map_or(
         {
@@ -409,10 +429,7 @@ fn main() -> ExitCode {
         },
         PathBuf::from,
     );
-    if let Err(reason) = write_yaml(&yaml_path, &detailed_game) {
-        println!("{}", reason);
-        return ExitCode::FAILURE;
-    }
+    write_yaml(&yaml_path, &detailed_game)?;
 
-    ExitCode::SUCCESS
+    Ok(())
 }
