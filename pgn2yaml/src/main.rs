@@ -7,7 +7,7 @@ use chusst::{
 use clap::Parser;
 use regex::Regex;
 use serde::{ser::SerializeMap, Serialize};
-use std::io::BufRead;
+use std::{io::BufRead, path::PathBuf, process::ExitCode};
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -15,9 +15,9 @@ struct Cli {
     /// PGN file
     file: String,
 
-    /// Write a YAML description of the game
+    /// Path of the YAML file (if not specified, same as the PGN file with the extension changed)
     #[arg(short, long)]
-    export_yaml: Option<String>,
+    output: Option<String>,
 }
 
 struct Move {
@@ -77,7 +77,7 @@ struct DetailedGame {
     ending: GameEnding,
 }
 
-fn parse_pgn_file(pgn_file_path: String) -> Option<PGN> {
+fn parse_pgn_file(pgn_file_path: &PathBuf) -> Option<PGN> {
     let mut pgn = PGN::default();
 
     let file = std::fs::File::open(pgn_file_path).ok()?;
@@ -379,22 +379,24 @@ impl Serialize for DetailedGame {
     }
 }
 
-fn write_yaml(yaml_path: &str, game: &DetailedGame) {
-    let Ok(output) = std::fs::File::create(yaml_path) else {
-        println!("Could not open file {yaml_path} for writing");
-        return;
-    };
+fn write_yaml(yaml_path: &PathBuf, game: &DetailedGame) -> Result<(), String> {
+    let output = std::fs::File::create(yaml_path).map_err(|_| {
+        format!(
+            "Could not open file {} for writing",
+            yaml_path.to_string_lossy()
+        )
+    })?;
 
-    if serde_yaml::to_writer(output, game).is_err() {
-        println!("Error writing YAML data to {yaml_path}");
-        return;
-    }
+    serde_yaml::to_writer(output, game)
+        .map_err(|_| format!("Error writing YAML data to {}", yaml_path.to_string_lossy()))
 }
 
-fn main() {
+fn main() -> ExitCode {
     let cli = Cli::parse();
 
-    let pgn = parse_pgn_file(cli.file).unwrap();
+    let pgn_path = PathBuf::from(cli.file);
+
+    let pgn = parse_pgn_file(&pgn_path).unwrap();
 
     let detailed_game = pgn_to_long_algebraic(&pgn);
 
@@ -413,7 +415,18 @@ fn main() {
         GameEnding::BlackResigned => println!("White wins: black resigned"),
     }
 
-    if let Some(yaml_path) = cli.export_yaml {
-        write_yaml(&yaml_path, &detailed_game);
+    let yaml_path = cli.output.map_or(
+        {
+            let mut path = pgn_path;
+            path.set_extension("png");
+            path
+        },
+        PathBuf::from,
+    );
+    if let Err(reason) = write_yaml(&yaml_path, &detailed_game) {
+        println!("{}", reason);
+        return ExitCode::FAILURE;
     }
+
+    ExitCode::SUCCESS
 }
