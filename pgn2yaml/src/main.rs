@@ -400,25 +400,11 @@ fn main() -> ExitCode {
 
     let detailed_game = pgn_to_long_algebraic(&pgn);
 
-    for (index, mv) in detailed_game.moves.iter().enumerate() {
-        if let Some(black_mv) = &mv.black {
-            println!("{}. {} {}", index + 1, mv.white.long, black_mv.long);
-        } else {
-            println!("{}. {}", index + 1, mv.white.long);
-        }
-    }
-    match detailed_game.ending {
-        GameEnding::Draw => println!("Draw"),
-        GameEnding::WhiteWinsCheckmate => println!("White wins: checkmate"),
-        GameEnding::BlackWinsCheckmate => println!("Black wins: checkmate"),
-        GameEnding::WhiteResigned => println!("Black wins: white resigned"),
-        GameEnding::BlackResigned => println!("White wins: black resigned"),
-    }
-
     let yaml_path = cli.output.map_or(
         {
             let mut path = pgn_path;
-            path.set_extension("png");
+            path.set_extension("yaml");
+            println!("Writing YAML file to {}", path.to_string_lossy());
             path
         },
         PathBuf::from,
