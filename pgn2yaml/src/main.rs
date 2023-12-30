@@ -27,10 +27,25 @@ struct Move {
     black: Option<String>,
 }
 
+#[derive(Clone)]
+struct Tag {
+    key: String,
+    value: String,
+}
+
 #[derive(Default)]
 struct PGN {
+    tags: Vec<Tag>,
     moves: Vec<Move>,
     result: String,
+}
+
+#[derive(PartialEq)]
+enum PromotionPieces {
+    Knight,
+    Bishop,
+    Rook,
+    Queen,
 }
 
 #[derive(PartialEq)]
@@ -39,7 +54,8 @@ enum MoveType {
     Capture,
     PassingPawn,
     EnPassant,
-    Promotion(chusst::board::PieceType),
+    Promotion(PromotionPieces),
+    PromotionWithCapture(PromotionPieces),
     KingsideCastling,
     QueensideCastling,
 }
@@ -64,10 +80,11 @@ struct DetailedMove {
     black: Option<DetailedMoveInfo>,
 }
 
-#[derive(Default)]
+#[derive(Default, Clone, Copy)]
 enum GameEnding {
     #[default]
     Draw,
+    Stalemate,
     WhiteWinsCheckmate,
     BlackWinsCheckmate,
     WhiteResigned,
@@ -76,6 +93,7 @@ enum GameEnding {
 
 #[derive(Default)]
 struct DetailedGame {
+    tags: Vec<Tag>,
     moves: Vec<DetailedMove>,
     ending: GameEnding,
 }
@@ -85,6 +103,8 @@ fn parse_pgn_file(pgn_file_path: &PathBuf) -> Result<PGN> {
 
     let file = std::fs::File::open(pgn_file_path)?;
     let lines = std::io::BufReader::new(file).lines();
+
+    let tag_re = Regex::new(r#"\[(\S+) +"([^"]+)"\]"#)?;
 
     // Extract only the moves data
     let mut moves_lines = String::new();
@@ -99,7 +119,13 @@ fn parse_pgn_file(pgn_file_path: &PathBuf) -> Result<PGN> {
         }
 
         // Ignore tags
-        if line.starts_with('[') {
+        if let Some(tag_match) = tag_re.captures(line) {
+            let tag_key = tag_match.get(1).context("PGN tag has no key")?;
+            let tag_value = tag_match.get(2).context("PGN tag has no key")?;
+            pgn.tags.push(Tag {
+                key: tag_key.as_str().to_string(),
+                value: tag_value.as_str().to_string(),
+            });
             continue;
         }
 
@@ -109,8 +135,6 @@ fn parse_pgn_file(pgn_file_path: &PathBuf) -> Result<PGN> {
 
         moves_lines.push_str(line);
     }
-
-    // println!("<<{}>>", moves_lines);
 
     // Parse the moves
     let move_re = Regex::new(r"(\d+)\. (\S+) (\S+)?")?;
@@ -168,8 +192,13 @@ fn parse_pgn_file(pgn_file_path: &PathBuf) -> Result<PGN> {
     Ok(pgn)
 }
 
-fn long(mv: &chusst::game::Move) -> String {
-    format!("{}{}", mv.source, mv.target)
+fn long(mv: &chusst::game::Move, capture: bool) -> String {
+    format!(
+        "{}{}{}",
+        mv.source,
+        if capture { "x" } else { "-" },
+        mv.target
+    )
 }
 
 fn find_move_by_name(game: &Game, move_str: &str) -> Result<DetailedMoveInfo> {
@@ -186,19 +215,31 @@ fn find_move_by_name(game: &Game, move_str: &str) -> Result<DetailedMoveInfo> {
                 None
             };
 
+            let is_capture = move_str.contains('x');
+
             if let Some(index) = mv_name.find('=') {
-                if let Some(promoted_piece) = mv_name.chars().nth(index + 1) {
+                if let Some(promoted_piece_char) = mv_name.chars().nth(index + 1) {
+                    let promoted_piece = match promoted_piece_char {
+                        'N' => PromotionPieces::Knight,
+                        'B' => PromotionPieces::Bishop,
+                        'R' => PromotionPieces::Rook,
+                        'Q' => PromotionPieces::Queen,
+                        _ => unreachable!(),
+                    };
+                    let move_type = if is_capture {
+                        MoveType::PromotionWithCapture(promoted_piece)
+                    } else {
+                        MoveType::Promotion(promoted_piece)
+                    };
                     return Ok(DetailedMoveInfo {
                         mv: *mv,
                         short: move_str.to_string(),
-                        long: format!("{}{}", long(&mv), promoted_piece.to_lowercase()),
-                        move_type: MoveType::Promotion(match promoted_piece {
-                            'N' => chusst::board::PieceType::Knight,
-                            'B' => chusst::board::PieceType::Bishop,
-                            'R' => chusst::board::PieceType::Rook,
-                            'Q' => chusst::board::PieceType::Queen,
-                            _ => unreachable!(),
-                        }),
+                        long: format!(
+                            "{}{}",
+                            long(&mv, is_capture),
+                            promoted_piece_char.to_lowercase()
+                        ),
+                        move_type,
                         check_type,
                     });
                 }
@@ -214,7 +255,7 @@ fn find_move_by_name(game: &Game, move_str: &str) -> Result<DetailedMoveInfo> {
             return Ok(DetailedMoveInfo {
                 mv: *mv,
                 short: move_str.to_string(),
-                long: long(&mv),
+                long: long(&mv, is_capture),
                 move_type: if piece == PieceType::Pawn && mv_rank_distance == 2 {
                     MoveType::PassingPawn
                 } else if piece == PieceType::Pawn && target_empty && mv_file_distance == 1 {
@@ -223,7 +264,7 @@ fn find_move_by_name(game: &Game, move_str: &str) -> Result<DetailedMoveInfo> {
                     MoveType::KingsideCastling
                 } else if move_str == "O-O-O" {
                     MoveType::QueensideCastling
-                } else if move_str.contains('x') {
+                } else if is_capture {
                     MoveType::Capture
                 } else {
                     MoveType::Normal
@@ -247,9 +288,17 @@ fn find_move_by_name(game: &Game, move_str: &str) -> Result<DetailedMoveInfo> {
     );
 }
 
+fn is_stalemate(game: &Game) -> bool {
+    chusst::eval::get_all_possible_moves(&game).is_empty()
+}
+
 fn pgn_to_long_algebraic(pgn: &PGN) -> Result<DetailedGame> {
     let mut game = Game::new();
-    let mut detailed = DetailedGame::default();
+    let mut detailed = DetailedGame {
+        tags: pgn.tags.clone(),
+        moves: Default::default(),
+        ending: Default::default(),
+    };
 
     let mut checkmate = false;
 
@@ -293,7 +342,11 @@ fn pgn_to_long_algebraic(pgn: &PGN) -> Result<DetailedGame> {
             GameEnding::WhiteResigned
         }
     } else if pgn.result.ends_with("1/2-1/2") {
-        GameEnding::Draw
+        if is_stalemate(&game) {
+            GameEnding::Stalemate
+        } else {
+            GameEnding::Draw
+        }
     } else {
         bail!("Unexpected ending value");
     };
@@ -326,11 +379,16 @@ impl Serialize for DetailedMoveInfo {
                     MoveType::PassingPawn => "passing pawn",
                     MoveType::EnPassant => "en passant",
                     MoveType::Promotion(piece) => match piece {
-                        PieceType::Knight => "promotion to knight",
-                        PieceType::Bishop => "promotion to bishop",
-                        PieceType::Rook => "promotion to rook",
-                        PieceType::Queen => "promotion to queen",
-                        _ => unreachable!(),
+                        PromotionPieces::Knight => "promotion to knight",
+                        PromotionPieces::Bishop => "promotion to bishop",
+                        PromotionPieces::Rook => "promotion to rook",
+                        PromotionPieces::Queen => "promotion to queen",
+                    },
+                    MoveType::PromotionWithCapture(piece) => match piece {
+                        PromotionPieces::Knight => "promotion to knight with capture",
+                        PromotionPieces::Bishop => "promotion to bishop with capture",
+                        PromotionPieces::Rook => "promotion to rook with capture",
+                        PromotionPieces::Queen => "promotion to queen with capture",
                     },
                     MoveType::KingsideCastling => "kingside castling",
                     MoveType::QueensideCastling => "queenside castling",
@@ -375,24 +433,69 @@ impl Serialize for DetailedMove {
     }
 }
 
-impl Serialize for DetailedGame {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+impl Serialize for Tag {
+    fn serialize<S>(&self, serializer: S) -> std::prelude::v1::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut map = serializer.serialize_map(Some(1))?;
+        map.serialize_entry(&self.key, &self.value)?;
+        map.end()
+    }
+}
+
+struct SerializedMoveList<'a>(&'a Vec<DetailedMove>);
+
+impl<'a> Serialize for SerializedMoveList<'a> {
+    fn serialize<S>(&self, serializer: S) -> std::prelude::v1::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut map = serializer.serialize_map(Some(self.0.len()))?;
+
+        for (index, mv) in self.0.iter().enumerate() {
+            map.serialize_entry(&index, mv)?;
+        }
+
+        map.end()
+    }
+}
+
+struct SerializedGameEnding(GameEnding);
+
+impl<'a> Serialize for SerializedGameEnding {
+    fn serialize<S>(&self, serializer: S) -> std::prelude::v1::Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
         let mut map = serializer.serialize_map(Some(2))?;
 
-        map.serialize_entry(
-            "result",
-            match self.ending {
-                GameEnding::Draw => "Draw",
-                GameEnding::WhiteWinsCheckmate => "White wins: checkmate",
-                GameEnding::BlackWinsCheckmate => "Black wins: checkmate",
-                GameEnding::WhiteResigned => "Black wins: white resigned",
-                GameEnding::BlackResigned => "White wins: black resigned",
-            },
-        )?;
-        map.serialize_entry("moves", &self.moves)?;
+        let (result_str, reason_str) = match self.0 {
+            GameEnding::Draw => ("1/2-1/2", "draw"),
+            GameEnding::Stalemate => ("1/2-1/2", "stalemate"),
+            GameEnding::WhiteWinsCheckmate => ("1-0", "checkmate"),
+            GameEnding::BlackWinsCheckmate => ("0-1", "checkmate"),
+            GameEnding::WhiteResigned => ("0-1", "resignation"),
+            GameEnding::BlackResigned => ("1-0", "resignation"),
+        };
+        map.serialize_entry("result", result_str)?;
+        map.serialize_entry("reason", reason_str)?;
+
+        map.end()
+    }
+}
+
+impl Serialize for DetailedGame {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut map = serializer.serialize_map(Some(3))?;
+
+        map.serialize_entry("tags", &self.tags)?;
+
+        map.serialize_entry("ending", &SerializedGameEnding(self.ending))?;
+        map.serialize_entry("moves", &SerializedMoveList(&self.moves))?;
 
         map.end()
     }
