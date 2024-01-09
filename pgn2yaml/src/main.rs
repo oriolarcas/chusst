@@ -1,15 +1,18 @@
+mod reader;
+
 use chusst::{
     board::{Piece, PieceType},
     eval::move_name,
     game::Game,
 };
+use reader::parser::Tag;
+use reader::parser::PGN;
 
-use anyhow::bail;
+use anyhow::{bail, Ok};
 use anyhow::{Context, Result};
 use clap::Parser;
-use regex::Regex;
 use serde::{ser::SerializeMap, Serialize};
-use std::{io::BufRead, path::PathBuf};
+use std::path::PathBuf;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -20,24 +23,6 @@ struct Cli {
     /// Path of the YAML file (if not specified, same as the PGN file with the extension changed)
     #[arg(short, long)]
     output: Option<String>,
-}
-
-struct Move {
-    white: String,
-    black: Option<String>,
-}
-
-#[derive(Clone)]
-struct Tag {
-    key: String,
-    value: String,
-}
-
-#[derive(Default)]
-struct PGN {
-    tags: Vec<Tag>,
-    moves: Vec<Move>,
-    result: String,
 }
 
 #[derive(PartialEq)]
@@ -98,98 +83,8 @@ struct DetailedGame {
     ending: GameEnding,
 }
 
-fn parse_pgn_file(pgn_file_path: &PathBuf) -> Result<PGN> {
-    let mut pgn = PGN::default();
-
-    let file = std::fs::File::open(pgn_file_path)?;
-    let lines = std::io::BufReader::new(file).lines();
-
-    let tag_re = Regex::new(r#"\[(\S+) +"([^"]+)"\]"#)?;
-
-    // Extract only the moves data
-    let mut moves_lines = String::new();
-
-    for line_result in lines {
-        let line_content = line_result?;
-
-        let line = line_content.trim();
-
-        if line.is_empty() {
-            continue;
-        }
-
-        // Ignore tags
-        if let Some(tag_match) = tag_re.captures(line) {
-            let tag_key = tag_match.get(1).context("PGN tag has no key")?;
-            let tag_value = tag_match.get(2).context("PGN tag has no key")?;
-            pgn.tags.push(Tag {
-                key: tag_key.as_str().to_string(),
-                value: tag_value.as_str().to_string(),
-            });
-            continue;
-        }
-
-        if !moves_lines.is_empty() && !moves_lines.ends_with(' ') {
-            moves_lines.push(' ');
-        }
-
-        moves_lines.push_str(line);
-    }
-
-    // Parse the moves
-    let move_re = Regex::new(r"(\d+)\. (\S+) (\S+)?")?;
-    for full_move_match in move_re.captures_iter(&moves_lines) {
-        let move_number = full_move_match
-            .get(1)
-            .context("Error parsing turn number")?
-            .as_str()
-            .parse::<u32>()?;
-        if move_number as usize != pgn.moves.len() + 1 {
-            bail!(
-                "Invalid move number {}, expected {}",
-                move_number,
-                pgn.moves.len() + 1
-            );
-        }
-
-        let white_move = full_move_match
-            .get(2)
-            .context("Error parsing white move data")?
-            .as_str();
-        let black_move = if let Some(black_move) = full_move_match.get(3) {
-            match black_move.as_str() {
-                result_str @ "1-0" | result_str @ "0-1" | result_str @ "1/2-1/2" => {
-                    pgn.result = result_str.to_string();
-                    None
-                }
-                "*" => bail!("Unfinished game"),
-                move_str => Some(move_str),
-            }
-        } else {
-            None
-        };
-
-        match black_move {
-            Some(black_move_str) => pgn.moves.push(Move {
-                white: white_move.to_string(),
-                black: Some(black_move_str.to_string()),
-            }),
-            None => pgn.moves.push(Move {
-                white: white_move.to_string(),
-                black: None,
-            }),
-        }
-    }
-
-    if moves_lines.ends_with("1-0") {
-        pgn.result = "1-0".to_string();
-    } else if moves_lines.ends_with("0-1") {
-        pgn.result = "0-1".to_string();
-    } else if moves_lines.ends_with("1/2-1/2") {
-        pgn.result = "1/2-1/2".to_string();
-    }
-
-    Ok(pgn)
+fn parse_pgn_file(pgn_file_path: &PathBuf) -> Result<Vec<PGN>> {
+    reader::parser::Parser::parse_file(pgn_file_path)
 }
 
 fn long(mv: &chusst::game::Move, capture: bool) -> String {
@@ -454,7 +349,8 @@ impl<'a> Serialize for SerializedMoveList<'a> {
         let mut map = serializer.serialize_map(Some(self.0.len()))?;
 
         for (index, mv) in self.0.iter().enumerate() {
-            map.serialize_entry(&index, mv)?;
+            let move_number = index + 1;
+            map.serialize_entry(&move_number, mv)?;
         }
 
         map.end()
@@ -513,15 +409,19 @@ fn write_yaml(yaml_path: &PathBuf, game: &DetailedGame) -> Result<()> {
     ))
 }
 
+fn write_pgn(pgn: &PGN, path: &PathBuf) -> Result<()> {
+    let detailed_game =
+        pgn_to_long_algebraic(&pgn).context("Cannot convert to long algebraic form")?;
+    write_yaml(&path, &detailed_game)?;
+    Ok(())
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
     let pgn_path = PathBuf::from(cli.file);
 
-    let pgn = parse_pgn_file(&pgn_path).context("Unable to parse PGN file")?;
-
-    let detailed_game =
-        pgn_to_long_algebraic(&pgn).context("Cannot convert to long algebraic form")?;
+    let pgns = parse_pgn_file(&pgn_path).context("Unable to parse PGN file")?;
 
     let yaml_path = cli.output.map_or(
         {
@@ -532,7 +432,23 @@ fn main() -> Result<()> {
         },
         PathBuf::from,
     );
-    write_yaml(&yaml_path, &detailed_game)?;
+
+    match pgns.len() {
+        0 => bail!("No games found in PGN file"),
+        1 => write_pgn(&pgns[0], &yaml_path)?,
+        _ => {
+            for (index, pgn) in pgns.iter().enumerate() {
+                let mut path = yaml_path.clone();
+                path.set_file_name(format!(
+                    "{}.{}.{}",
+                    path.file_stem().unwrap().to_string_lossy(),
+                    index,
+                    path.extension().unwrap().to_string_lossy()
+                ));
+                write_pgn(&pgn, &path)?;
+            }
+        }
+    }
 
     Ok(())
 }
