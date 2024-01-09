@@ -40,6 +40,10 @@ impl<I, O> ErrorExplainer<I, O> for IResult<I, O, NomError<I>> {
     }
 }
 
+fn single_char(c: char, input: &str) -> IResult<&str, char> {
+    char(c)(input)
+}
+
 fn pgn_tag(input: &str) -> IResult<&str, (&str, &str)> {
     delimited(
         char('['),
@@ -53,7 +57,7 @@ fn pgn_tag(input: &str) -> IResult<&str, (&str, &str)> {
 }
 
 fn san_move(input: &str) -> IResult<&str, &str> {
-    recognize(many1(one_of("abcdefghKQRBNOx=+#-12345678")))(input)
+    recognize(many1(one_of("abcdefghKQRBNOx=+#-12345678?!")))(input)
 }
 
 fn white_move_number(input: &str) -> IResult<&str, &str> {
@@ -66,6 +70,10 @@ fn black_move_number(input: &str) -> IResult<&str, &str> {
 
 fn result(input: &str) -> IResult<&str, &str> {
     alt((tag("1-0"), tag("0-1"), tag("1/2-1/2"), tag("*")))(input)
+}
+
+fn comment(input: &str) -> IResult<&str, &str> {
+    delimited(char('{'), is_not("}"), char('}'))(input)
 }
 
 pub trait LexerVisitor {
@@ -90,7 +98,7 @@ pub trait LexerVisitor {
                 (input, section) = match section {
                     PgnSection::Nothing => {
                         let (_input, _token) =
-                            char('[')(input).explain("Expected game header", line_number)?;
+                            single_char('[', input).explain("Expected game header", line_number)?;
 
                         self.begin_game()?;
                         self.begin_header()?;
@@ -124,10 +132,21 @@ pub trait LexerVisitor {
                             self.end_movetext()?;
                             self.end_game()?;
                             (input, PgnSection::Nothing)
-                        } else if let Ok((_input, _)) = char::<&str, NomError<&str>>('[')(input) {
+                        } else if let Ok((_input, _)) = single_char('[', input) {
                             self.end_movetext()?;
                             self.end_game()?;
                             (input, PgnSection::Nothing)
+                        } else if let Ok((input, comment_data)) = comment(input) {
+                            self.begin_comment()?;
+                            self.comment_data(comment_data)?;
+                            self.end_comment()?;
+                            (input, PgnSection::Movetext)
+                        } else if let Ok((input, _)) = single_char('(', input) {
+                            self.begin_variation()?;
+                            (input, PgnSection::Movetext)
+                        } else if let Ok((input, _)) = single_char(')', input) {
+                            self.end_variation()?;
+                            (input, PgnSection::Movetext)
                         } else {
                             bail!("Unexpected token (at line {}): '{}'", line_number, input);
                         }

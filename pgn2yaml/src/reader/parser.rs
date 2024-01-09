@@ -136,10 +136,12 @@ impl LexerVisitor for Parser {
 
     fn begin_variation(&mut self) -> Result<()> {
         self.variation_level += 1;
+        println!("begin_variation {}", self.variation_level);
         Ok(())
     }
 
     fn end_variation(&mut self) -> Result<()> {
+        println!("end_variation {}", self.variation_level);
         if self.variation_level == 0 {
             bail!("Unexpected end of variation");
         }
