@@ -421,7 +421,10 @@ fn main() -> Result<()> {
 
     let pgn_path = PathBuf::from(cli.file);
 
-    let pgns = parse_pgn_file(&pgn_path).context("Unable to parse PGN file")?;
+    let pgns = parse_pgn_file(&pgn_path).context(format!(
+        "Unable to parse PGN file {}",
+        pgn_path.to_string_lossy()
+    ))?;
 
     let yaml_path = cli.output.map_or(
         {

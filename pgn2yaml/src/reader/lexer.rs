@@ -1,13 +1,14 @@
 use anyhow::bail;
 use anyhow::{Error as AnyhowError, Result};
 use nom::branch::alt;
-use nom::bytes::complete::{is_not, tag};
+use nom::bytes::complete::{tag, take_until};
 use nom::character::complete::{alpha1, char, digit1, multispace1, one_of};
 use nom::combinator::recognize;
 use nom::error::Error as NomError;
 use nom::multi::many1;
 use nom::sequence::{delimited, separated_pair, terminated};
 use nom::IResult;
+use std::fmt::Display;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
@@ -25,16 +26,16 @@ pub enum Color {
     Black,
 }
 
-trait ErrorExplainer<I, O> {
-    fn explain(self, context: &str, line: u32) -> Result<(I, O), AnyhowError>;
+trait ErrorExplainer<I, O, S: AsRef<str> + Display> {
+    fn explain(self, context: S) -> Result<(I, O), AnyhowError>;
 }
 
-impl<I, O> ErrorExplainer<I, O> for IResult<I, O, NomError<I>> {
-    fn explain(self, context: &str, line: u32) -> Result<(I, O), AnyhowError> {
+impl<I, O, S: AsRef<str> + Display> ErrorExplainer<I, O, S> for IResult<I, O, NomError<I>> {
+    fn explain(self, context: S) -> Result<(I, O), AnyhowError> {
         match self {
             Ok(ok) => Ok(ok),
             Err(_) => {
-                bail!("{} (line {})", context, line,);
+                bail!("{} ", context);
             }
         }
     }
@@ -50,7 +51,7 @@ fn pgn_tag(input: &str) -> IResult<&str, (&str, &str)> {
         separated_pair(
             alpha1,
             multispace1,
-            delimited(char('"'), is_not("\""), char('"')),
+            delimited(char('"'), take_until("\""), char('"')),
         ),
         char(']'),
     )(input)
@@ -73,7 +74,7 @@ fn result(input: &str) -> IResult<&str, &str> {
 }
 
 fn comment(input: &str) -> IResult<&str, &str> {
-    delimited(char('{'), is_not("}"), char('}'))(input)
+    delimited(char('{'), take_until("}"), char('}'))(input)
 }
 
 pub trait LexerVisitor {
@@ -97,8 +98,8 @@ pub trait LexerVisitor {
 
                 (input, section) = match section {
                     PgnSection::Nothing => {
-                        let (_input, _token) =
-                            single_char('[', input).explain("Expected game header", line_number)?;
+                        let (_input, _token) = single_char('[', input)
+                            .explain(format!("Expected game header (at line {})", line_number))?;
 
                         self.begin_game()?;
                         self.begin_header()?;
@@ -124,14 +125,14 @@ pub trait LexerVisitor {
                         } else if let Ok((input, number)) = white_move_number(input) {
                             self.move_number(number, Color::White)?;
                             (input, PgnSection::Movetext)
-                        } else if let Ok((input, mv)) = san_move(input) {
-                            self.san_move(mv)?;
-                            (input, PgnSection::Movetext)
                         } else if let Ok((input, result_str)) = result(input) {
                             self.result(result_str)?;
                             self.end_movetext()?;
                             self.end_game()?;
                             (input, PgnSection::Nothing)
+                        } else if let Ok((input, mv)) = san_move(input) {
+                            self.san_move(mv)?;
+                            (input, PgnSection::Movetext)
                         } else if let Ok((_input, _)) = single_char('[', input) {
                             self.end_movetext()?;
                             self.end_game()?;
@@ -148,7 +149,11 @@ pub trait LexerVisitor {
                             self.end_variation()?;
                             (input, PgnSection::Movetext)
                         } else {
-                            bail!("Unexpected token (at line {}): '{}'", line_number, input);
+                            bail!(
+                                "Unexpected token in movetext section (at line {}): '{}'",
+                                line_number,
+                                input
+                            );
                         }
                     }
                 }

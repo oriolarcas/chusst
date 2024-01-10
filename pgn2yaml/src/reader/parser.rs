@@ -35,6 +35,10 @@ impl Parser {
         Ok(parser.pgns)
     }
 
+    fn current(&self) -> Result<&PGN> {
+        self.current.as_ref().context("No current game")
+    }
+
     fn current_mut(&mut self) -> Result<&mut PGN> {
         self.current.as_mut().context("No current game")
     }
@@ -49,8 +53,6 @@ impl Parser {
 
 impl LexerVisitor for Parser {
     fn begin_game(&mut self) -> Result<()> {
-        println!("begin_game");
-
         if self.current.is_some() {
             bail!("Unexpected new game");
         }
@@ -60,12 +62,10 @@ impl LexerVisitor for Parser {
     }
 
     fn begin_header(&mut self) -> Result<()> {
-        println!("begin_header");
         Ok(())
     }
 
     fn tag(&mut self, name: &str, value: &str) -> Result<()> {
-        println!("tag: {} = {}", name, value);
         let tag = Tag {
             key: name.to_string(),
             value: value.to_string(),
@@ -87,16 +87,24 @@ impl LexerVisitor for Parser {
             return Ok(());
         }
 
+        let parsed_number = number.parse::<usize>()?;
+
         if color == Color::White {
-            println!("move_number: {}", number);
+            let expected = self.current()?.moves.len() + 1;
+            if expected != parsed_number {
+                bail!("Unexpected move number {}, expected {}", parsed_number, expected);
+            }
+        } else {
+            let expected = self.current()?.moves.len();
+            if expected != parsed_number {
+                bail!("Unexpected move number {}, expected {}", parsed_number, expected);
+            }
         }
 
         Ok(())
     }
 
     fn san_move(&mut self, mv: &str) -> Result<()> {
-        println!("san_move: {}", mv);
-
         if self.variation_level > 0 {
             // Ignore variations
             return Ok(());
@@ -136,12 +144,10 @@ impl LexerVisitor for Parser {
 
     fn begin_variation(&mut self) -> Result<()> {
         self.variation_level += 1;
-        println!("begin_variation {}", self.variation_level);
         Ok(())
     }
 
     fn end_variation(&mut self) -> Result<()> {
-        println!("end_variation {}", self.variation_level);
         if self.variation_level == 0 {
             bail!("Unexpected end of variation");
         }
@@ -150,16 +156,28 @@ impl LexerVisitor for Parser {
     }
 
     fn result(&mut self, result: &str) -> Result<()> {
-        println!("result: {}", result);
         self.current_mut()?.result = result.to_string();
         Ok(())
     }
 
     fn end_movetext(&mut self) -> Result<()> {
+        if self.variation_level > 0 {
+            bail!("Unexpected end of movetext");
+        }
+        if self.current()?.moves.is_empty() {
+            bail!("Unexpected end of game");
+        }
         Ok(())
     }
 
     fn end_game(&mut self) -> Result<()> {
+        if self.variation_level > 0 {
+            bail!("Unexpected end of game");
+        }
+        if self.current()?.moves.is_empty() {
+            bail!("Unexpected end of game");
+        }
+
         self.save_current_game()?;
         Ok(())
     }
