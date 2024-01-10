@@ -1,6 +1,8 @@
 [workspace]
+resolver = "2"
 
 members = [
     "src-tauri",
-    "chusst-uci"
+    "chusst-uci",
+    "pgn2yaml"
 ]

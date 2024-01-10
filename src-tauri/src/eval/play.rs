@@ -55,17 +55,12 @@ pub trait PlayableGame<'a> {
 
 trait PlayableGamePrivate<'a>: PlayableGame<'a> + ModifiableBoard {
     fn do_move_no_checks_private(&mut self, mv: &Move) {
-        let square_opt = self.as_ref().board.square(&mv.source);
-        assert!(
-            square_opt.is_some(),
-            "move {} from empty square:\n{}",
-            mv,
-            self.as_ref().board
-        );
-        let square = square_opt.unwrap();
+        let Some(source_square) = self.as_ref().board.square(&mv.source) else {
+            panic!("Move {} from empty square:\n{}", mv, self.as_ref().board);
+        };
 
-        let player = square.player;
-        let moved_piece = square.piece;
+        let player = source_square.player;
+        let moved_piece = source_square.piece;
         let move_info = match moved_piece {
             PieceType::Pawn => {
                 if mv.source.rank.abs_diff(mv.target.rank) == 2 {
@@ -189,7 +184,7 @@ pub struct SearchableGame {
 }
 
 impl SearchableGame {
-    pub fn new_from_move(&self, mv: &Move) -> SearchableGame {
+    pub fn clone_and_move(&self, mv: &Move) -> SearchableGame {
         let mut new_game = SearchableGame {
             game: self.game.clone(),
         };

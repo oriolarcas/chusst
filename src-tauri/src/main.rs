@@ -57,7 +57,7 @@ fn get_possible_moves(rank: usize, file: usize) -> Vec<Position> {
 #[tauri::command]
 fn get_possible_captures() -> eval::BoardCaptures {
     let game = &mut GAME.lock().unwrap().game;
-    eval::get_possible_captures(&game.board, &game.last_move, &game.info)
+    eval::get_possible_captures(&game)
 }
 
 #[tauri::command(rename_all = "snake_case")]
@@ -75,14 +75,13 @@ fn do_move(source_rank: usize, source_file: usize, target_rank: usize, target_fi
     let game_data = &mut GAME.lock().unwrap();
     let game = &mut game_data.game;
 
-    let white_move =
-        match eval::move_name(&game.board, &game.last_move, &game.info, &game.player, &mv) {
-            Some(name) => name,
-            None => {
-                println!("Invalid move: {}", mv);
-                return false;
-            }
-        };
+    let white_move = match eval::move_name(&game, &mv) {
+        Some(name) => name,
+        None => {
+            println!("Invalid move: {}", mv);
+            return false;
+        }
+    };
 
     let white_captures = match eval::do_move(game, &mv) {
         Some(captures) => captures,
@@ -94,8 +93,7 @@ fn do_move(source_rank: usize, source_file: usize, target_rank: usize, target_fi
 
     let (black_move_opt, black_captures, mate) = match eval::get_best_move(game, 4) {
         eval::GameMove::Normal(mv) => {
-            let description =
-                eval::move_name(&game.board, &game.last_move, &game.info, &game.player, &mv);
+            let description = eval::move_name(&game, &mv);
 
             let black_captures = eval::do_move(game, &mv);
             assert!(black_captures.is_some());
