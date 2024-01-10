@@ -1,7 +1,6 @@
-use std::path::PathBuf;
-
 use crate::reader::lexer::{Color, LexerVisitor};
 use anyhow::{bail, Context, Result};
+use std::path::PathBuf;
 
 pub struct Move {
     pub white: String,
@@ -92,12 +91,20 @@ impl LexerVisitor for Parser {
         if color == Color::White {
             let expected = self.current()?.moves.len() + 1;
             if expected != parsed_number {
-                bail!("Unexpected move number {}, expected {}", parsed_number, expected);
+                bail!(
+                    "Unexpected move number {}, expected {}",
+                    parsed_number,
+                    expected
+                );
             }
         } else {
             let expected = self.current()?.moves.len();
             if expected != parsed_number {
-                bail!("Unexpected move number {}, expected {}", parsed_number, expected);
+                bail!(
+                    "Unexpected move number {}, expected {}",
+                    parsed_number,
+                    expected
+                );
             }
         }
 
