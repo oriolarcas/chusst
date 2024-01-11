@@ -33,7 +33,7 @@ jobs:
       working-directory: ./src-tauri
       run: cargo build --verbose
     - name: Run tests
-      working-directory: ./src-tauri
+      working-directory: ./chusst-gen
       run: cargo test --verbose
     - name: Install React dependencies
       run: npm install
@@ -65,7 +65,7 @@ jobs:
       working-directory: ./src-tauri
       run: cargo build --verbose
     - name: Run tests
-      working-directory: ./src-tauri
+      working-directory: ./chusst-gen
       run: cargo test --verbose
     - name: Install React dependencies
       run: npm install
