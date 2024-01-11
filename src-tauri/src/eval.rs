@@ -501,8 +501,6 @@ fn get_best_move_recursive_alpha_beta(
     };
 
     'main_loop: for player_piece_position in pieces_iter {
-        let current_piece = &board.square(&player_piece_position).unwrap().piece;
-
         for possible_move in get_possible_moves_no_checks(game.as_ref(), player_piece_position) {
             if stop_signal.stop() {
                 let _ = writeln!(feedback, "Search stopped");
@@ -518,13 +516,12 @@ fn get_best_move_recursive_alpha_beta(
             let local_score = match &board.square(possible_position) {
                 Some(piece) => get_piece_value(piece.piece),
                 None => {
-                    if *current_piece == PieceType::Pawn
-                        && possible_position.rank == Board::promotion_rank(&player)
-                    {
-                        // Promotion
-                        get_piece_value(PieceType::Queen)
-                    } else {
-                        Score::from(0)
+                    match possible_move.move_type {
+                        MoveActionType::Promotion(promotion_piece) => {
+                            // Promotion
+                            get_piece_value(promotion_piece.into())
+                        }
+                        _ => Score::from(0),
                     }
                 }
             };
@@ -603,7 +600,7 @@ fn get_best_move_recursive_alpha_beta(
                             .map_or("<mate>".to_string(), |sub_branch| {
                                 format!(
                                     "{}{:+}",
-                                    sub_branch.moves.first().unwrap().mv,
+                                    sub_branch.moves.first().unwrap().mv.mv,
                                     sub_branch.score
                                 )
                             })
