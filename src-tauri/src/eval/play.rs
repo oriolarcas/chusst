@@ -2,7 +2,7 @@ use crate::board::{Board, ModifiableBoard, Piece, PieceType, Position, Square};
 use crate::eval::conditions::{enemy, only_enemy, try_move, Direction};
 use crate::eval::get_possible_moves;
 use crate::eval::iter::dir;
-use crate::game::{Game, GameInfo, Move, MoveExtraInfo, MoveInfo};
+use crate::game::{Game, GameInfo, Move, MoveAction, MoveActionType, MoveExtraInfo, MoveInfo};
 use crate::mv;
 
 use self::internal_searchable_game::InternalSearchableGame;
@@ -16,8 +16,9 @@ pub trait PlayableGame<'a> {
     fn as_ref(&self) -> &Game;
     fn as_mut(&mut self) -> &mut Game;
 
-    fn do_move(&mut self, mv: &Move) -> bool {
+    fn do_move(&mut self, move_action: &MoveAction) -> bool {
         let board = &self.as_ref().board;
+        let mv = &move_action.mv;
 
         match board.square(&mv.source) {
             Some(piece) => {
@@ -39,22 +40,24 @@ pub trait PlayableGame<'a> {
 
         if possible_moves
             .iter()
-            .find(|possible_position| mv.target == **possible_position)
+            .find(|possible_move| mv.target == possible_move.mv.target)
             .is_none()
         {
             return false;
         }
 
-        self.do_move_no_checks(mv);
+        self.do_move_no_checks(move_action);
 
         true
     }
 
-    fn do_move_no_checks(&mut self, mv: &Move);
+    fn do_move_no_checks(&mut self, mv: &MoveAction);
 }
 
 trait PlayableGamePrivate<'a>: PlayableGame<'a> + ModifiableBoard {
-    fn do_move_no_checks_private(&mut self, mv: &Move) {
+    fn do_move_no_checks_private(&mut self, move_action: &MoveAction) {
+        let mv = &move_action.mv;
+
         let Some(source_square) = self.as_ref().board.square(&mv.source) else {
             panic!("Move {} from empty square:\n{}", mv, self.as_ref().board);
         };
@@ -70,7 +73,12 @@ trait PlayableGamePrivate<'a>: PlayableGame<'a> + ModifiableBoard {
                 {
                     MoveExtraInfo::EnPassant
                 } else if mv.target.rank == Board::promotion_rank(&player) {
-                    MoveExtraInfo::Promotion(PieceType::Queen)
+                    let promotion_piece = match move_action.move_type {
+                        MoveActionType::Normal => panic!("Promotion piece not specified"),
+                        MoveActionType::Promotion(piece) => piece,
+                    };
+
+                    MoveExtraInfo::Promotion(promotion_piece)
                 } else {
                     MoveExtraInfo::Other
                 }
@@ -103,8 +111,14 @@ trait PlayableGamePrivate<'a>: PlayableGame<'a> + ModifiableBoard {
                 .unwrap();
                 self.update(&passed, None);
             }
-            MoveExtraInfo::Promotion(piece) => {
-                self.update(&mv.target, Some(Piece { piece, player }));
+            MoveExtraInfo::Promotion(promotion_piece) => {
+                self.update(
+                    &mv.target,
+                    Some(Piece {
+                        piece: promotion_piece.into(),
+                        player,
+                    }),
+                );
             }
             MoveExtraInfo::CastleKingside => {
                 let rook_source = try_move(&mv.source, &dir!(0, 3)).unwrap();
@@ -184,7 +198,7 @@ pub struct SearchableGame {
 }
 
 impl SearchableGame {
-    pub fn clone_and_move(&self, mv: &Move) -> SearchableGame {
+    pub fn clone_and_move(&self, mv: &MoveAction) -> SearchableGame {
         let mut new_game = SearchableGame {
             game: self.game.clone(),
         };
@@ -220,7 +234,7 @@ impl<'a> PlayableGame<'a> for SearchableGame {
         self.game.as_mut()
     }
 
-    fn do_move_no_checks(&mut self, mv: &Move) {
+    fn do_move_no_checks(&mut self, mv: &MoveAction) {
         self.do_move_no_checks_private(mv);
     }
 }
@@ -264,7 +278,7 @@ impl<'a> PlayableGame<'a> for ReversableGame<'a> {
         &mut self.game
     }
 
-    fn do_move_no_checks(&mut self, mv: &Move) {
+    fn do_move_no_checks(&mut self, mv: &MoveAction) {
         let mut moves: Vec<ReversableMove> = Vec::new();
         let result = self.do_move_no_checks_private(mv);
         self.moves.append(&mut moves);

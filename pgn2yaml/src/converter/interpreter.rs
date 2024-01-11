@@ -3,7 +3,7 @@ use anyhow::{bail, Result};
 use chusst::{
     board::{Piece, PieceType},
     eval::move_name,
-    game::Game,
+    game::{Game, MoveAction},
 };
 
 #[derive(PartialEq)]
@@ -34,7 +34,7 @@ pub enum CheckType {
 }
 
 pub struct DetailedMoveInfo {
-    pub mv: chusst::game::Move,
+    pub mv: MoveAction,
     pub short: String,
     pub long: String,
     pub move_type: MoveType,
@@ -75,8 +75,9 @@ fn long(mv: &chusst::game::Move, capture: bool) -> String {
 
 fn find_move_by_name(game: &Game, move_str: &str) -> Result<DetailedMoveInfo> {
     let possible_moves = chusst::eval::get_all_possible_moves(&game);
-    for mv in &possible_moves {
-        let mv_name = chusst::eval::move_name(&game, &mv).unwrap();
+    for move_action in &possible_moves {
+        let mv = &move_action.mv;
+        let mv_name = chusst::eval::move_name(&game, &move_action).unwrap();
 
         if mv_name == move_str {
             let check_type = if move_str.contains('#') {
@@ -104,11 +105,11 @@ fn find_move_by_name(game: &Game, move_str: &str) -> Result<DetailedMoveInfo> {
                         MoveType::Promotion(promoted_piece)
                     };
                     return Ok(DetailedMoveInfo {
-                        mv: *mv,
+                        mv: *move_action,
                         short: move_str.to_string(),
                         long: format!(
                             "{}{}",
-                            long(&mv, is_capture),
+                            long(mv, is_capture),
                             promoted_piece_char.to_lowercase()
                         ),
                         move_type,
@@ -125,7 +126,7 @@ fn find_move_by_name(game: &Game, move_str: &str) -> Result<DetailedMoveInfo> {
             let mv_file_distance = mv.source.file.abs_diff(mv.target.file);
 
             return Ok(DetailedMoveInfo {
-                mv: *mv,
+                mv: *move_action,
                 short: move_str.to_string(),
                 long: long(&mv, is_capture),
                 move_type: if piece == PieceType::Pawn && mv_rank_distance == 2 {

@@ -134,7 +134,7 @@ macro_rules! p {
     };
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Serialize)]
+#[derive(Copy, Clone, Debug, Eq, Hash, PartialEq, Serialize)]
 pub struct Position {
     pub rank: usize,
     pub file: usize,
@@ -554,6 +554,13 @@ impl Board {
         match player {
             Player::White => 0,
             Player::Black => 7,
+        }
+    }
+
+    pub fn can_promote_rank(player: &Player) -> usize {
+        match player {
+            Player::White => 6,
+            Player::Black => 1,
         }
     }
 

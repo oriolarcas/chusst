@@ -1,5 +1,5 @@
 use crate::board::{Board, PieceType, Player, Position, INITIAL_BOARD};
-use crate::pos;
+use crate::{mv, pos};
 
 use serde::Serialize;
 use std::fmt;
@@ -8,6 +8,86 @@ use std::fmt;
 pub struct Move {
     pub source: Position,
     pub target: Position,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Serialize)]
+pub enum PromotionPieces {
+    Knight,
+    Bishop,
+    Rook,
+    Queen,
+}
+
+impl PromotionPieces {
+    pub fn try_from_str(value: String) -> Option<Self> {
+        match value.to_lowercase().as_str() {
+            "knight" => Some(PromotionPieces::Knight),
+            "bishop" => Some(PromotionPieces::Bishop),
+            "rook" => Some(PromotionPieces::Rook),
+            "queen" => Some(PromotionPieces::Queen),
+            _ => None,
+        }
+    }
+
+    pub fn try_from_char(value: char) -> Option<Self> {
+        match value.to_ascii_lowercase() {
+            'k' => Some(PromotionPieces::Knight),
+            'b' => Some(PromotionPieces::Bishop),
+            'r' => Some(PromotionPieces::Rook),
+            'q' => Some(PromotionPieces::Queen),
+            _ => None,
+        }
+    }
+}
+
+impl From<PromotionPieces> for PieceType {
+    fn from(value: PromotionPieces) -> Self {
+        match value {
+            PromotionPieces::Knight => PieceType::Knight,
+            PromotionPieces::Bishop => PieceType::Bishop,
+            PromotionPieces::Rook => PieceType::Rook,
+            PromotionPieces::Queen => PieceType::Queen,
+        }
+    }
+}
+
+#[derive(Copy, Clone, PartialEq)]
+pub enum MoveActionType {
+    Normal,
+    Promotion(PromotionPieces),
+}
+
+#[derive(Copy, Clone, PartialEq)]
+pub struct MoveAction {
+    pub mv: Move,
+    pub move_type: MoveActionType,
+}
+
+impl MoveAction {
+    pub fn try_from_long_algebraic_str(mv_str: &str) -> Option<MoveAction> {
+        if mv_str.len() < 4 || mv_str.len() > 5 {
+            return None;
+        }
+        let source = Position::try_from_str(&mv_str[0..2]);
+        let target = Position::try_from_str(&mv_str[2..4]);
+        let promotion = mv_str
+            .chars()
+            .nth(4)
+            .map(PromotionPieces::try_from_char)
+            .flatten();
+
+        match (source, target, promotion) {
+            (Some(src_pos), Some(tgt_pos), None) => Some(MoveAction {
+                mv: mv!(src_pos, tgt_pos),
+                move_type: MoveActionType::Normal,
+            }),
+            (Some(src_pos), Some(tgt_pos), Some(promotion_piece)) => Some(MoveAction {
+                mv: mv!(src_pos, tgt_pos),
+                move_type: MoveActionType::Promotion(promotion_piece),
+            }),
+            _ => None,
+        }
+    }
 }
 
 #[macro_export]
@@ -26,19 +106,44 @@ macro_rules! mv {
     };
 }
 
-impl Move {
-    pub fn try_from_long_algebraic_str(mv_str: &str) -> Option<Move> {
-        if mv_str.len() != 4 {
-            return None;
+#[macro_export]
+macro_rules! mva {
+    ($src:expr, $tgt:expr) => {
+        MoveAction {
+            mv: Move {
+                source: $src,
+                target: $tgt,
+            },
+            move_type: MoveActionType::Normal,
         }
-        let source = Position::try_from_str(&mv_str[0..2]);
-        let target = Position::try_from_str(&mv_str[2..4]);
-
-        match (source, target) {
-            (Some(src_mv), Some(tgt_mv)) => Some(mv!(src_mv, tgt_mv)),
-            _ => None,
+    };
+    ($src:expr, $tgt:expr, $promoted:expr) => {
+        MoveAction {
+            mv: Move {
+                source: $src,
+                target: $tgt,
+            },
+            move_type: MoveActionType::Promotion($promoted),
         }
-    }
+    };
+    ($src:ident => $tgt:ident) => {
+        MoveAction {
+            mv: Move {
+                source: pos!($src),
+                target: pos!($tgt),
+            },
+            move_type: MoveActionType::Normal,
+        }
+    };
+    ($src:ident => $tgt:ident, $promoted:expr) => {
+        MoveAction {
+            mv: Move {
+                source: pos!($src),
+                target: pos!($tgt),
+            },
+            move_type: MoveActionType::Promotion($promoted),
+        }
+    };
 }
 
 impl fmt::Display for Move {
@@ -50,7 +155,7 @@ impl fmt::Display for Move {
 #[derive(Copy, Clone, Debug, PartialEq, Serialize)]
 pub enum MoveExtraInfo {
     Other,
-    Promotion(PieceType),
+    Promotion(PromotionPieces),
     Passed,
     EnPassant,
     CastleKingside,
@@ -161,7 +266,9 @@ impl Game {
             return None;
         }
 
-        let [pieces, player_str, castling, en_passant, _halfmove, _fullmove] = fen else { return None; };
+        let [pieces, player_str, castling, en_passant, _halfmove, _fullmove] = fen else {
+            return None;
+        };
 
         let board = Board::try_from_fen(pieces)?;
 
