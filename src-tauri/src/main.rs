@@ -4,7 +4,7 @@
 use chusst::board::{Piece, Position};
 use chusst::eval;
 use chusst::eval::MateType;
-use chusst::game::{Game, Move};
+use chusst::game::{Game, Move, MoveAction, MoveActionType, PromotionPieces};
 
 use serde::Serialize;
 use tauri::{LogicalSize, Manager, Size};
@@ -50,7 +50,7 @@ fn get_possible_moves(rank: usize, file: usize) -> Vec<Position> {
     let position = Position { rank, file };
     let game = &mut GAME.lock().unwrap().game;
     let possible_moves =
-        eval::get_possible_moves(&game.board, &game.last_move, &game.info, position);
+        eval::get_possible_targets(&game.board, &game.last_move, &game.info, position);
     possible_moves
 }
 
@@ -61,15 +61,30 @@ fn get_possible_captures() -> eval::BoardCaptures {
 }
 
 #[tauri::command(rename_all = "snake_case")]
-fn do_move(source_rank: usize, source_file: usize, target_rank: usize, target_file: usize) -> bool {
-    let mv = Move {
-        source: Position {
-            rank: source_rank,
-            file: source_file,
+fn do_move(
+    source_rank: usize,
+    source_file: usize,
+    target_rank: usize,
+    target_file: usize,
+    promotion: Option<String>,
+) -> bool {
+    let promotion_piece = promotion
+        .map(|piece_str| PromotionPieces::try_from_str(piece_str))
+        .flatten();
+    let mv = MoveAction {
+        mv: Move {
+            source: Position {
+                rank: source_rank,
+                file: source_file,
+            },
+            target: Position {
+                rank: target_rank,
+                file: target_file,
+            },
         },
-        target: Position {
-            rank: target_rank,
-            file: target_file,
+        move_type: match promotion_piece {
+            Some(piece) => MoveActionType::Promotion(piece),
+            None => MoveActionType::Normal,
         },
     };
     let game_data = &mut GAME.lock().unwrap();
@@ -78,7 +93,7 @@ fn do_move(source_rank: usize, source_file: usize, target_rank: usize, target_fi
     let white_move = match eval::move_name(&game, &mv) {
         Some(name) => name,
         None => {
-            println!("Invalid move: {}", mv);
+            println!("Invalid move: {}", mv.mv);
             return false;
         }
     };

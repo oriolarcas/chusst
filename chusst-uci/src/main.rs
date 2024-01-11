@@ -3,7 +3,7 @@ mod engine;
 mod stdin;
 
 use chusst::eval::GameMove;
-use chusst::game::{Game, Move};
+use chusst::game::{Game, MoveAction};
 use engine::{create_engine_thread, EngineCommand, EngineResponse, GoCommand, NewGameCommand};
 use stdin::{create_stdin_thread, StdinResponse};
 
@@ -341,7 +341,7 @@ fn uci_loop<'scope, 'env>(scope: &'scope std::thread::Scope<'scope, 'env>) {
                 match next_token {
                     Some("moves") => {
                         for mv_str in param_iter {
-                            if let Some(mv) = Move::try_from_long_algebraic_str(&mv_str) {
+                            if let Some(mv) = MoveAction::try_from_long_algebraic_str(&mv_str) {
                                 new_game_command.moves.push(mv);
                             } else {
                                 log!("Malformed move in position command");
@@ -473,7 +473,7 @@ where
 fn move_to_uci_string(mv: &Option<GameMove>) -> String {
     match mv {
         Some(GameMove::Normal(best_move)) => {
-            format!("{}{}", best_move.source, best_move.target)
+            format!("{}{}", best_move.mv.source, best_move.mv.target)
         }
         Some(GameMove::Mate(_)) | None => "0000".to_owned(),
     }

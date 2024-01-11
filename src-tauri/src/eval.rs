@@ -6,6 +6,9 @@ mod feedback;
 mod iter;
 mod play;
 
+#[cfg(test)]
+mod tests;
+
 use self::check::{
     find_player_king, find_player_king_fast, only_empty_and_safe, piece_is_unsafe,
     piece_is_unsafe_fast,
@@ -18,8 +21,8 @@ use self::feedback::{PeriodicalSearchFeedback, SearchFeedback};
 use self::iter::{dir, piece_into_iter, player_pieces_iter, BoardIter, PlayerPiecesIter};
 use self::play::{PlayableGame, ReversableGame, SearchableGame};
 use crate::board::{Board, Piece, PieceType, Player, Position, Ranks};
-use crate::game::{Game, GameInfo, Move, MoveInfo};
-use crate::{mv, pos};
+use crate::game::{Game, GameInfo, Move, MoveAction, MoveActionType, MoveInfo, PromotionPieces};
+use crate::{mv, mva, pos};
 
 use core::panic;
 use serde::Serialize;
@@ -119,13 +122,13 @@ pub enum MateType {
 
 #[derive(Copy, Clone)]
 pub enum GameMove {
-    Normal(Move),
+    Normal(MoveAction),
     Mate(MateType),
 }
 
 #[derive(PartialEq)]
 pub struct WeightedMove {
-    pub mv: Move,
+    pub mv: MoveAction,
     pub score: Score,
 }
 
@@ -143,9 +146,10 @@ struct SearchResult {
 
 fn move_with_checks(
     game: &SearchableGame,
-    mv: &Move,
+    move_action: &MoveAction,
     king_position: &Position,
 ) -> Option<SearchableGame> {
+    let mv = &move_action.mv;
     let is_king = mv.source == *king_position;
     let player = game.as_ref().board.square(king_position).unwrap().player;
 
@@ -174,7 +178,7 @@ fn move_with_checks(
     }
 
     // Move
-    let new_game = game.clone_and_move(mv);
+    let new_game = game.clone_and_move(move_action).ok()?;
 
     // After moving, check if the king is in check
 
@@ -194,11 +198,43 @@ fn get_possible_moves_iter<'a>(
     piece_into_iter(game, position)
 }
 
-fn get_possible_moves_no_checks(game: &Game, position: Position) -> Vec<Position> {
-    get_possible_moves_iter(game, position).collect::<Vec<Position>>()
+fn get_possible_moves_no_checks(game: &Game, position: Position) -> Vec<MoveAction> {
+    let mut possible_moves: Vec<MoveAction> = Vec::new();
+
+    let is_pawn = match game.board.square(&position) {
+        Some(piece) => piece.piece == PieceType::Pawn,
+        None => false,
+    };
+    let can_promote = is_pawn && position.rank == Board::can_promote_rank(&game.player);
+
+    for target in get_possible_moves_iter(game, position) {
+        if can_promote {
+            // I don't think there is an easy way to iterate through all the values of an enum :(
+            possible_moves.push(mva!(position, target));
+            possible_moves.push(MoveAction {
+                mv: mv!(position, target),
+                move_type: MoveActionType::Promotion(PromotionPieces::Bishop),
+            });
+            possible_moves.push(MoveAction {
+                mv: mv!(position, target),
+                move_type: MoveActionType::Promotion(PromotionPieces::Rook),
+            });
+            possible_moves.push(MoveAction {
+                mv: mv!(position, target),
+                move_type: MoveActionType::Promotion(PromotionPieces::Queen),
+            });
+        } else {
+            possible_moves.push(MoveAction {
+                mv: mv!(position, target),
+                move_type: MoveActionType::Normal,
+            });
+        }
+    }
+
+    possible_moves
 }
 
-fn get_possible_moves_from_game(game: &SearchableGame, position: Position) -> Vec<Position> {
+fn get_possible_moves_from_game(game: &SearchableGame, position: Position) -> Vec<MoveAction> {
     let square = game.as_ref().board.square(&position);
     if square.is_none() {
         return vec![];
@@ -213,11 +249,7 @@ fn get_possible_moves_from_game(game: &SearchableGame, position: Position) -> Ve
 
     get_possible_moves_no_checks(game.as_ref(), position)
         .iter()
-        .filter(|possible_position| {
-            let mv = mv!(position, **possible_position);
-
-            move_with_checks(&game, &mv, &king_position).is_some()
-        })
+        .filter(|mv| move_with_checks(&game, mv, &king_position).is_some())
         .copied()
         .collect()
 }
@@ -227,7 +259,7 @@ pub fn get_possible_moves(
     last_move: &Option<MoveInfo>,
     game_info: &GameInfo,
     position: Position,
-) -> Vec<Position> {
+) -> Vec<MoveAction> {
     let square = board.square(&position);
     if square.is_none() {
         return vec![];
@@ -245,25 +277,35 @@ pub fn get_possible_moves(
     get_possible_moves_from_game(&game, position)
 }
 
-pub fn get_all_possible_moves(game: &Game) -> Vec<Move> {
-    let mut moves: Vec<Move> = vec![];
+pub fn get_possible_targets(
+    board: &Board,
+    last_move: &Option<MoveInfo>,
+    game_info: &GameInfo,
+    position: Position,
+) -> Vec<Position> {
+    let mut targets: Vec<Position> = get_possible_moves(board, last_move, game_info, position)
+        .iter()
+        .map(|&mv| mv.mv.target)
+        .collect();
+    targets.dedup();
+    targets
+}
+
+pub fn get_all_possible_moves(game: &Game) -> Vec<MoveAction> {
+    let mut moves: Vec<MoveAction> = vec![];
 
     for piece_position in player_pieces_iter!(board: &game.board, player: &game.player) {
         let search_game = SearchableGame::from(game);
-        let possible_piece_moves = get_possible_moves_from_game(&search_game, piece_position);
-        moves.extend(
-            possible_piece_moves
-                .iter()
-                .map(|target_position| mv!(piece_position, *target_position)),
-        );
+        moves.extend(get_possible_moves_from_game(&search_game, piece_position));
     }
 
     moves
 }
 
-pub fn move_name(game: &Game, mv: &Move) -> Option<String> {
+pub fn move_name(game: &Game, move_action: &MoveAction) -> Option<String> {
     let board = &game.board;
     let player = &game.player;
+    let mv = &move_action.mv;
     let mut name = String::new();
     let Some(src_piece) = board.square(&mv.source) else {
         return None;
@@ -362,15 +404,18 @@ pub fn move_name(game: &Game, mv: &Move) -> Option<String> {
 
         // Is promotion?
         if is_pawn && mv.target.rank == Board::promotion_rank(player) {
+            let MoveActionType::Promotion(promotion_piece) = move_action.move_type else {
+                return None;
+            };
             name.push('=');
-            name.push(piece_char(&PieceType::Queen).unwrap());
+            name.push(piece_char(&promotion_piece.into()).unwrap());
         }
     }
 
     // Is check?
     let mut new_game = game.clone();
 
-    if do_move(&mut new_game, mv).is_some() {
+    if do_move(&mut new_game, move_action).is_some() {
         let enemy_king_position = find_player_king(&new_game.board, &enemy(player));
         let causes_check = piece_is_unsafe(&new_game.board, &enemy_king_position);
         if causes_check {
@@ -389,7 +434,7 @@ pub fn move_branch_names(
     board: &Board,
     player: &Player,
     game_info: &GameInfo,
-    moves: &Vec<&Move>,
+    moves: &Vec<&MoveAction>,
 ) -> Vec<String> {
     let mut game = Game {
         board: *board,
@@ -456,35 +501,32 @@ fn get_best_move_recursive_alpha_beta(
     };
 
     'main_loop: for player_piece_position in pieces_iter {
-        let current_piece = &board.square(&player_piece_position).unwrap().piece;
-
-        for possible_position in get_possible_moves_no_checks(game.as_ref(), player_piece_position)
-        {
+        for possible_move in get_possible_moves_no_checks(game.as_ref(), player_piece_position) {
             if stop_signal.stop() {
                 let _ = writeln!(feedback, "Search stopped");
+                stopped = true;
                 break 'main_loop;
             }
 
+            let mv = &possible_move.mv;
+            let possible_position = &mv.target;
             searched_moves += 1;
 
             // Evaluate this move locally
-            let local_score = match &board.square(&possible_position) {
+            let local_score = match &board.square(possible_position) {
                 Some(piece) => get_piece_value(piece.piece),
                 None => {
-                    if *current_piece == PieceType::Pawn
-                        && possible_position.rank == Board::promotion_rank(&player)
-                    {
-                        // Promotion
-                        get_piece_value(PieceType::Queen)
-                    } else {
-                        Score::from(0)
+                    match possible_move.move_type {
+                        MoveActionType::Promotion(promotion_piece) => {
+                            // Promotion
+                            get_piece_value(promotion_piece.into())
+                        }
+                        _ => Score::from(0),
                     }
                 }
             };
 
-            let mv = mv!(player_piece_position, possible_position);
-
-            let recursive_game_result = move_with_checks(game, &mv, &king_position);
+            let recursive_game_result = move_with_checks(game, &possible_move, &king_position);
 
             // Check if the move is legal
             if recursive_game_result.is_none() {
@@ -495,7 +537,7 @@ fn get_best_move_recursive_alpha_beta(
 
             let mut branch = Branch {
                 moves: vec![WeightedMove {
-                    mv: mv,
+                    mv: possible_move,
                     score: local_score,
                 }],
                 // Negamax: negate score from previous move
@@ -558,7 +600,7 @@ fn get_best_move_recursive_alpha_beta(
                             .map_or("<mate>".to_string(), |sub_branch| {
                                 format!(
                                     "{}{:+}",
-                                    sub_branch.moves.first().unwrap().mv,
+                                    sub_branch.moves.first().unwrap().mv.mv,
                                     sub_branch.score
                                 )
                             })
@@ -767,7 +809,7 @@ pub fn get_best_move_with_logger(
         .moves
         .iter()
         .map(|mv| &mv.mv)
-        .collect::<Vec<&Move>>();
+        .collect::<Vec<&MoveAction>>();
 
     log!(
         engine_feedback,
@@ -818,7 +860,7 @@ pub fn is_mate(
     None
 }
 
-pub fn do_move(game: &mut Game, mv: &Move) -> Option<Vec<Piece>> {
+pub fn do_move(game: &mut Game, mv: &MoveAction) -> Option<Vec<Piece>> {
     let enemy_player = enemy(&game.player);
     let mut enemy_army: HashMap<PieceType, u32> = HashMap::new();
 
@@ -868,443 +910,5 @@ pub fn do_move(game: &mut Game, mv: &Move) -> Option<Vec<Piece>> {
         )
     } else {
         None
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::play::{PlayableGame, ReversableGame};
-    use super::{do_move, get_possible_moves, move_name, mv, piece_is_unsafe};
-    use crate::board::{Board, ModifiableBoard, Piece, PieceType, Player, Position};
-    use crate::game::{Game, Move};
-    use crate::{p, pos};
-
-    struct PiecePosition {
-        piece: Option<Piece>,
-        position: Position,
-    }
-
-    macro_rules! pp {
-        ($piece:ident @ $pos:ident) => {
-            PiecePosition {
-                piece: p!($piece),
-                position: pos!($pos),
-            }
-        };
-        ($pos:ident) => {
-            PiecePosition {
-                piece: None,
-                position: pos!($pos),
-            }
-        };
-    }
-
-    struct TestBoard<'a> {
-        board: Option<&'a str>,
-        initial_moves: Vec<Move>,
-        mv: Move,
-        checks: Vec<PiecePosition>,
-    }
-
-    fn custom_board(board_opt: &Option<&str>) -> Board {
-        match board_opt {
-            Some(board_str) => {
-                let mut board = Board::default();
-
-                let mut rank = 8usize;
-                for line in board_str.lines() {
-                    match line.find("[") {
-                        Some(position) => {
-                            let mut file = 0usize;
-                            rank -= 1;
-
-                            for piece_char in line
-                                .chars()
-                                .skip(position)
-                                .filter(|c| *c != '[' && *c != ']')
-                            {
-                                let piece = match piece_char {
-                                    '♙' => p!(pw),
-                                    '♘' => p!(nw),
-                                    '♗' => p!(bw),
-                                    '♖' => p!(rw),
-                                    '♕' => p!(qw),
-                                    '♔' => p!(kw),
-                                    '♟' => p!(pb),
-                                    '♞' => p!(nb),
-                                    '♝' => p!(bb),
-                                    '♜' => p!(rb),
-                                    '♛' => p!(qb),
-                                    '♚' => p!(kb),
-                                    ' ' => p!(),
-                                    _ => {
-                                        panic!(
-                                            "unexpected character '\\u{:x}' in board line: {}",
-                                            piece_char as u32, line
-                                        )
-                                    }
-                                };
-                                board.update(&pos!(rank, file), piece);
-                                file += 1;
-                            }
-                        }
-                        None => continue,
-                    }
-                }
-                board
-            }
-            None => Board::new(),
-        }
-    }
-
-    #[test]
-    fn move_reversable() {
-        let test_boards = [
-            // Advance pawn
-            TestBoard {
-                board: None,
-                initial_moves: vec![],
-                mv: mv!(e2 => e3),
-                checks: vec![pp!(pw @ e3), pp!(e2)],
-            },
-            // Pass pawn
-            TestBoard {
-                board: None,
-                initial_moves: vec![],
-                mv: mv!(e2 => e4),
-                checks: vec![pp!(pw @ e4), pp!(e2)],
-            },
-            // Pawn capturing
-            TestBoard {
-                board: None,
-                initial_moves: vec![mv!(e2 => e4), mv!(d7 => d5)],
-                mv: mv!(e4 => d5),
-                checks: vec![pp!(pw @ d5), pp!(e4)],
-            },
-            // Pawn capturing en passant
-            TestBoard {
-                board: None,
-                initial_moves: vec![mv!(e2 => e4), mv!(a7 => a6), mv!(e4 => e5), mv!(d7 => d5)],
-                mv: mv!(e5 => d6),
-                checks: vec![pp!(pw @ d6), pp!(e5), pp!(d5)],
-            },
-            // Pawn promotion
-            TestBoard {
-                board: None,
-                initial_moves: vec![
-                    mv!(h2 => h4),
-                    mv!(g7 => g6),
-                    mv!(h4 => h5),
-                    mv!(a7 => a6),
-                    mv!(h5 => g6),
-                    mv!(a6 => a5),
-                    mv!(g6 => g7),
-                    mv!(a5 => a4),
-                ],
-                mv: mv!(g7 => h8),
-                checks: vec![pp!(qw @ h8)],
-            },
-            // Kingside castling
-            TestBoard {
-                board: None,
-                initial_moves: vec![
-                    mv!(e2 => e3),
-                    mv!(a7 => a6),
-                    mv!(f1 => e2),
-                    mv!(b7 => b6),
-                    mv!(g1 => h3),
-                    mv!(c7 => c6),
-                ],
-                mv: mv!(e1 => g1),
-                checks: vec![pp!(kw @ g1), pp!(rw @ f1)],
-            },
-            // Queenside castling
-            TestBoard {
-                board: None,
-                initial_moves: vec![
-                    mv!(d2 => d4),
-                    mv!(a7 => a6),
-                    mv!(d1 => d3),
-                    mv!(b7 => b6),
-                    mv!(c1 => d2),
-                    mv!(c7 => c6),
-                    mv!(b1 => c3),
-                    mv!(d7 => d6),
-                ],
-                mv: mv!(e1 => c1),
-                checks: vec![pp!(kw @ c1), pp!(rw @ d1)],
-            },
-        ];
-
-        for test_board in &test_boards {
-            // Prepare board
-            let mut game = Game {
-                board: custom_board(&test_board.board),
-                player: Player::White,
-                last_move: None,
-                info: Default::default(),
-            };
-
-            // Do setup moves
-            for mv in &test_board.initial_moves {
-                assert!(
-                    do_move(&mut game, &mv).is_some(),
-                    "move {} failed:\n{}",
-                    mv,
-                    game.board
-                );
-            }
-
-            let original_board = game.board.clone();
-
-            let mut rev_game = ReversableGame::from(&mut game);
-
-            // Do move
-            assert!(
-                rev_game.do_move(&test_board.mv),
-                "failed to make legal move {} in:\n{}",
-                test_board.mv,
-                game.board
-            );
-
-            for check in &test_board.checks {
-                assert_eq!(
-                    rev_game.as_ref().board.square(&check.position),
-                    check.piece,
-                    "expected {} in {}, found {}:\n{}",
-                    check
-                        .piece
-                        .map_or("nothing".to_string(), |piece| format!("{}", piece.piece)),
-                    check.position,
-                    rev_game
-                        .as_ref()
-                        .board
-                        .square(&check.position)
-                        .map_or("nothing".to_string(), |piece| format!("{}", piece.piece)),
-                    rev_game.as_ref().board,
-                );
-            }
-
-            rev_game.undo();
-
-            assert_eq!(
-                game.board, original_board,
-                "after move {},\nmodified board:\n{}\noriginal board:\n{}",
-                test_board.mv, game.board, original_board
-            );
-        }
-    }
-
-    #[test]
-    fn check_mate() {
-        // White: ♙ ♘ ♗ ♖ ♕ ♔
-        // Black: ♟ ♞ ♝ ♜ ♛ ♚
-        let test_boards = [
-            TestBoard {
-                board: Some(
-                    "  a  b  c  d  e  f  g  h \n\
-                    8 [ ][ ][ ][ ][ ][ ][ ][♚]\n\
-                    7 [ ][ ][ ][ ][ ][ ][ ][ ]\n\
-                    6 [ ][ ][ ][ ][ ][ ][ ][ ]\n\
-                    5 [ ][ ][ ][ ][ ][ ][ ][ ]\n\
-                    4 [ ][ ][ ][ ][ ][ ][ ][ ]\n\
-                    3 [ ][♛][ ][ ][ ][ ][ ][ ]\n\
-                    2 [ ][ ][♛][ ][ ][ ][ ][ ]\n\
-                    1 [♔][ ][ ][ ][ ][ ][ ][ ]",
-                ),
-                initial_moves: vec![],
-                mv: mv!(b3 => b2),
-                checks: vec![],
-            },
-            TestBoard {
-                board: Some(
-                    "  a  b  c  d  e  f  g  h \n\
-                    8 [♜][♜][ ][ ][ ][ ][ ][♚]\n\
-                    7 [ ][ ][ ][ ][ ][ ][ ][ ]\n\
-                    6 [ ][ ][ ][ ][ ][ ][ ][ ]\n\
-                    5 [ ][ ][ ][ ][ ][ ][ ][ ]\n\
-                    4 [ ][ ][ ][ ][ ][ ][ ][ ]\n\
-                    3 [ ][♟][ ][ ][ ][ ][ ][ ]\n\
-                    2 [♟][ ][ ][ ][ ][ ][ ][ ]\n\
-                    1 [♔][ ][ ][ ][ ][ ][ ][ ]",
-                ),
-                initial_moves: vec![],
-                mv: mv!(b3 => b2),
-                checks: vec![],
-            },
-            TestBoard {
-                board: Some(
-                    "  a  b  c  d  e  f  g  h \n\
-                    8 [ ][♜][ ][ ][ ][ ][ ][♚]\n\
-                    7 [ ][♜][ ][ ][ ][ ][ ][ ]\n\
-                    6 [ ][ ][ ][ ][ ][ ][ ][ ]\n\
-                    5 [ ][ ][ ][ ][ ][ ][ ][ ]\n\
-                    4 [ ][ ][ ][ ][ ][ ][ ][ ]\n\
-                    3 [ ][ ][ ][ ][ ][ ][ ][ ]\n\
-                    2 [ ][ ][ ][ ][ ][ ][ ][ ]\n\
-                    1 [♔][ ][ ][ ][ ][ ][ ][ ]",
-                ),
-                initial_moves: vec![],
-                mv: mv!(b8 => a8),
-                checks: vec![],
-            },
-            TestBoard {
-                board: Some(
-                    "  a  b  c  d  e  f  g  h \n\
-                    8 [ ][ ][ ][ ][ ][♝][♝][♚]\n\
-                    7 [ ][ ][ ][ ][ ][ ][ ][♝]\n\
-                    6 [ ][ ][ ][ ][ ][ ][ ][ ]\n\
-                    5 [ ][ ][ ][ ][ ][ ][ ][ ]\n\
-                    4 [ ][ ][ ][ ][ ][ ][ ][ ]\n\
-                    3 [ ][ ][ ][ ][ ][ ][ ][ ]\n\
-                    2 [ ][ ][ ][ ][ ][ ][ ][ ]\n\
-                    1 [♔][ ][ ][ ][ ][ ][ ][ ]",
-                ),
-                initial_moves: vec![],
-                mv: mv!(f8 => g7),
-                checks: vec![],
-            },
-            TestBoard {
-                board: Some(
-                    "  a  b  c  d  e  f  g  h \n\
-                    8 [ ][ ][ ][ ][ ][ ][ ][♚]\n\
-                    7 [ ][ ][ ][ ][ ][ ][ ][ ]\n\
-                    6 [ ][ ][ ][ ][ ][ ][ ][ ]\n\
-                    5 [♞][ ][ ][ ][ ][ ][ ][ ]\n\
-                    4 [ ][ ][ ][ ][ ][ ][ ][ ]\n\
-                    3 [ ][ ][♞][ ][ ][ ][ ][ ]\n\
-                    2 [ ][ ][ ][ ][ ][ ][ ][ ]\n\
-                    1 [♔][ ][ ][♞][ ][ ][ ][ ]",
-                ),
-                initial_moves: vec![],
-                mv: mv!(a5 => b3),
-                checks: vec![],
-            },
-        ];
-
-        for test_board in test_boards {
-            // Prepare board
-            let mut game = Game {
-                board: custom_board(&test_board.board),
-                player: Player::Black,
-                last_move: None,
-                info: Default::default(),
-            };
-
-            game.info.disable_castle_kingside(&Player::White);
-            game.info.disable_castle_kingside(&Player::Black);
-            game.info.disable_castle_queenside(&Player::White);
-            game.info.disable_castle_queenside(&Player::Black);
-
-            // Do setup moves
-            for mv in &test_board.initial_moves {
-                assert!(
-                    do_move(&mut game, &mv).is_some(),
-                    "move {} failed:\n{}",
-                    mv,
-                    game.board
-                );
-            }
-
-            let name = move_name(&game, &test_board.mv).unwrap();
-            assert!(
-                name.ends_with("#"),
-                "notation `{}` for move {} doesn't show checkmate sign # in:\n{}",
-                name,
-                test_board.mv,
-                game.board
-            );
-
-            // Do move
-            let mut rev_game = ReversableGame::from(&mut game);
-
-            assert!(
-                rev_game.do_move(&test_board.mv),
-                "invalid move {}:\n{}",
-                test_board.mv,
-                rev_game.as_ref().board
-            );
-
-            let possible_moves = get_possible_moves(&game.board, &None, &game.info, pos!(a1));
-            let in_check = piece_is_unsafe(&game.board, &pos!(a1));
-            assert!(in_check, "king should be in check:\n{}", game.board);
-            assert!(
-                possible_moves.is_empty(),
-                "unexpected possible move {} in check mate:\n{}",
-                mv!(pos!(a1), *possible_moves.first().unwrap()),
-                game.board
-            );
-        }
-    }
-
-    #[test]
-    fn fen_parsing() {
-        let start_pos_fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
-        let parsed_game = Game::try_from_fen(
-            start_pos_fen
-                .split_ascii_whitespace()
-                .collect::<Vec<&str>>()
-                .as_slice(),
-        );
-        assert!(parsed_game.is_some(), "Failed to parse FEN string");
-        let game = parsed_game.unwrap();
-        assert_eq!(game, Game::new(), "\n{}", game.board);
-    }
-
-    // Template to quickly test a specific board/move
-    #[test]
-    #[ignore]
-    fn quick_test() {
-        // White: ♙ ♘ ♗ ♖ ♕ ♔
-        // Black: ♟ ♞ ♝ ♜ ♛ ♚
-        let test_boards = [TestBoard {
-            board: Some(
-                "  a  b  c  d  e  f  g  h \n\
-                8 [♜][♞][ ][♛][♚][♝][♞][ ]\n\
-                7 [ ][♝][♟][♟][♟][♟][♟][♜]\n\
-                6 [ ][♟][ ][ ][ ][ ][ ][ ]\n\
-                5 [♟][ ][ ][ ][ ][ ][ ][ ]\n\
-                4 [♙][ ][ ][♙][♙][ ][ ][♙]\n\
-                3 [ ][♙][♘][ ][♗][♘][♙][ ]\n\
-                2 [ ][ ][♙][♕][ ][ ][ ][ ]\n\
-                1 [♖][ ][ ][ ][♔][ ][ ][♖]",
-            ),
-            initial_moves: vec![],
-            mv: mv!(e1 => c1),
-            checks: vec![],
-        }];
-
-        for test_board in test_boards {
-            // Prepare board
-            let mut game = Game {
-                board: custom_board(&test_board.board),
-                player: Player::White,
-                last_move: None,
-                info: Default::default(),
-            };
-
-            game.info.disable_castle_kingside(&Player::White);
-            game.info.disable_castle_kingside(&Player::Black);
-
-            // Do setup moves
-            for mv in &test_board.initial_moves {
-                assert!(
-                    do_move(&mut game, &mv).is_some(),
-                    "move {} failed:\n{}",
-                    mv,
-                    game.board
-                );
-            }
-
-            // Do move
-            let mut rev_game = ReversableGame::from(&mut game);
-
-            assert!(
-                rev_game.do_move(&test_board.mv),
-                "invalid move {}:\n{}",
-                test_board.mv,
-                rev_game.as_ref().board
-            );
-        }
     }
 }

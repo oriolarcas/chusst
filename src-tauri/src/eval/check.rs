@@ -151,7 +151,9 @@ mod bitboards_search {
             for attacker_position in PlayerBitboards::into_iter(attacker_bitboard) {
                 if attacker_in_rank(&attacker_position) || attacker_in_file(&attacker_position) {
                     let in_between_mask = PlayerBitboards::in_between(&attacker_position, position);
-                    return in_between_mask & all_pieces_bitboard == 0;
+                    if in_between_mask & all_pieces_bitboard == 0 {
+                        return true;
+                    }
                 }
             }
             false
@@ -162,7 +164,9 @@ mod bitboards_search {
             for attacker_position in PlayerBitboards::into_iter(attacker_bitboard) {
                 if attacker_in_diagonal(&Some(attacker_position)) {
                     let in_between_mask = PlayerBitboards::in_between(&attacker_position, position);
-                    return in_between_mask & all_pieces_bitboard == 0;
+                    if in_between_mask & all_pieces_bitboard == 0 {
+                        return true;
+                    }
                 }
             }
             false
@@ -176,7 +180,9 @@ mod bitboards_search {
                     || attacker_in_diagonal(&Some(attacker_position))
                 {
                     let in_between_mask = PlayerBitboards::in_between(&attacker_position, position);
-                    return in_between_mask & all_pieces_bitboard == 0;
+                    if in_between_mask & all_pieces_bitboard == 0 {
+                        return true;
+                    }
                 }
             }
             false

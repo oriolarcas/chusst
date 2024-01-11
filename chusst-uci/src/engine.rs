@@ -3,7 +3,7 @@ use chusst::eval::{
     do_move, get_best_move_with_logger, EngineFeedback, EngineFeedbackMessage, EngineMessage,
     GameMove, HasStopSignal,
 };
-use chusst::game::{Game, Move};
+use chusst::game::{Game, MoveAction};
 
 use std::fmt;
 use std::io::Write;
@@ -16,7 +16,7 @@ pub struct GoCommand {
 #[derive(Clone)]
 pub struct NewGameCommand {
     pub game: Option<Game>,
-    pub moves: Vec<Move>,
+    pub moves: Vec<MoveAction>,
 }
 
 #[derive(Clone)]
@@ -162,7 +162,7 @@ fn engine_thread(
                 for mv in new_game_cmd.moves {
                     if do_move(&mut game, &mv).is_none() {
                         let _ = communicator
-                            .send(EngineResponse::Error(format!("Invalid move {}", mv)));
+                            .send(EngineResponse::Error(format!("Invalid move {}", mv.mv)));
                     }
                 }
             }
