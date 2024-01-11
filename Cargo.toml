@@ -2,7 +2,8 @@
 resolver = "2"
 
 members = [
+    "chusst-gen",
     "src-tauri",
     "chusst-uci",
-    "pgn2yaml"
+    "pgn2yaml",
 ]

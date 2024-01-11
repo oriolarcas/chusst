@@ -1,10 +1,9 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use chusst::board::{Piece, Position};
-use chusst::eval;
-use chusst::eval::MateType;
-use chusst::game::{Game, Move, MoveAction, MoveActionType, PromotionPieces};
+use chusst_gen::board::{Piece, Position};
+use chusst_gen::eval;
+use chusst_gen::game::{Game, Move, MoveAction, MoveActionType, PromotionPieces};
 
 use serde::Serialize;
 use tauri::{LogicalSize, Manager, Size};
@@ -118,8 +117,8 @@ fn do_move(
             (description, black_captures.unwrap(), black_mate)
         }
         eval::GameMove::Mate(mate) => match mate {
-            MateType::Stalemate => (None, vec![], Some(MateType::Stalemate)),
-            MateType::Checkmate => (None, vec![], Some(MateType::Checkmate)),
+            eval::MateType::Stalemate => (None, vec![], Some(eval::MateType::Stalemate)),
+            eval::MateType::Checkmate => (None, vec![], Some(eval::MateType::Checkmate)),
         },
     };
 
