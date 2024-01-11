@@ -1,9 +1,9 @@
 use crate::duplex_thread::{create_duplex_thread, DuplexThread};
-use chusst::eval::{
+use chusst_gen::eval::{
     do_move, get_best_move_with_logger, EngineFeedback, EngineFeedbackMessage, EngineMessage,
     GameMove, HasStopSignal,
 };
-use chusst::game::{Game, MoveAction};
+use chusst_gen::game::{Game, MoveAction};
 
 use std::fmt;
 use std::io::Write;

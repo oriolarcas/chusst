@@ -1,0 +1,31 @@
+[package]
+name = "chusst-gen"
+version = "0.10.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = "1.0.79"
+atty = "0.2.14"
+colored = "2.1.0"
+serde = { version = "1.0.195", features = ["derive"] }
+
+[dev-dependencies]
+bencher = "0.1.5"
+
+[[bench]]
+name = "search"
+harness = false
+
+[features]
+# default = ["compact-board"]
+# default = ["bitboards"]
+default = ["compact-board", "bitboards"]
+
+# Use bitboards to evaluate valid moves
+bitboards = []
+# Use a memory-efficient representation of the board (1 byte per square)
+compact-board = []
+# Build with this feature to print the search tree to stdout
+verbose-search = []

@@ -1,6 +1,6 @@
 use crate::reader::{Tag, PGN};
 use anyhow::{bail, Result};
-use chusst::{
+use chusst_gen::{
     board::{Piece, PieceType},
     eval::move_name,
     game::{Game, MoveAction},
@@ -64,7 +64,7 @@ pub struct DetailedGame {
     pub ending: GameEnding,
 }
 
-fn long(mv: &chusst::game::Move, capture: bool) -> String {
+fn long(mv: &chusst_gen::game::Move, capture: bool) -> String {
     format!(
         "{}{}{}",
         mv.source,
@@ -74,10 +74,10 @@ fn long(mv: &chusst::game::Move, capture: bool) -> String {
 }
 
 fn find_move_by_name(game: &Game, move_str: &str) -> Result<DetailedMoveInfo> {
-    let possible_moves = chusst::eval::get_all_possible_moves(&game);
+    let possible_moves = chusst_gen::eval::get_all_possible_moves(&game);
     for move_action in &possible_moves {
         let mv = &move_action.mv;
-        let mv_name = chusst::eval::move_name(&game, &move_action).unwrap();
+        let mv_name = chusst_gen::eval::move_name(&game, &move_action).unwrap();
 
         if mv_name == move_str {
             let check_type = if move_str.contains('#') {
@@ -162,7 +162,7 @@ fn find_move_by_name(game: &Game, move_str: &str) -> Result<DetailedMoveInfo> {
 }
 
 fn is_stalemate(game: &Game) -> bool {
-    chusst::eval::get_all_possible_moves(&game).is_empty()
+    chusst_gen::eval::get_all_possible_moves(&game).is_empty()
 }
 
 pub fn pgn_to_long_algebraic(pgn: &PGN) -> Result<DetailedGame> {
@@ -182,11 +182,11 @@ pub fn pgn_to_long_algebraic(pgn: &PGN) -> Result<DetailedGame> {
 
         checkmate = white_short_str.contains('#');
 
-        chusst::eval::do_move(&mut game, &detailed_white_mv.mv);
+        chusst_gen::eval::do_move(&mut game, &detailed_white_mv.mv);
 
         if let Some(black_short_str) = mv.black.as_deref() {
             let detailed_black_mv = find_move_by_name(&game, black_short_str)?;
-            chusst::eval::do_move(&mut game, &detailed_black_mv.mv);
+            chusst_gen::eval::do_move(&mut game, &detailed_black_mv.mv);
 
             detailed.moves.push(DetailedMove {
                 white: detailed_white_mv,

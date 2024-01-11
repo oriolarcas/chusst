@@ -1,5 +1,5 @@
-use chusst::eval::{do_move, get_best_move_recursive, SilentSearchFeedback};
-use chusst::game::Game;
+use chusst_gen::eval::{do_move, get_best_move_recursive, SilentSearchFeedback};
+use chusst_gen::game::Game;
 
 #[macro_use]
 extern crate bencher;

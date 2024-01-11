@@ -2,8 +2,8 @@ mod duplex_thread;
 mod engine;
 mod stdin;
 
-use chusst::eval::GameMove;
-use chusst::game::{Game, MoveAction};
+use chusst_gen::eval::GameMove;
+use chusst_gen::game::{Game, MoveAction};
 use engine::{create_engine_thread, EngineCommand, EngineResponse, GoCommand, NewGameCommand};
 use stdin::{create_stdin_thread, StdinResponse};
 

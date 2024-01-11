@@ -13,32 +13,12 @@ edition = "2021"
 tauri-build = { version = "1.4", features = [] }
 
 [dependencies]
+chusst-gen = { path = "../chusst-gen" }
 tauri = { version = "1.4", features = ["shell-open"] }
-serde = { version = "1.0", features = ["derive"] }
+serde = { version = "1.0.195", features = ["derive"] }
 serde_json = "1.0"
-colored = "2.0.4"
-atty = "0.2.14"
-anyhow = "1.0.79"
-
-[dev-dependencies]
-bencher = "0.1.5"
 
 [features]
-# default = ["compact-board"]
-# default = ["bitboards"]
-default = ["compact-board", "bitboards"]
-
-# Use bitboards to evaluate valid moves
-bitboards = []
-# Use a memory-efficient representation of the board (1 byte per square)
-compact-board = []
-# Build with this feature to print the search tree to stdout
-verbose-search = []
-
 # this feature is used for production builds or when `devPath` points to the filesystem
 # DO NOT REMOVE!!
 custom-protocol = ["tauri/custom-protocol"]
-
-[[bench]]
-name = "search"
-harness = false
