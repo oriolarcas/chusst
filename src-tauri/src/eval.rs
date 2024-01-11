@@ -178,7 +178,7 @@ fn move_with_checks(
     }
 
     // Move
-    let new_game = game.clone_and_move(move_action);
+    let new_game = game.clone_and_move(move_action).ok()?;
 
     // After moving, check if the king is in check
 

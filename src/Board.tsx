@@ -22,6 +22,11 @@ type Position = {
   file: number;
 }
 
+type Move = {
+  source: Position;
+  target: Position;
+}
+
 type Game = {
   board: {ranks: SquareType[][]};
   player: string;
@@ -129,11 +134,13 @@ export class Board extends Component<BoardProps, {}> {
     hints: Hints,
     captures: Position[][][],
     finished: boolean,
+    choosingPromotion: Move | null,
   } = {
     selected: null,
     hints: newHintMatrix(),
     captures: newCaptureMatrix(),
     finished: false,
+    choosingPromotion: null,
   };
 
   async reloadBoard(hints?: Hints, finished: boolean = false) {
@@ -143,7 +150,7 @@ export class Board extends Component<BoardProps, {}> {
     if (hints === undefined) {
       hints = newHintMatrix();
     }
-    this.setState({game, hints, captures, selected: null, finished});
+    this.setState({game, hints, captures, selected: null, finished, choosingPromotion: null});
   }
 
   onUserAction = async (action: UserAction) => {
@@ -206,6 +213,67 @@ export class Board extends Component<BoardProps, {}> {
     }
   }
 
+  async movePiece(move: Move, promotion?: string) {
+    const result: boolean = await invoke(
+      'do_move',
+      {
+        source_rank: move.source.rank,
+        source_file: move.source.file,
+        target_rank: move.target.rank,
+        target_file: move.target.file,
+        promotion
+      }
+    );
+    if (!result) {
+      console.log('Invalid move');
+      return;
+    }
+
+    console.log('Move done');
+
+    const history: TurnDescription[] = await invoke('get_history');
+    const last_turn = history[history.length - 1];
+    let finished = false;
+
+    console.log(last_turn);
+
+    if (last_turn.black !== null) {
+      let black_mate = last_turn.black.mate ? MateType[last_turn.black.mate as keyof typeof MateType] : null;
+
+      this.props.onMove?.(
+        last_turn.white.mv + " " + last_turn.black.mv,
+        last_turn.white.captures.map((piece) => piece.piece),
+        last_turn.black.captures.map((piece) => piece.piece),
+        black_mate !== null ? {
+          player: "black",
+          mate: black_mate,
+        } : null,
+      );
+
+      if (black_mate !== null) {
+        finished = true;
+      }
+    } else {
+      // White mate
+      let white_mate = MateType[last_turn.white.mate as keyof typeof MateType];
+      this.props.onMove?.(
+        last_turn.white.mv,
+        last_turn.white.captures.map((piece) => piece.piece),
+        [],
+        {
+          player: "white",
+          mate: white_mate,
+        }
+      );
+
+      finished = true;
+    }
+
+    let hints = await this.highlightPieceMoves(move.target);
+
+    await this.reloadBoard(hints, finished);
+  }
+
   onMouseEnter = async (event: any, rank: number, file: number, hint?: PieceHintTypes) => {
     let position: Position = {rank, file};
     if (hint !== undefined) {
@@ -248,56 +316,19 @@ export class Board extends Component<BoardProps, {}> {
     const already_selected = this.isSquareSelected(position);
 
     if (this.state.selected !== null && !already_selected && !this.isSquarePlayer(position, this.state.game.player)) {
-      // Move
-      const result: boolean = await invoke('do_move', {source_rank: this.state.selected?.rank, source_file: this.state.selected?.file, target_rank: rank, target_file: file});
-      if (!result) {
-        console.log('Invalid move');
+      const square = this.state.game.board.ranks[this.state.selected.rank][this.state.selected.file];
+      const move: Move = {source: this.state.selected, target: position};
+
+      if (square?.piece?.toLowerCase() === 'pawn' && (position.rank === 0 || position.rank === 7)) {
+        // Promotion
+        const source_position: Position = {rank: this.state.selected.rank, file: this.state.selected.file};
+
+        this.setState({choosingPromotion: move});
         return;
       }
 
-      console.log('Move done');
-
-      const history: TurnDescription[] = await invoke('get_history');
-      const last_turn = history[history.length - 1];
-      let finished = false;
-
-      console.log(last_turn);
-
-      if (last_turn.black !== null) {
-        let black_mate = last_turn.black.mate ? MateType[last_turn.black.mate as keyof typeof MateType] : null;
-
-        this.props.onMove?.(
-          last_turn.white.mv + " " + last_turn.black.mv,
-          last_turn.white.captures.map((piece) => piece.piece),
-          last_turn.black.captures.map((piece) => piece.piece),
-          black_mate !== null ? {
-            player: "black",
-            mate: black_mate,
-          } : null,
-        );
-
-        if (black_mate !== null) {
-          finished = true;
-        }
-      } else {
-        // White mate
-        let white_mate = MateType[last_turn.white.mate as keyof typeof MateType];
-        this.props.onMove?.(
-          last_turn.white.mv,
-          last_turn.white.captures.map((piece) => piece.piece),
-          [],
-          {
-            player: "white",
-            mate: white_mate,
-          }
-        );
-
-        finished = true;
-      }
-
-      let hints = await this.highlightPieceMoves(position);
-
-      await this.reloadBoard(hints, finished);
+      // Move
+      await this.movePiece(move);
 
       return;
     }
@@ -311,6 +342,13 @@ export class Board extends Component<BoardProps, {}> {
     let hints = await this.highlightPieceMoves(position, !already_selected);
 
     this.setState({hints, selected});
+  }
+
+  onChoosePromotion = async (piece: string) => {
+    if (!this.state.choosingPromotion) {
+      return;
+    }
+    this.movePiece(this.state.choosingPromotion, piece);
   }
 
   rank(rank_index: number) {
@@ -353,8 +391,29 @@ export class Board extends Component<BoardProps, {}> {
     )
   }
 
+  promotionDialog() {
+    if (!this.state.choosingPromotion) {
+      return null;
+    }
+    const player = this.state.game?.player?.toLowerCase() || 'white';
+    return <div className='promotion-dialog'>
+      <div className='promotion-content'>
+        <div className='promotion-dialog-title'>
+          Choose the promotion:
+        </div>
+        <div className='text-center'>
+          <div className={'piece knight ' + player} onClick={(event) => this.onChoosePromotion('knight')}></div>
+          <div className={'piece bishop ' + player} onClick={(event) => this.onChoosePromotion('bishop')}></div>
+          <div className={'piece rook ' + player} onClick={(event) => this.onChoosePromotion('rook')}></div>
+          <div className={'piece queen ' + player} onClick={(event) => this.onChoosePromotion('queen')}></div>
+        </div>
+      </div>
+    </div>;
+  }
+
   render() {
     return <div className='board m-0'>
+        {this.promotionDialog()}
         {Array.from(Array(8).keys()).reverse().map((index) => this.rank(index))}
       </div>;
   }

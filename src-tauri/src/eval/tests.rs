@@ -132,7 +132,7 @@ fn move_reversable() {
                 mva!(a5 => a4),
             ],
             mv: mva!(g7 => h8, PromotionPieces::Knight),
-            checks: vec![pp!(qw @ h8)],
+            checks: vec![pp!(nw @ h8)],
         },
         // Pawn promotion to bishop
         TestBoard {
@@ -148,7 +148,7 @@ fn move_reversable() {
                 mva!(a5 => a4),
             ],
             mv: mva!(g7 => h8, PromotionPieces::Bishop),
-            checks: vec![pp!(qw @ h8)],
+            checks: vec![pp!(bw @ h8)],
         },
         // Pawn promotion to rook
         TestBoard {
@@ -164,7 +164,7 @@ fn move_reversable() {
                 mva!(a5 => a4),
             ],
             mv: mva!(g7 => h8, PromotionPieces::Rook),
-            checks: vec![pp!(qw @ h8)],
+            checks: vec![pp!(rw @ h8)],
         },
         // Pawn promotion to queen
         TestBoard {
