@@ -321,8 +321,6 @@ export class Board extends Component<BoardProps, {}> {
 
       if (square?.piece?.toLowerCase() === 'pawn' && (position.rank === 0 || position.rank === 7)) {
         // Promotion
-        const source_position: Position = {rank: this.state.selected.rank, file: this.state.selected.file};
-
         this.setState({choosingPromotion: move});
         return;
       }
