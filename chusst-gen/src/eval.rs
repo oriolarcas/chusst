@@ -8,7 +8,7 @@ mod play;
 mod tests;
 
 use self::check::{only_empty_and_safe, SafetyChecks};
-use self::conditions::{enemy, try_move, Direction};
+use self::conditions::{try_move, Direction};
 pub use self::feedback::{
     EngineFeedback, EngineFeedbackMessage, EngineMessage, SilentSearchFeedback, StdoutFeedback,
 };
@@ -424,7 +424,7 @@ trait GamePrivate<B: Board + SafetyChecks>: PlayableGame<B> {
                     let is_check_mate = if next_moves_opt.is_none() {
                         // check or stale mate?
                         let enemy_player_king_position =
-                            recursive_game.as_ref().board().find_king(&enemy(&player));
+                            recursive_game.as_ref().board().find_king(&!player);
 
                         recursive_game
                             .as_ref()
@@ -723,7 +723,7 @@ pub trait Game<B: Board + SafetyChecks>: GamePrivate<B> {
         let mut new_game = self.as_ref().clone();
 
         if Game::do_move(&mut new_game, move_action).is_some() {
-            let enemy_king_position = new_game.board().find_king(&enemy(player));
+            let enemy_king_position = new_game.board().find_king(&!*player);
             let causes_check = new_game.board().is_piece_unsafe(&enemy_king_position);
             if causes_check {
                 let is_checkmate = new_game.get_best_move_shallow().is_none();
@@ -787,7 +787,7 @@ pub trait Game<B: Board + SafetyChecks>: GamePrivate<B> {
             let is_check_mate = self.board().is_piece_unsafe(&king_position);
 
             log!(engine_feedback, "  ({:.2} s.) ", duration);
-            let enemy_player = enemy(&player);
+            let enemy_player = !player;
             if is_check_mate {
                 log!(engine_feedback, "Checkmate, {} wins", enemy_player);
             } else {

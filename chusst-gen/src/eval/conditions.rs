@@ -46,19 +46,12 @@ fn only_player(board: &impl Board, position: Option<Position>, player: Player) -
     }
 }
 
-pub fn enemy(player: &Player) -> Player {
-    match player {
-        Player::White => Player::Black,
-        Player::Black => Player::White,
-    }
-}
-
 pub fn only_enemy(
     board: &impl Board,
     position: Option<Position>,
     player: &Player,
 ) -> Option<Position> {
-    only_player(board, position, enemy(player))
+    only_player(board, position, !*player)
 }
 
 pub fn only_empty_or_enemy(

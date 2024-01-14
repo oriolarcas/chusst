@@ -1,5 +1,5 @@
 use crate::board::{Board, ModifiableBoard, Piece, PieceType, Position};
-use crate::eval::conditions::{enemy, only_enemy, try_move, Direction};
+use crate::eval::conditions::{only_enemy, try_move, Direction};
 // use crate::eval::get_possible_moves;
 use crate::eval::iter::dir;
 use crate::eval::Game;
@@ -149,7 +149,7 @@ where
             }
         }
 
-        self.as_mut().player = enemy(&self.as_ref().player);
+        self.as_mut().player = !self.as_ref().player;
         self.as_mut().last_move = Some(MoveInfo {
             mv: *mv,
             info: move_info,
@@ -234,7 +234,7 @@ impl<'a, B: Board> ReversableGame<'a, B> {
         }
 
         self.moves.clear();
-        self.game.player = enemy(&self.game.player);
+        self.game.player = !self.game.player;
         self.game.last_move = self.last_move;
         self.game.info = self.info.unwrap();
         self.last_move = None;
