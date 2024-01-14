@@ -542,8 +542,8 @@ fn format_board(board: &impl Board, f: &mut fmt::Formatter) -> fmt::Result {
     let (left_square, right_square) = if is_atty { (" ", " ") } else { ("[", "]") };
 
     rows.push("   a  b  c  d  e  f  g  h ".to_owned());
-    for rank in 0..8 {
-        let mut row_str = String::from(format!("{} ", 8 - rank));
+    for rank in (0..8).rev() {
+        let mut row_str = String::from(format!("{} ", rank + 1));
         for file in 0..8 {
             let piece = match board.at(&pos!(rank, file)) {
                 Some(square_value) => Some((

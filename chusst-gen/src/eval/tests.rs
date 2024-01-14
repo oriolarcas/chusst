@@ -32,6 +32,8 @@ struct TestBoard<'a> {
     checks: Vec<PiecePosition>,
 }
 
+type TestGame = SimpleGame;
+
 fn custom_board<B: Board>(board_opt: &Option<&str>) -> B {
     match board_opt {
         Some(board_str) => {
@@ -217,7 +219,7 @@ fn move_reversable() {
 
     for test_board in &test_boards {
         // Prepare board
-        let mut game = SimpleGame {
+        let mut game = TestGame {
             board: custom_board(&test_board.board),
             player: Player::White,
             last_move: None,
@@ -362,7 +364,7 @@ fn check_mate() {
 
     for test_board in test_boards {
         // Prepare board
-        let mut game = SimpleGame {
+        let mut game = TestGame {
             board: custom_board(&test_board.board),
             player: Player::Black,
             last_move: None,
@@ -418,7 +420,7 @@ fn check_mate() {
 #[test]
 fn fen_parsing() {
     let start_pos_fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
-    let parsed_game = SimpleGame::try_from_fen(
+    let parsed_game = TestGame::try_from_fen(
         start_pos_fen
             .split_ascii_whitespace()
             .collect::<Vec<&str>>()
@@ -426,7 +428,7 @@ fn fen_parsing() {
     );
     assert!(parsed_game.is_some(), "Failed to parse FEN string");
     let game = parsed_game.unwrap();
-    assert_eq!(game, SimpleGame::new(), "\n{}", game.board);
+    assert_eq!(game, TestGame::new(), "\n{}", game.board);
 }
 
 // Template to quickly test a specific board/move
@@ -454,7 +456,7 @@ fn quick_test() {
 
     for test_board in test_boards {
         // Prepare board
-        let mut game = SimpleGame {
+        let mut game = TestGame {
             board: custom_board(&test_board.board),
             player: Player::White,
             last_move: None,

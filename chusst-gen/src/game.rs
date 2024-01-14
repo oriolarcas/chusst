@@ -237,12 +237,12 @@ impl Default for GameInfo {
     }
 }
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct GameState<B: Board> {
-    pub board: B,
-    pub player: Player,
-    pub last_move: Option<MoveInfo>,
-    pub info: GameInfo,
+    pub(crate) board: B,
+    pub(crate) player: Player,
+    pub(crate) last_move: Option<MoveInfo>,
+    pub(crate) info: GameInfo,
 }
 
 impl<B: Board> From<B> for GameState<B> {
@@ -264,6 +264,14 @@ impl<B: Board> GameState<B> {
             last_move: None,
             info: GameInfo::new(),
         }
+    }
+
+    pub fn player(&self) -> Player {
+        self.player
+    }
+
+    pub fn board(&self) -> &B {
+        &self.board
     }
 
     pub fn try_from_fen(fen: &[&str]) -> Option<Self> {
