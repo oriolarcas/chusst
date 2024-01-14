@@ -108,12 +108,12 @@ impl PlayerBitboards {
 
         PlayerBitboards {
             player,
-            pawns:   match player { Player::White => WHITE_PAWNS, Player::Black => BLACK_PAWNS },
-            knights: match player { Player::White => WHITE_PAWNS, Player::Black => BLACK_PAWNS },
-            bishops: match player { Player::White => WHITE_PAWNS, Player::Black => BLACK_PAWNS },
-            rooks:   match player { Player::White => WHITE_PAWNS, Player::Black => BLACK_PAWNS },
-            queens:  match player { Player::White => WHITE_PAWNS, Player::Black => BLACK_PAWNS },
-            kings:   match player { Player::White => WHITE_PAWNS, Player::Black => BLACK_PAWNS },
+            pawns:   match player { Player::White => WHITE_PAWNS,   Player::Black => BLACK_PAWNS   },
+            knights: match player { Player::White => WHITE_KNIGHTS, Player::Black => BLACK_KNIGHTS },
+            bishops: match player { Player::White => WHITE_BISHOPS, Player::Black => BLACK_BISHOPS },
+            rooks:   match player { Player::White => WHITE_ROOKS,   Player::Black => BLACK_ROOKS   },
+            queens:  match player { Player::White => WHITE_QUEENS,  Player::Black => BLACK_QUEENS  },
+            kings:   match player { Player::White => WHITE_KINGS,   Player::Black => BLACK_KINGS   },
             combined: match player {
                 Player::White => WHITE_PAWNS | WHITE_KNIGHTS | WHITE_BISHOPS | WHITE_ROOKS | WHITE_QUEENS | WHITE_KINGS,
                 Player::Black => BLACK_PAWNS | BLACK_KNIGHTS | BLACK_BISHOPS | BLACK_ROOKS | BLACK_QUEENS | BLACK_KINGS
