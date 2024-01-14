@@ -1,9 +1,8 @@
 use crate::reader::{Tag, PGN};
 use anyhow::{bail, Result};
 use chusst_gen::{
-    board::{Piece, PieceType},
-    eval::move_name,
-    game::{Game, MoveAction},
+    board::{Piece, PieceType, ModifiableBoard},
+    game::{SimpleGame, MoveAction}, eval::Game,
 };
 
 #[derive(PartialEq)]
@@ -73,11 +72,11 @@ fn long(mv: &chusst_gen::game::Move, capture: bool) -> String {
     )
 }
 
-fn find_move_by_name(game: &Game, move_str: &str) -> Result<DetailedMoveInfo> {
-    let possible_moves = chusst_gen::eval::get_all_possible_moves(&game);
+fn find_move_by_name(game: &SimpleGame, move_str: &str) -> Result<DetailedMoveInfo> {
+    let possible_moves = game.get_all_possible_moves();
     for move_action in &possible_moves {
         let mv = &move_action.mv;
-        let mv_name = chusst_gen::eval::move_name(&game, &move_action).unwrap();
+        let mv_name = game.move_name(&move_action).unwrap();
 
         if mv_name == move_str {
             let check_type = if move_str.contains('#') {
@@ -118,10 +117,10 @@ fn find_move_by_name(game: &Game, move_str: &str) -> Result<DetailedMoveInfo> {
                 }
             }
 
-            let Some(Piece { piece, player: _ }) = game.board.square(&mv.source) else {
+            let Some(Piece { piece, player: _ }) = game.at(&mv.source) else {
                 bail!("Source square is empty");
             };
-            let target_empty = game.board.square(&mv.target).is_none();
+            let target_empty = game.at(&mv.target).is_none();
             let mv_rank_distance = mv.source.rank.abs_diff(mv.target.rank);
             let mv_file_distance = mv.source.file.abs_diff(mv.target.file);
 
@@ -150,23 +149,23 @@ fn find_move_by_name(game: &Game, move_str: &str) -> Result<DetailedMoveInfo> {
     bail!(
         "Invalid notation or ilegal move {} of player {}:\n{}\nPossible moves: {}",
         move_str,
-        game.player,
-        game.board,
+        game.player(),
+        game.board(),
         &possible_moves
             .iter()
-            .map(|mv| move_name(game, mv))
+            .map(|mv| game.move_name(mv))
             .flatten()
             .collect::<Vec<String>>()
             .join(", ")
     );
 }
 
-fn is_stalemate(game: &Game) -> bool {
-    chusst_gen::eval::get_all_possible_moves(&game).is_empty()
+fn is_stalemate(game: &SimpleGame) -> bool {
+    game.get_all_possible_moves().is_empty()
 }
 
 pub fn pgn_to_long_algebraic(pgn: &PGN) -> Result<DetailedGame> {
-    let mut game = Game::new();
+    let mut game = SimpleGame::new();
     let mut detailed = DetailedGame {
         tags: pgn.tags.clone(),
         moves: Default::default(),
@@ -182,11 +181,11 @@ pub fn pgn_to_long_algebraic(pgn: &PGN) -> Result<DetailedGame> {
 
         checkmate = white_short_str.contains('#');
 
-        chusst_gen::eval::do_move(&mut game, &detailed_white_mv.mv);
+        game.do_move(&detailed_white_mv.mv);
 
         if let Some(black_short_str) = mv.black.as_deref() {
             let detailed_black_mv = find_move_by_name(&game, black_short_str)?;
-            chusst_gen::eval::do_move(&mut game, &detailed_black_mv.mv);
+            game.do_move(&detailed_black_mv.mv);
 
             detailed.moves.push(DetailedMove {
                 white: detailed_white_mv,

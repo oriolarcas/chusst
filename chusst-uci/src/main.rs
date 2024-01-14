@@ -3,7 +3,7 @@ mod engine;
 mod stdin;
 
 use chusst_gen::eval::GameMove;
-use chusst_gen::game::{Game, MoveAction};
+use chusst_gen::game::{BitboardGame, MoveAction};
 use engine::{create_engine_thread, EngineCommand, EngineResponse, GoCommand, NewGameCommand};
 use stdin::{create_stdin_thread, StdinResponse};
 
@@ -291,7 +291,7 @@ fn uci_loop<'scope, 'env>(scope: &'scope std::thread::Scope<'scope, 'env>) {
                     engine_thread
                         .to_thread
                         .send(EngineCommand::NewGame(NewGameCommand {
-                            game: Some(Game::new()),
+                            game: Some(BitboardGame::new()),
                             moves: Vec::new(),
                         }))
                 {
@@ -302,7 +302,7 @@ fn uci_loop<'scope, 'env>(scope: &'scope std::thread::Scope<'scope, 'env>) {
             (Some(UciProtocolOutput::EngineCommandPosition), ParsedInput::UciStdInInput(words)) => {
                 let mut param_iter = words.iter().skip(1).map(String::as_str);
                 let (next_token, new_game) = match param_iter.next() {
-                    Some("startpos") => (param_iter.next(), Some(Game::new())),
+                    Some("startpos") => (param_iter.next(), Some(BitboardGame::new())),
                     Some("fen") => {
                         log!("Parsing FEN string...");
 
@@ -318,7 +318,7 @@ fn uci_loop<'scope, 'env>(scope: &'scope std::thread::Scope<'scope, 'env>) {
                         .map_while(|token| *token)
                         .collect();
 
-                        if let Some(new_game_from_fen) = Game::try_from_fen(fen.as_slice()) {
+                        if let Some(new_game_from_fen) = BitboardGame::try_from_fen(fen.as_slice()) {
                             (param_iter.next(), Some(new_game_from_fen))
                         } else {
                             log!("Malformed FEN string in position command");
@@ -332,7 +332,7 @@ fn uci_loop<'scope, 'env>(scope: &'scope std::thread::Scope<'scope, 'env>) {
                     }
                 };
                 if let Some(game) = &new_game {
-                    let _ = log!("New position:\n{}", game.board);
+                    let _ = log!("New position:\n{}", game.board());
                 }
                 let mut new_game_command = NewGameCommand {
                     game: new_game,

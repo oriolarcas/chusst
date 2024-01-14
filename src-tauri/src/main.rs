@@ -2,8 +2,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use chusst_gen::board::{Piece, Position};
-use chusst_gen::eval;
-use chusst_gen::game::{Game, Move, MoveAction, MoveActionType, PromotionPieces};
+use chusst_gen::eval::{self, Game};
+use chusst_gen::game::{BitboardGame, Move, MoveAction, MoveActionType, PromotionPieces};
 
 use serde::Serialize;
 use tauri::{LogicalSize, Manager, Size};
@@ -24,19 +24,19 @@ struct TurnDescription {
 }
 
 struct GameData {
-    game: Game,
+    game: BitboardGame,
     history: Vec<TurnDescription>,
 }
 
 static GAME: Mutex<GameData> = Mutex::new(GameData {
-    game: Game::new(),
+    game: BitboardGame::new(),
     history: vec![],
 });
 
 // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
 #[tauri::command]
-fn get_game() -> Game {
-    GAME.lock().unwrap().game
+fn get_game() -> BitboardGame {
+    GAME.lock().unwrap().game.clone()
 }
 
 #[tauri::command]
@@ -48,15 +48,14 @@ fn get_history() -> Vec<TurnDescription> {
 fn get_possible_moves(rank: usize, file: usize) -> Vec<Position> {
     let position = Position { rank, file };
     let game = &mut GAME.lock().unwrap().game;
-    let possible_moves =
-        eval::get_possible_targets(&game.board, &game.last_move, &game.info, position);
+    let possible_moves = game.get_possible_targets(position);
     possible_moves
 }
 
 #[tauri::command]
 fn get_possible_captures() -> eval::BoardCaptures {
     let game = &mut GAME.lock().unwrap().game;
-    eval::get_possible_captures(&game)
+    game.get_possible_captures()
 }
 
 #[tauri::command(rename_all = "snake_case")]
@@ -89,7 +88,7 @@ fn do_move(
     let game_data = &mut GAME.lock().unwrap();
     let game = &mut game_data.game;
 
-    let white_move = match eval::move_name(&game, &mv) {
+    let white_move = match game.move_name(&mv) {
         Some(name) => name,
         None => {
             println!("Invalid move: {}", mv.mv);
@@ -97,7 +96,7 @@ fn do_move(
         }
     };
 
-    let white_captures = match eval::do_move(game, &mv) {
+    let white_captures = match game.do_move(&mv) {
         Some(captures) => captures,
         None => {
             println!("Invalid move: {}", white_move);
@@ -105,14 +104,14 @@ fn do_move(
         }
     };
 
-    let (black_move_opt, black_captures, mate) = match eval::get_best_move(game, 4) {
+    let (black_move_opt, black_captures, mate) = match game.get_best_move(4) {
         eval::GameMove::Normal(mv) => {
-            let description = eval::move_name(&game, &mv);
+            let description = game.move_name(&mv);
 
-            let black_captures = eval::do_move(game, &mv);
+            let black_captures = game.do_move(&mv);
             assert!(black_captures.is_some());
 
-            let black_mate = eval::is_mate(&game.board, &game.player, &game.last_move, &game.info);
+            let black_mate = game.is_mate();
 
             (description, black_captures.unwrap(), black_mate)
         }
@@ -163,7 +162,7 @@ fn do_move(
 fn restart() {
     let data = &mut GAME.lock().unwrap();
 
-    data.game = Game::new();
+    data.game = BitboardGame::new();
 
     data.history.clear();
 
