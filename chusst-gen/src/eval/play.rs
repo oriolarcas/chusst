@@ -128,7 +128,7 @@ where
             MoveExtraInfo::CastleKingside => {
                 let rook_source = try_move(&mv.source, &dir!(0, 3)).unwrap();
                 let rook_target = try_move(&mv.source, &dir!(0, 1)).unwrap();
-                self.as_mut().move_piece(&rook_source, &rook_target);
+                self.move_piece(&rook_source, &rook_target);
             }
             MoveExtraInfo::CastleQueenside => {
                 let rook_source = try_move(&mv.source, &dir!(0, -4)).unwrap();
