@@ -1,5 +1,5 @@
-use chusst_gen::eval::{do_move, get_best_move_recursive, SilentSearchFeedback};
-use chusst_gen::game::Game;
+use chusst_gen::eval::{Game, SilentSearchFeedback};
+use chusst_gen::game::BitboardGame;
 
 #[macro_use]
 extern crate bencher;
@@ -9,11 +9,11 @@ use bencher::Bencher;
 fn search(bench: &mut Bencher) {
     let mut searched = 0u64;
     bench.iter(|| {
-        let mut game = Game::new();
+        let game = BitboardGame::new();
 
-        let best_branch =
-            get_best_move_recursive(&mut game, 4, &mut (), &mut SilentSearchFeedback::default())
-                .unwrap();
+        let best_branch = game
+            .get_best_move_recursive(4, &mut (), &mut SilentSearchFeedback::default())
+            .unwrap();
 
         searched = u64::from(best_branch.searched);
     });
@@ -24,11 +24,11 @@ fn search(bench: &mut Bencher) {
 fn game_benchmark() -> u64 {
     // use std::io::Write;
 
-    let mut game = Game::new();
-    let get_best_move_helper = |game: &mut Game| {
-        let best_branch =
-            get_best_move_recursive(game, 3, &mut (), &mut SilentSearchFeedback::default())
-                .unwrap();
+    let mut game = BitboardGame::new();
+    let get_best_move_helper = |game: &mut BitboardGame| {
+        let best_branch = game
+            .get_best_move_recursive(3, &mut (), &mut SilentSearchFeedback::default())
+            .unwrap();
 
         (best_branch.searched, best_branch.moves.first().unwrap().mv)
     };
@@ -51,14 +51,14 @@ fn game_benchmark() -> u64 {
 
         let (white_searched, white_move) = get_best_move_helper(&mut game);
         // let white_move_name = move_name(&game.board, &game.last_move, &game.player, &white_move);
-        do_move(&mut game, &white_move);
+        game.do_move(&white_move);
 
         // print!("{} ", white_move_name);
         // std::io::stdout().flush().unwrap();
 
         let (black_searched, black_move) = get_best_move_helper(&mut game);
         // let black_move_name = move_name(&game.board, &game.last_move, &game.player, &black_move);
-        do_move(&mut game, &black_move);
+        game.do_move(&black_move);
 
         // println!("{}", black_move_name);
         // std::io::stdout().flush().unwrap();

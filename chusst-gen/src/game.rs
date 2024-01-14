@@ -1,4 +1,7 @@
-use crate::board::{Board, PieceType, Player, Position, INITIAL_BOARD};
+use crate::board::{
+    Bitboards, Board, CompactBoard, ModifiableBoard, Piece, PieceType, Player, Position,
+    SimpleBoard,
+};
 use crate::{mv, pos};
 
 use serde::Serialize;
@@ -234,25 +237,36 @@ impl Default for GameInfo {
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Serialize)]
-pub struct Game {
-    pub board: Board,
+#[derive(Clone, PartialEq, Debug)]
+pub struct GameState<B: Board> {
+    pub board: B,
     pub player: Player,
     pub last_move: Option<MoveInfo>,
     pub info: GameInfo,
 }
 
-impl Game {
-    pub const fn new() -> Game {
-        Game {
-            board: INITIAL_BOARD,
+impl<B: Board> From<B> for GameState<B> {
+    fn from(value: B) -> Self {
+        GameState {
+            board: value,
+            player: Player::White,
+            last_move: None,
+            info: GameInfo::new(),
+        }
+    }
+}
+
+impl<B: Board> GameState<B> {
+    pub const fn new() -> GameState<B> {
+        GameState {
+            board: B::NEW_BOARD,
             player: Player::White,
             last_move: None,
             info: GameInfo::new(),
         }
     }
 
-    pub fn try_from_fen(fen: &[&str]) -> Option<Game> {
+    pub fn try_from_fen(fen: &[&str]) -> Option<Self> {
         // rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1
         // ^                                           ^ ^    ^ ^ ^
         // |                                           | |    | | ` Fullmove number
@@ -270,7 +284,7 @@ impl Game {
             return None;
         };
 
-        let board = Board::try_from_fen(pieces)?;
+        let board = B::try_from_fen(pieces)?;
 
         let player = match *player_str {
             "w" => Player::White,
@@ -312,7 +326,7 @@ impl Game {
             black_queenside_castling_allowed: castling.contains('q'),
         };
 
-        Some(Game {
+        Some(GameState {
             board,
             player,
             last_move,
@@ -320,3 +334,21 @@ impl Game {
         })
     }
 }
+
+impl<B: Board> ModifiableBoard<Position, Option<Piece>> for GameState<B> {
+    fn at(&self, pos: &Position) -> Option<Piece> {
+        self.board.at(pos)
+    }
+
+    fn update(&mut self, pos: &Position, value: Option<Piece>) {
+        self.board.update(pos, value)
+    }
+
+    fn move_piece(&mut self, source: &Position, target: &Position) {
+        self.board.move_piece(source, target)
+    }
+}
+
+pub type SimpleGame = GameState<SimpleBoard>;
+pub type CompactGame = GameState<CompactBoard>;
+pub type BitboardGame = GameState<Bitboards>;

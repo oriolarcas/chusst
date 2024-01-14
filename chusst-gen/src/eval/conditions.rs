@@ -26,15 +26,15 @@ pub fn try_move(position: &Position, direction: &Direction) -> Option<Position> 
     }
 }
 
-pub fn only_empty(board: &Board, position: Option<Position>) -> Option<Position> {
-    match board.square(&position?) {
+pub fn only_empty(board: &impl Board, position: Option<Position>) -> Option<Position> {
+    match board.at(&position?) {
         Some(_) => None,
         None => position,
     }
 }
 
-fn only_player(board: &Board, position: Option<Position>, player: Player) -> Option<Position> {
-    match board.square(&position?) {
+fn only_player(board: &impl Board, position: Option<Position>, player: Player) -> Option<Position> {
+    match board.at(&position?) {
         Some(square) => {
             if square.player == player {
                 position
@@ -53,17 +53,21 @@ pub fn enemy(player: &Player) -> Player {
     }
 }
 
-pub fn only_enemy(board: &Board, position: Option<Position>, player: &Player) -> Option<Position> {
+pub fn only_enemy(
+    board: &impl Board,
+    position: Option<Position>,
+    player: &Player,
+) -> Option<Position> {
     only_player(board, position, enemy(player))
 }
 
 pub fn only_empty_or_enemy(
-    board: &Board,
+    board: &impl Board,
     position: Option<Position>,
     player: &Player,
 ) -> Option<Position> {
     match position {
-        Some(position_value) => match board.square(&position_value) {
+        Some(position_value) => match board.at(&position_value) {
             // Occupied square
             Some(piece) => {
                 if piece.player != *player {
@@ -82,7 +86,7 @@ pub fn only_empty_or_enemy(
 }
 
 pub fn only_en_passant(
-    board: &Board,
+    board: &impl Board,
     last_move: &Option<MoveInfo>,
     position: Option<Position>,
     player: &Player,

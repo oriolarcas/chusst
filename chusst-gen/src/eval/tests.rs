@@ -1,7 +1,8 @@
 use super::play::{PlayableGame, ReversableGame};
-use super::{do_move, get_possible_moves, move_name, piece_is_unsafe};
 use crate::board::{Board, ModifiableBoard, Piece, PieceType, Player, Position};
-use crate::game::{Game, Move, MoveAction, MoveActionType, PromotionPieces};
+use crate::eval::check::SafetyChecks;
+use crate::eval::Game;
+use crate::game::{Move, MoveAction, MoveActionType, PromotionPieces, SimpleGame};
 use crate::{mva, p, pos};
 
 struct PiecePosition {
@@ -31,10 +32,10 @@ struct TestBoard<'a> {
     checks: Vec<PiecePosition>,
 }
 
-fn custom_board(board_opt: &Option<&str>) -> Board {
+fn custom_board<B: Board>(board_opt: &Option<&str>) -> B {
     match board_opt {
         Some(board_str) => {
-            let mut board = Board::default();
+            let mut board = B::default();
 
             let mut rank = 8usize;
             for line in board_str.lines() {
@@ -78,7 +79,7 @@ fn custom_board(board_opt: &Option<&str>) -> Board {
             }
             board
         }
-        None => Board::new(),
+        None => B::NEW_BOARD,
     }
 }
 
@@ -216,7 +217,7 @@ fn move_reversable() {
 
     for test_board in &test_boards {
         // Prepare board
-        let mut game = Game {
+        let mut game = SimpleGame {
             board: custom_board(&test_board.board),
             player: Player::White,
             last_move: None,
@@ -226,7 +227,7 @@ fn move_reversable() {
         // Do setup moves
         for mv in &test_board.initial_moves {
             assert!(
-                do_move(&mut game, &mv).is_some(),
+                game.do_move(&mv).is_some(),
                 "move {} failed:\n{}",
                 mv.mv,
                 game.board
@@ -239,7 +240,7 @@ fn move_reversable() {
 
         // Do move
         assert!(
-            rev_game.do_move(&test_board.mv),
+            rev_game.do_move_with_checks(&test_board.mv),
             "failed to make legal move {} in:\n{}",
             test_board.mv.mv,
             game.board
@@ -247,7 +248,7 @@ fn move_reversable() {
 
         for check in &test_board.checks {
             assert_eq!(
-                rev_game.as_ref().board.square(&check.position),
+                rev_game.as_ref().at(&check.position),
                 check.piece,
                 "expected {} in {}, found {}:\n{}",
                 check
@@ -256,8 +257,7 @@ fn move_reversable() {
                 check.position,
                 rev_game
                     .as_ref()
-                    .board
-                    .square(&check.position)
+                    .at(&check.position)
                     .map_or("nothing".to_string(), |piece| format!("{}", piece.piece)),
                 rev_game.as_ref().board,
             );
@@ -362,7 +362,7 @@ fn check_mate() {
 
     for test_board in test_boards {
         // Prepare board
-        let mut game = Game {
+        let mut game = SimpleGame {
             board: custom_board(&test_board.board),
             player: Player::Black,
             last_move: None,
@@ -377,14 +377,14 @@ fn check_mate() {
         // Do setup moves
         for mv in &test_board.initial_moves {
             assert!(
-                do_move(&mut game, &mv).is_some(),
+                game.do_move(&mv).is_some(),
                 "move {} failed:\n{}",
                 mv.mv,
                 game.board
             );
         }
 
-        let name = move_name(&game, &test_board.mv).unwrap();
+        let name = game.move_name(&test_board.mv).unwrap();
         assert!(
             name.ends_with("#"),
             "notation `{}` for move {} doesn't show checkmate sign # in:\n{}",
@@ -397,14 +397,14 @@ fn check_mate() {
         let mut rev_game = ReversableGame::from(&mut game);
 
         assert!(
-            rev_game.do_move(&test_board.mv),
+            rev_game.do_move_with_checks(&test_board.mv),
             "invalid move {}:\n{}",
             test_board.mv.mv,
             rev_game.as_ref().board
         );
 
-        let possible_moves = get_possible_moves(&game.board, &None, &game.info, pos!(a1));
-        let in_check = piece_is_unsafe(&game.board, &pos!(a1));
+        let possible_moves = game.get_possible_moves(pos!(a1));
+        let in_check = game.board.is_piece_unsafe(&pos!(a1));
         assert!(in_check, "king should be in check:\n{}", game.board);
         assert!(
             possible_moves.is_empty(),
@@ -418,7 +418,7 @@ fn check_mate() {
 #[test]
 fn fen_parsing() {
     let start_pos_fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
-    let parsed_game = Game::try_from_fen(
+    let parsed_game = SimpleGame::try_from_fen(
         start_pos_fen
             .split_ascii_whitespace()
             .collect::<Vec<&str>>()
@@ -426,7 +426,7 @@ fn fen_parsing() {
     );
     assert!(parsed_game.is_some(), "Failed to parse FEN string");
     let game = parsed_game.unwrap();
-    assert_eq!(game, Game::new(), "\n{}", game.board);
+    assert_eq!(game, SimpleGame::new(), "\n{}", game.board);
 }
 
 // Template to quickly test a specific board/move
@@ -454,7 +454,7 @@ fn quick_test() {
 
     for test_board in test_boards {
         // Prepare board
-        let mut game = Game {
+        let mut game = SimpleGame {
             board: custom_board(&test_board.board),
             player: Player::White,
             last_move: None,
@@ -467,7 +467,7 @@ fn quick_test() {
         // Do setup moves
         for mv in &test_board.initial_moves {
             assert!(
-                do_move(&mut game, &mv).is_some(),
+                game.do_move(&mv).is_some(),
                 "move {} failed:\n{}",
                 mv.mv,
                 game.board
@@ -478,7 +478,7 @@ fn quick_test() {
         let mut rev_game = ReversableGame::from(&mut game);
 
         assert!(
-            rev_game.do_move(&test_board.mv),
+            rev_game.do_move_with_checks(&test_board.mv),
             "invalid move {}:\n{}",
             test_board.mv.mv,
             rev_game.as_ref().board
