@@ -15,11 +15,9 @@ impl From<&Game> for BitboardGame {
 
         for rank in 0..8 {
             for file in 0..8 {
-                let square = game.board.square(&Position { rank, file });
-                if square.is_none() {
+                let Some(square) = game.board.square(&Position { rank, file }) else {
                     continue;
-                }
-                let square = square.unwrap();
+                };
                 let player_bitboards = match square.player {
                     Player::White => &mut bitboards.white,
                     Player::Black => &mut bitboards.black,
