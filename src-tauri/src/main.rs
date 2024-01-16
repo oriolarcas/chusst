@@ -3,7 +3,12 @@
 
 use chusst_gen::board::{Piece, Position};
 use chusst_gen::eval::{self, Game};
-use chusst_gen::game::{BitboardGame, Move, MoveAction, MoveActionType, PromotionPieces};
+use chusst_gen::game::{Move, MoveAction, MoveActionType, PromotionPieces};
+
+#[cfg(feature = "bitboards")]
+type GameModel = chusst_gen::game::BitboardGame;
+#[cfg(not(feature = "bitboards"))]
+type GameModel = chusst_gen::game::SimpleGame;
 
 use serde::Serialize;
 use tauri::{LogicalSize, Manager, Size};
@@ -24,18 +29,18 @@ struct TurnDescription {
 }
 
 struct GameData {
-    game: BitboardGame,
+    game: GameModel,
     history: Vec<TurnDescription>,
 }
 
 static GAME: Mutex<GameData> = Mutex::new(GameData {
-    game: BitboardGame::new(),
+    game: GameModel::new(),
     history: vec![],
 });
 
 // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
 #[tauri::command]
-fn get_game() -> BitboardGame {
+fn get_game() -> GameModel {
     GAME.lock().unwrap().game.clone()
 }
 
@@ -162,7 +167,7 @@ fn do_move(
 fn restart() {
     let data = &mut GAME.lock().unwrap();
 
-    data.game = BitboardGame::new();
+    data.game = GameModel::new();
 
     data.history.clear();
 

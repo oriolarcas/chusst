@@ -19,6 +19,13 @@ serde = { version = "1.0.195", features = ["derive"] }
 serde_json = "1.0"
 
 [features]
+default = ["bitboards"]
+
+# Use bitboards to evaluate valid moves
+bitboards = ["chusst-gen/bitboards"]
+# Use a memory-efficient representation of the board (1 byte per square)
+compact-board = []
+
 # this feature is used for production builds or when `devPath` points to the filesystem
 # DO NOT REMOVE!!
 custom-protocol = ["tauri/custom-protocol"]

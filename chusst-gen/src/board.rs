@@ -1,16 +1,20 @@
 // Board representations
+#[cfg(feature = "bitboards")]
 mod bitboards;
 mod compact;
 mod simple;
+
+#[cfg(feature = "bitboards")]
+pub use bitboards::Bitboards;
+#[cfg(feature = "bitboards")]
+pub(crate) use bitboards::PlayerBitboards;
+pub use compact::CompactBoard;
+pub use simple::SimpleBoard;
 
 use atty;
 use colored::Colorize;
 use serde::{ser::SerializeMap, ser::SerializeSeq, Serialize};
 use std::{fmt, ops::Not};
-
-pub use bitboards::{Bitboards, PlayerBitboards};
-pub use compact::CompactBoard;
-pub use simple::SimpleBoard;
 
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq, Serialize)]
 pub enum PieceType {
