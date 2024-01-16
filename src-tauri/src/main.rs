@@ -7,7 +7,9 @@ use chusst_gen::game::{Move, MoveAction, MoveActionType, PromotionPieces};
 
 #[cfg(feature = "bitboards")]
 type GameModel = chusst_gen::game::BitboardGame;
-#[cfg(not(feature = "bitboards"))]
+#[cfg(feature = "compact-board")]
+type GameModel = chusst_gen::game::CompactGame;
+#[cfg(all(not(feature = "bitboards"), not(feature = "compact-board")))]
 type GameModel = chusst_gen::game::SimpleGame;
 
 use serde::Serialize;

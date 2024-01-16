@@ -1,6 +1,8 @@
 #[cfg(feature = "bitboards")]
 use crate::board::{Bitboards, ModifiableBoard, PlayerBitboards};
-use crate::board::{Board, CompactBoard, Piece, PieceType, Player, Position, SimpleBoard};
+#[cfg(feature = "compact-board")]
+use crate::board::CompactBoard;
+use crate::board::{Board, Piece, PieceType, Player, Position, SimpleBoard};
 use crate::eval::conditions::{only_empty, try_move, Direction};
 use crate::eval::iter::{dir, into_rolling_board_iterator};
 
@@ -160,6 +162,7 @@ impl SafetyChecks for SimpleBoard {
     }
 }
 
+#[cfg(feature = "compact-board")]
 impl SafetyChecks for CompactBoard {
     fn find_king(&self, player: &Player) -> Position {
         find_king(self, player)

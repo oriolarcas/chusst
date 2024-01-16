@@ -24,7 +24,7 @@ default = ["bitboards"]
 # Use bitboards to evaluate valid moves
 bitboards = ["chusst-gen/bitboards"]
 # Use a memory-efficient representation of the board (1 byte per square)
-compact-board = []
+compact-board = ["chusst-gen/compact-board"]
 
 # this feature is used for production builds or when `devPath` points to the filesystem
 # DO NOT REMOVE!!

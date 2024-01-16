@@ -1,6 +1,7 @@
 // Board representations
 #[cfg(feature = "bitboards")]
 mod bitboards;
+#[cfg(feature = "compact-board")]
 mod compact;
 mod simple;
 
@@ -8,6 +9,7 @@ mod simple;
 pub use bitboards::Bitboards;
 #[cfg(feature = "bitboards")]
 pub(crate) use bitboards::PlayerBitboards;
+#[cfg(feature = "compact-board")]
 pub use compact::CompactBoard;
 pub use simple::SimpleBoard;
 

@@ -1,5 +1,5 @@
 use crate::board::{
-    Board, CompactBoard, ModifiableBoard, Piece, PieceType, Player, Position, SimpleBoard,
+    Board, ModifiableBoard, Piece, PieceType, Player, Position, SimpleBoard,
 };
 use crate::{mv, pos};
 
@@ -360,6 +360,7 @@ impl<B: Board> ModifiableBoard<Position, Option<Piece>> for GameState<B> {
 
 #[cfg(feature = "bitboards")]
 pub type BitboardGame = GameState<crate::board::Bitboards>;
+#[cfg(feature = "compact-board")]
+pub type CompactGame = GameState<crate::board::CompactBoard>;
 
 pub type SimpleGame = GameState<SimpleBoard>;
-pub type CompactGame = GameState<CompactBoard>;
