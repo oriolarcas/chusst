@@ -292,6 +292,37 @@ impl Bitboards {
             None
         }
     }
+
+    pub fn from(other: &impl Board) -> Self {
+        let mut bitboards = Bitboards::default();
+
+        for rank in 0..8 {
+            for file in 0..8 {
+                let Some(square) = other.at(&Position { rank, file }) else {
+                    continue;
+                };
+                let player_bitboards = match square.player {
+                    Player::White => &mut bitboards.white,
+                    Player::Black => &mut bitboards.black,
+                };
+
+                let piece_mask = bitboard_from_rank_and_file(rank, file);
+
+                match square.piece {
+                    PieceType::Pawn => player_bitboards.pawns |= piece_mask,
+                    PieceType::Knight => player_bitboards.knights |= piece_mask,
+                    PieceType::Bishop => player_bitboards.bishops |= piece_mask,
+                    PieceType::Rook => player_bitboards.rooks |= piece_mask,
+                    PieceType::Queen => player_bitboards.queens |= piece_mask,
+                    PieceType::King => player_bitboards.kings |= piece_mask,
+                }
+
+                player_bitboards.combined |= piece_mask;
+            }
+        }
+
+        bitboards
+    }
 }
 
 impl ModifiableBoard<Position, Option<Piece>> for Bitboards {
