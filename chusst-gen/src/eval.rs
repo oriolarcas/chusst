@@ -139,6 +139,22 @@ struct SearchResult {
     stopped: bool,
 }
 
+struct SearchScores {
+    parent: Score,
+    alpha: Score,
+    beta: Score,
+}
+
+impl Default for SearchScores {
+    fn default() -> Self {
+        Self {
+            parent: Score::from(0),
+            alpha: Score::MIN,
+            beta: Score::MAX,
+        }
+    }
+}
+
 // Value in centipawns
 fn get_piece_value(piece: PieceType) -> Score {
     match piece {
@@ -316,9 +332,7 @@ trait GamePrivate<B: Board + SafetyChecks>: PlayableGame<B> {
         &self,
         current_depth: u32,
         max_depth: u32,
-        alpha: Score,
-        beta: Score,
-        parent_score: Score,
+        scores: SearchScores,
         stop_signal: &mut impl HasStopSignal,
         feedback: &mut impl SearchFeedback,
     ) -> SearchResult {
@@ -334,7 +348,7 @@ trait GamePrivate<B: Board + SafetyChecks>: PlayableGame<B> {
 
         let king_position = self.board().find_king(&player);
 
-        let mut local_alpha = alpha;
+        let mut local_alpha = scores.alpha;
 
         let is_leaf_node = current_depth == max_depth;
         let mut stopped = false;
@@ -384,7 +398,7 @@ trait GamePrivate<B: Board + SafetyChecks>: PlayableGame<B> {
                         score: local_score,
                     }],
                     // Negamax: negate score from previous move
-                    score: local_score - parent_score,
+                    score: local_score - scores.parent,
                     searched: 0,
                 };
 
@@ -411,9 +425,11 @@ trait GamePrivate<B: Board + SafetyChecks>: PlayableGame<B> {
                         current_depth + 1,
                         max_depth,
                         // beta becomes the alpha of the other player, and viceversa
-                        -beta,
-                        -local_alpha,
-                        branch.score,
+                        SearchScores {
+                            parent: branch.score,
+                            alpha: -scores.beta,
+                            beta: -local_alpha,
+                        },
                         stop_signal,
                         feedback,
                     );
@@ -471,7 +487,7 @@ trait GamePrivate<B: Board + SafetyChecks>: PlayableGame<B> {
                         let _ = writeln!(feedback, "{}}}", indent(current_depth));
                     }
 
-                    if branch.score >= beta && branch.score < Score::MAX {
+                    if branch.score >= scores.beta && branch.score < Score::MAX {
                         // Fail hard beta cutoff
 
                         #[cfg(feature = "verbose-search")]
@@ -489,7 +505,7 @@ trait GamePrivate<B: Board + SafetyChecks>: PlayableGame<B> {
                             best_move = Some(branch);
                         }
 
-                        best_move.as_mut().unwrap().score = beta;
+                        best_move.as_mut().unwrap().score = scores.beta;
 
                         break 'main_loop;
                     }
@@ -535,9 +551,7 @@ trait GamePrivate<B: Board + SafetyChecks>: PlayableGame<B> {
         self.get_best_move_recursive_alpha_beta(
             0,
             0,
-            Score::MIN,
-            Score::MAX,
-            Score::from(0),
+            SearchScores::default(),
             &mut (),
             &mut SilentSearchFeedback::default(),
         )
@@ -738,9 +752,7 @@ pub trait Game<B: Board + SafetyChecks>: GamePrivate<B> {
         self.get_best_move_recursive_alpha_beta(
             0,
             search_depth,
-            Score::MIN,
-            Score::MAX,
-            Score::from(0),
+            SearchScores::default(),
             stop_signal,
             feedback,
         )
