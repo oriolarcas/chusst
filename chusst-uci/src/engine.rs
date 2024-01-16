@@ -1,9 +1,8 @@
 use crate::duplex_thread::{create_duplex_thread, DuplexThread};
 use chusst_gen::eval::{
-    do_move, get_best_move_with_logger, EngineFeedback, EngineFeedbackMessage, EngineMessage,
-    GameMove, HasStopSignal,
+    EngineFeedback, EngineFeedbackMessage, EngineMessage, Game, GameMove, HasStopSignal,
 };
-use chusst_gen::game::{Game, MoveAction};
+use chusst_gen::game::{BitboardGame, MoveAction};
 
 use std::fmt;
 use std::io::Write;
@@ -15,7 +14,7 @@ pub struct GoCommand {
 
 #[derive(Clone)]
 pub struct NewGameCommand {
-    pub game: Option<Game>,
+    pub game: Option<BitboardGame>,
     pub moves: Vec<MoveAction>,
 }
 
@@ -142,7 +141,7 @@ fn engine_thread(
 ) {
     let mut from_engine_mut = from_engine;
     let mut communicator = BufferedSenderWriter::new(&mut from_engine_mut);
-    let mut game = Game::new();
+    let mut game = BitboardGame::new();
     let mut command_receiver = EngineCommandReceiver {
         receiver: &to_engine,
         messages: Vec::new(),
@@ -160,15 +159,14 @@ fn engine_thread(
                     game = new_game;
                 }
                 for mv in new_game_cmd.moves {
-                    if do_move(&mut game, &mv).is_none() {
+                    if game.do_move(&mv).is_none() {
                         let _ = communicator
                             .send(EngineResponse::Error(format!("Invalid move {}", mv.mv)));
                     }
                 }
             }
             Some(EngineCommand::Go(go_command)) => {
-                let best_move = get_best_move_with_logger(
-                    &mut game,
+                let best_move = game.get_best_move_with_logger(
                     go_command.depth,
                     &mut command_receiver,
                     &mut communicator,

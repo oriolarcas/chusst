@@ -4229,8 +4229,9 @@ pub const IN_BETWEEN_TABLE: [[Bitboard; 64]; 64] = [
 
 #[cfg(test)]
 mod tests {
+    use super::super::rank_and_file_to_bitboard_index;
     use super::*;
-    use crate::{board::Position, eval::bitboards::rank_and_file_to_bitboard_index};
+    use crate::board::Position;
 
     fn bitboard_index_to_position(index: usize) -> Position {
         Position {

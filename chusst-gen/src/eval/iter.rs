@@ -1,8 +1,8 @@
-use crate::board::{Board, PieceType, Player, Position};
+use crate::board::{Board, Piece, PieceType, Player, Position};
 use crate::eval::conditions::{
     only_empty, only_empty_or_enemy, only_en_passant, only_enemy, try_move, Direction,
 };
-use crate::game::Game;
+use crate::game::GameState;
 use crate::pos;
 
 pub struct BoardIter {
@@ -38,8 +38,8 @@ impl<'a> Iterator for BoardIter {
     }
 }
 
-pub struct PlayerPiecesIter<'a> {
-    pub(super) board: &'a Board,
+pub struct PlayerPiecesIter<'a, B: Board> {
+    pub(super) board: &'a B,
     pub(super) player: &'a Player,
     pub(super) board_iter: BoardIter,
 }
@@ -55,28 +55,18 @@ macro_rules! player_pieces_iter {
 }
 pub(crate) use player_pieces_iter;
 
-impl<'a> Iterator for PlayerPiecesIter<'a> {
+impl<'a, B: Board> Iterator for PlayerPiecesIter<'a, B> {
     type Item = Position;
 
     fn next(&mut self) -> Option<Self::Item> {
-        loop {
-            match self.board_iter.next() {
-                Some(position) => match self.board.square(&position) {
-                    Some(piece) => {
-                        if piece.player == *self.player {
-                            return Some(position);
-                        }
-                        continue;
-                    }
-                    None => {
-                        continue;
-                    }
-                },
-                None => {
-                    return None;
+        while let Some(position) = self.board_iter.next() {
+            if let Some(Piece { piece: _, player }) = self.board.at(&position) {
+                if player == *self.player {
+                    return Some(position);
                 }
             }
         }
+        None
     }
 }
 
@@ -98,7 +88,7 @@ struct WalkPath {
 
 trait BoardIterator {
     fn walk(position: Position, direction: Direction) -> WalkPath;
-    fn next(&mut self, board: &Board, player: &Player) -> Option<Position>;
+    fn next(&mut self, board: &impl Board, player: &Player) -> Option<Position>;
 }
 
 impl BoardIterator for WalkPath {
@@ -110,14 +100,14 @@ impl BoardIterator for WalkPath {
         }
     }
 
-    fn next(&mut self, board: &Board, player: &Player) -> Option<Position> {
+    fn next(&mut self, board: &impl Board, player: &Player) -> Option<Position> {
         if self.stop_walking {
             return None;
         }
-        match only_empty_or_enemy(&board, try_move(&self.position, &self.direction), player) {
+        match only_empty_or_enemy(board, try_move(&self.position, &self.direction), player) {
             Some(new_position) => {
                 self.position = new_position;
-                match only_empty(&board, Some(new_position)) {
+                match only_empty(board, Some(new_position)) {
                     Some(_) => Some(new_position),
                     None => {
                         self.stop_walking = true;
@@ -130,22 +120,22 @@ impl BoardIterator for WalkPath {
     }
 }
 
-pub struct BoardIteratorAdapter<'a> {
-    board: &'a Board,
+pub struct BoardIteratorAdapter<'a, B: Board> {
+    board: &'a B,
     player: Player,
     walker: WalkPath,
 }
 
-impl<'a> Iterator for BoardIteratorAdapter<'a> {
+impl<'a, B: Board> Iterator for BoardIteratorAdapter<'a, B> {
     type Item = Position;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.walker.next(&self.board, &self.player)
+        self.walker.next(self.board, &self.player)
     }
 }
 
 pub fn into_rolling_board_iterator<'a>(
-    board: &'a Board,
+    board: &'a impl Board,
     player: &Player,
     position: &Position,
     direction: &Direction,
@@ -157,8 +147,8 @@ pub fn into_rolling_board_iterator<'a>(
     }
 }
 
-struct PieceIterGameState<'a> {
-    game: &'a Game,
+struct PieceIterGameState<'a, B: Board> {
+    game: &'a GameState<B>,
     position: Position,
 }
 
@@ -226,19 +216,19 @@ pub enum KingIterStates {
     KingIterEnd,
 }
 
-pub struct PositionalPieceIter<'a, PieceStateEnum> {
+pub struct PositionalPieceIter<'a, B: Board, PieceStateEnum> {
     state: PieceStateEnum,
-    game_state: PieceIterGameState<'a>,
+    game_state: PieceIterGameState<'a, B>,
 }
 
-pub struct RollingPieceIter<'a, PieceStateEnum> {
+pub struct RollingPieceIter<'a, B: Board, PieceStateEnum> {
     state: PieceStateEnum,
-    game_state: PieceIterGameState<'a>,
+    game_state: PieceIterGameState<'a, B>,
     player: Player,
     walker: Option<WalkPath>,
 }
 
-impl<'a, P> RollingPieceIter<'a, P> {
+impl<'a, B: Board, P> RollingPieceIter<'a, B, P> {
     fn walk(&'a self, direction: Direction) -> WalkPath {
         WalkPath {
             position: self.game_state.position,
@@ -248,35 +238,31 @@ impl<'a, P> RollingPieceIter<'a, P> {
     }
 }
 
-type PawnIter<'a> = PositionalPieceIter<'a, PawnIterStates>;
-type KnightIter<'a> = PositionalPieceIter<'a, KnightIterStates>;
-type BishopIter<'a> = RollingPieceIter<'a, BishopIterStates>;
-type RookIter<'a> = RollingPieceIter<'a, RookIterStates>;
-type QueenIter<'a> = RollingPieceIter<'a, QueenIterStates>;
-type KingIter<'a> = PositionalPieceIter<'a, KingIterStates>;
+type PawnIter<'a, B> = PositionalPieceIter<'a, B, PawnIterStates>;
+type KnightIter<'a, B> = PositionalPieceIter<'a, B, KnightIterStates>;
+type BishopIter<'a, B> = RollingPieceIter<'a, B, BishopIterStates>;
+type RookIter<'a, B> = RollingPieceIter<'a, B, RookIterStates>;
+type QueenIter<'a, B> = RollingPieceIter<'a, B, QueenIterStates>;
+type KingIter<'a, B> = PositionalPieceIter<'a, B, KingIterStates>;
 
-pub enum PieceIter<'a> {
+pub enum PieceIter<'a, B: Board> {
     EmptySquareIterType(std::iter::Empty<Position>),
-    PawnIterType(PawnIter<'a>),
-    KnightIterType(KnightIter<'a>),
-    BishopIterType(BishopIter<'a>),
-    RookIterType(RookIter<'a>),
-    QueenIterType(QueenIter<'a>),
-    KingIterType(KingIter<'a>),
+    PawnIterType(PawnIter<'a, B>),
+    KnightIterType(KnightIter<'a, B>),
+    BishopIterType(BishopIter<'a, B>),
+    RookIterType(RookIter<'a, B>),
+    QueenIterType(QueenIter<'a, B>),
+    KingIterType(KingIter<'a, B>),
 }
 
-pub fn piece_into_iter<'a>(
-    game: &'a Game,
+pub fn piece_into_iter<'a, B: Board>(
+    game: &'a GameState<B>,
     position: Position,
 ) -> impl Iterator<Item = Position> + 'a {
-    let square = game.board.square(&position);
-    if square.is_none() {
+    let Some(Piece { piece, player }) = game.board.at(&position) else {
         // println!("Square {} is empty", position);
         return PieceIter::EmptySquareIterType(std::iter::empty());
-    }
-
-    let piece = &square.unwrap().piece;
-    let player = &square.unwrap().player;
+    };
 
     let game_state = PieceIterGameState { game, position };
 
@@ -292,19 +278,19 @@ pub fn piece_into_iter<'a>(
         PieceType::Bishop => PieceIter::BishopIterType(BishopIter {
             game_state,
             state: BishopIterStates::BishopIter0,
-            player: *player,
+            player: player,
             walker: None,
         }),
         PieceType::Rook => PieceIter::RookIterType(RookIter {
             game_state,
             state: RookIterStates::RookIter0,
-            player: *player,
+            player: player,
             walker: None,
         }),
         PieceType::Queen => PieceIter::QueenIterType(QueenIter {
             game_state,
             state: QueenIterStates::QueenIter0,
-            player: *player,
+            player: player,
             walker: None,
         }),
         PieceType::King => PieceIter::KingIterType(KingIter {
@@ -314,7 +300,7 @@ pub fn piece_into_iter<'a>(
     }
 }
 
-impl<'a> Iterator for PieceIter<'a> {
+impl<'a, B: Board> Iterator for PieceIter<'a, B> {
     type Item = Position;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -330,13 +316,13 @@ impl<'a> Iterator for PieceIter<'a> {
     }
 }
 
-impl<'a> Iterator for PawnIter<'a> {
+impl<'a, B: Board> Iterator for PawnIter<'a, B> {
     type Item = Position;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let square = self.game_state.game.board.square(&self.game_state.position);
+        let square = self.game_state.game.board.at(&self.game_state.position);
         let player = &square.unwrap().player;
-        let direction = Board::pawn_progress_direction(player);
+        let direction = B::pawn_progress_direction(player);
         let can_pass = match player {
             Player::White => self.game_state.position.rank == 1,
             Player::Black => self.game_state.position.rank == 6,
@@ -447,11 +433,11 @@ macro_rules! walk_state {
     }};
 }
 
-impl<'a> Iterator for KnightIter<'a> {
+impl<'a, B: Board> Iterator for KnightIter<'a, B> {
     type Item = Position;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let square = self.game_state.game.board.square(&self.game_state.position);
+        let square = self.game_state.game.board.at(&self.game_state.position);
         let player = &square.unwrap().player;
         loop {
             let result = match self.state {
@@ -490,7 +476,7 @@ impl<'a> Iterator for KnightIter<'a> {
     }
 }
 
-impl<'a> Iterator for BishopIter<'a> {
+impl<'a, B: Board> Iterator for BishopIter<'a, B> {
     type Item = Position;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -519,7 +505,7 @@ impl<'a> Iterator for BishopIter<'a> {
     }
 }
 
-impl<'a> Iterator for RookIter<'a> {
+impl<'a, B: Board> Iterator for RookIter<'a, B> {
     type Item = Position;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -548,7 +534,7 @@ impl<'a> Iterator for RookIter<'a> {
     }
 }
 
-impl<'a> Iterator for QueenIter<'a> {
+impl<'a, B: Board> Iterator for QueenIter<'a, B> {
     type Item = Position;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -589,11 +575,11 @@ impl<'a> Iterator for QueenIter<'a> {
     }
 }
 
-impl<'a> Iterator for KingIter<'a> {
+impl<'a, B: Board> Iterator for KingIter<'a, B> {
     type Item = Position;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let square = self.game_state.game.board.square(&self.game_state.position);
+        let square = self.game_state.game.board.at(&self.game_state.position);
         let player = &square.unwrap().player;
         loop {
             let result = match self.state {

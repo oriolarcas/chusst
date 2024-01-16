@@ -1,7 +1,22 @@
+// Board representations
+#[cfg(feature = "bitboards")]
+mod bitboards;
+#[cfg(feature = "compact-board")]
+mod compact;
+mod simple;
+
+#[cfg(feature = "bitboards")]
+pub use bitboards::Bitboards;
+#[cfg(feature = "bitboards")]
+pub(crate) use bitboards::PlayerBitboards;
+#[cfg(feature = "compact-board")]
+pub use compact::CompactBoard;
+pub use simple::SimpleBoard;
+
 use atty;
 use colored::Colorize;
 use serde::{ser::SerializeMap, ser::SerializeSeq, Serialize};
-use std::fmt;
+use std::{fmt, ops::Not};
 
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq, Serialize)]
 pub enum PieceType {
@@ -34,6 +49,17 @@ impl fmt::Display for PieceType {
 pub enum Player {
     White,
     Black,
+}
+
+impl Not for Player {
+    type Output = Self;
+
+    fn not(self) -> Self::Output {
+        match self {
+            Player::White => Player::Black,
+            Player::Black => Player::White,
+        }
+    }
 }
 
 impl fmt::Display for Player {
@@ -379,114 +405,63 @@ macro_rules! pos {
     };
 }
 
-pub type Square = Option<Piece>;
-
 pub type Files<T> = [T; 8];
 pub type Ranks<T> = [Files<T>; 8];
 
-pub trait ModifiableBoard {
-    fn update(&mut self, pos: &Position, value: Square);
-
-    fn move_piece(&mut self, source: &Position, target: &Position);
+pub trait ModifiableBoard<K, V> {
+    fn at(&self, pos: &K) -> V;
+    fn update(&mut self, pos: &K, value: V);
+    fn move_piece(&mut self, source: &K, target: &K);
 }
 
-#[cfg(not(feature = "compact-board"))]
-mod internal_representation {
-    use super::Square;
+pub trait Board:
+    ModifiableBoard<Position, Option<Piece>>
+    + Clone
+    + Default
+    + fmt::Debug
+    + PartialEq
+    + Serialize
+    + fmt::Display
+{
+    const NEW_BOARD: Self;
 
-    pub type BoardSquare = Square;
-
-    pub const EMPTY_SQUARE: BoardSquare = None;
-
-    pub const fn internal_to_square(value: BoardSquare) -> Square {
-        value
+    fn iter(&self) -> impl Iterator<Item = Position> {
+        (0..8usize).flat_map(|rank| (0..8usize).map(move |file| Position { rank, file }))
     }
 
-    pub const fn square_to_internal(value: &Square) -> BoardSquare {
-        *value
-    }
-}
-
-#[cfg(feature = "compact-board")]
-mod internal_representation {
-    // Binary representation of a Square:
-    // 0b000vPppp where:
-    // v = 1 if the square is valid, 0 if it is not
-    // P = 0 if the piece is white, 1 if it is black
-    // pppp = piece type, 0..5 = pawn..king
-
-    use super::{Piece, PieceType, Player, Ranks, Square};
-
-    pub type BoardSquare = u8;
-
-    pub const EMPTY_SQUARE: BoardSquare = 0b0000_0000;
-
-    #[allow(dead_code)]
-    const SIZE_ASSERTION: [u8; 64] = [0; std::mem::size_of::<Ranks<BoardSquare>>()];
-
-    pub const fn internal_to_square(square_byte: BoardSquare) -> Square {
-        if square_byte & 0b0010_0000 == 0 {
-            return None;
-        }
-
-        let player = match square_byte & 0b0001_0000 != 0 {
-            true => Player::Black,
-            false => Player::White,
-        };
-
-        let piece = match square_byte & 0b0000_1111 {
-            0 => PieceType::Pawn,
-            1 => PieceType::Knight,
-            2 => PieceType::Bishop,
-            3 => PieceType::Rook,
-            4 => PieceType::Queen,
-            5 => PieceType::King,
-            _ => unreachable!(),
-        };
-
-        Some(Piece { piece, player })
-    }
-
-    pub const fn square_to_internal(square: &Square) -> BoardSquare {
-        match square {
-            Some(piece) => {
-                let mut square_byte = 0b0010_0000;
-                square_byte |= match piece.player {
-                    Player::White => 0b0000_0000,
-                    Player::Black => 0b0001_0000,
-                };
-                square_byte |= match piece.piece {
-                    PieceType::Pawn => 0b0000_0000,
-                    PieceType::Knight => 0b0000_0001,
-                    PieceType::Bishop => 0b0000_0010,
-                    PieceType::Rook => 0b0000_0011,
-                    PieceType::Queen => 0b0000_0100,
-                    PieceType::King => 0b0000_0101,
-                };
-                square_byte
-            }
-            None => 0,
+    fn home_rank(player: &Player) -> usize {
+        match player {
+            Player::White => 0,
+            Player::Black => 7,
         }
     }
-}
 
-#[derive(Copy, Clone, Debug, Default, PartialEq)]
-pub struct Board {
-    // ranks[x][y], where x = 0..7 = ranks 1..8, and y = 0..7 = files a..h
-    // for instance, e4 is Board.ranks[3][4]
-    ranks: Ranks<internal_representation::BoardSquare>,
-}
-
-impl Board {
-    pub const fn new() -> Board {
-        INITIAL_BOARD
+    fn can_promote_rank(player: &Player) -> usize {
+        match player {
+            Player::White => 6,
+            Player::Black => 1,
+        }
     }
 
-    pub fn try_from_fen(fen: &str) -> Option<Board> {
+    fn promotion_rank(player: &Player) -> usize {
+        match player {
+            Player::White => 7,
+            Player::Black => 0,
+        }
+    }
+
+    fn pawn_progress_direction(player: &Player) -> i8 {
+        match player {
+            Player::White => 1,
+            Player::Black => -1,
+        }
+    }
+
+    fn try_from_fen(fen: &str) -> Option<Self> {
         // Example initial
         // rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR
 
-        let mut board: Board = Default::default();
+        let mut board: Self = Default::default();
 
         let ranks = fen.split('/').collect::<Vec<&str>>();
 
@@ -545,49 +520,6 @@ impl Board {
 
         Some(board)
     }
-
-    pub fn square(&self, pos: &Position) -> Square {
-        internal_representation::internal_to_square(self.ranks[pos.rank][pos.file])
-    }
-
-    pub fn home_rank(player: &Player) -> usize {
-        match player {
-            Player::White => 0,
-            Player::Black => 7,
-        }
-    }
-
-    pub fn can_promote_rank(player: &Player) -> usize {
-        match player {
-            Player::White => 6,
-            Player::Black => 1,
-        }
-    }
-
-    pub fn promotion_rank(player: &Player) -> usize {
-        match player {
-            Player::White => 7,
-            Player::Black => 0,
-        }
-    }
-
-    pub fn pawn_progress_direction(player: &Player) -> i8 {
-        match player {
-            Player::White => 1,
-            Player::Black => -1,
-        }
-    }
-}
-
-impl ModifiableBoard for Board {
-    fn update(&mut self, pos: &Position, value: Square) {
-        self.ranks[pos.rank][pos.file] = internal_representation::square_to_internal(&value);
-    }
-
-    fn move_piece(&mut self, source: &Position, target: &Position) {
-        self.ranks[target.rank][target.file] = self.ranks[source.rank][source.file];
-        self.ranks[source.rank][source.file] = internal_representation::EMPTY_SQUARE;
-    }
 }
 
 fn get_unicode_piece(piece: PieceType, player: Player) -> char {
@@ -607,149 +539,82 @@ fn get_unicode_piece(piece: PieceType, player: Player) -> char {
     }
 }
 
-impl fmt::Display for Board {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let mut rows: Vec<String> = Default::default();
+fn format_board(board: &impl Board, f: &mut fmt::Formatter) -> fmt::Result {
+    let mut rows: Vec<String> = Default::default();
 
-        let square_dark = |rank: usize, file: usize| -> bool { (rank + file) % 2 == 0 };
+    let square_dark = |rank: usize, file: usize| -> bool { (rank + file) % 2 == 0 };
 
-        let is_atty = atty::is(atty::Stream::Stdout) && atty::is(atty::Stream::Stderr);
-        let (left_square, right_square) = if is_atty { (" ", " ") } else { ("[", "]") };
+    let is_atty = atty::is(atty::Stream::Stdout) && atty::is(atty::Stream::Stderr);
+    let (left_square, right_square) = if is_atty { (" ", " ") } else { ("[", "]") };
 
-        rows.push("   a  b  c  d  e  f  g  h ".to_owned());
-        for (rank, rank_pieces) in self.ranks.iter().rev().enumerate() {
-            let mut row_str = String::from(format!("{} ", 8 - rank));
-            for (file, square_byte) in rank_pieces.iter().enumerate() {
-                let piece = match internal_representation::internal_to_square(*square_byte) {
-                    Some(square_value) => Some((
-                        get_unicode_piece(square_value.piece, square_value.player),
-                        square_value.player,
-                    )),
-                    None => None,
-                };
+    rows.push("   a  b  c  d  e  f  g  h ".to_owned());
+    for rank in (0..8).rev() {
+        let mut row_str = String::from(format!("{} ", rank + 1));
+        for file in 0..8 {
+            let piece = match board.at(&pos!(rank, file)) {
+                Some(square_value) => Some((
+                    get_unicode_piece(square_value.piece, square_value.player),
+                    square_value.player,
+                )),
+                None => None,
+            };
 
-                let is_dark_square = square_dark(rank, file);
+            let is_dark_square = square_dark(rank, file);
 
-                let colored_piece_str = match piece {
-                    Some((piece_symbol, player)) => {
-                        let piece_str = format!("{}{}{}", left_square, piece_symbol, right_square);
-                        match player {
-                            Player::White => piece_str.black(),
-                            Player::Black => piece_str.red(),
-                        }
+            let colored_piece_str = match piece {
+                Some((piece_symbol, player)) => {
+                    let piece_str = format!("{}{}{}", left_square, piece_symbol, right_square);
+                    match player {
+                        Player::White => piece_str.black(),
+                        Player::Black => piece_str.red(),
                     }
-                    None => format!("{} {}", left_square, right_square).normal(),
-                };
+                }
+                None => format!("{} {}", left_square, right_square).normal(),
+            };
 
-                let colored_square_str = if is_dark_square {
-                    colored_piece_str.on_black()
-                } else {
-                    colored_piece_str.on_white()
-                };
+            let colored_square_str = if is_dark_square {
+                colored_piece_str.on_black()
+            } else {
+                colored_piece_str.on_white()
+            };
 
-                let square_str = if !is_atty {
-                    colored_square_str.clear()
-                } else {
-                    colored_square_str
-                };
+            let square_str = if !is_atty {
+                colored_square_str.clear()
+            } else {
+                colored_square_str
+            };
 
-                row_str += format!("{}", square_str).as_str();
-            }
-            rows.push(row_str);
+            row_str += format!("{}", square_str).as_str();
         }
-
-        writeln!(f, "{}", rows.join("\n"))
+        rows.push(row_str);
     }
+
+    writeln!(f, "{}", rows.join("\n"))
 }
 
-struct SerializableBoardRanks<'a> {
-    ranks: &'a Ranks<internal_representation::BoardSquare>,
+struct SerializableBoardRanks<'a, B: Board> {
+    board: &'a B,
 }
 
-impl<'a> Serialize for SerializableBoardRanks<'a> {
+impl<'a, B: Board> Serialize for SerializableBoardRanks<'a, B> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
-        let mut seq = serializer.serialize_seq(Some(self.ranks.len()))?;
-        for rank in self.ranks {
-            let rank_of_squares = rank
-                .iter()
-                .map(|square_byte| internal_representation::internal_to_square(*square_byte));
-            seq.serialize_element(&rank_of_squares.collect::<Vec<Square>>())?;
+        let mut seq = serializer.serialize_seq(Some(8))?;
+        for rank in 0..8usize {
+            let rank_of_squares = (0..8usize).map(|file| self.board.at(&pos!(rank, file)));
+            seq.serialize_element(&rank_of_squares.collect::<Vec<Option<Piece>>>())?;
         }
         seq.end()
     }
 }
 
-impl Serialize for Board {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let mut map = serializer.serialize_map(Some(1))?;
-        map.serialize_entry("ranks", &SerializableBoardRanks { ranks: &self.ranks })?;
-        map.end()
-    }
+fn serialize_board<S>(board: &impl Board, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    let mut map = serializer.serialize_map(Some(1))?;
+    map.serialize_entry("ranks", &SerializableBoardRanks { board })?;
+    map.end()
 }
-
-macro_rules! piece_repr {
-    ($piece:ident) => {
-        internal_representation::square_to_internal(&p!($piece))
-    };
-
-    () => {
-        internal_representation::EMPTY_SQUARE
-    };
-}
-
-pub const INITIAL_BOARD: Board = Board {
-    // Initial board
-    // Note that white pieces are at the top, because arrays are defined top-down, while chess rows go bottom-up
-    ranks: [
-        [
-            piece_repr!(rw),
-            piece_repr!(nw),
-            piece_repr!(bw),
-            piece_repr!(qw),
-            piece_repr!(kw),
-            piece_repr!(bw),
-            piece_repr!(nw),
-            piece_repr!(rw),
-        ],
-        [
-            piece_repr!(pw),
-            piece_repr!(pw),
-            piece_repr!(pw),
-            piece_repr!(pw),
-            piece_repr!(pw),
-            piece_repr!(pw),
-            piece_repr!(pw),
-            piece_repr!(pw),
-        ],
-        [piece_repr!(); 8],
-        [piece_repr!(); 8],
-        [piece_repr!(); 8],
-        [piece_repr!(); 8],
-        [
-            piece_repr!(pb),
-            piece_repr!(pb),
-            piece_repr!(pb),
-            piece_repr!(pb),
-            piece_repr!(pb),
-            piece_repr!(pb),
-            piece_repr!(pb),
-            piece_repr!(pb),
-        ],
-        [
-            piece_repr!(rb),
-            piece_repr!(nb),
-            piece_repr!(bb),
-            piece_repr!(qb),
-            piece_repr!(kb),
-            piece_repr!(bb),
-            piece_repr!(nb),
-            piece_repr!(rb),
-        ],
-    ],
-};

@@ -1,35 +1,37 @@
-use crate::board::{Board, PieceType, Player, Position};
-use crate::eval::conditions::{enemy, only_empty, try_move, Direction};
-use crate::eval::iter::{dir, into_rolling_board_iterator, player_pieces_iter, PlayerPiecesIter};
+#[cfg(feature = "bitboards")]
+use crate::board::{Bitboards, ModifiableBoard, PlayerBitboards};
+#[cfg(feature = "compact-board")]
+use crate::board::CompactBoard;
+use crate::board::{Board, Piece, PieceType, Player, Position, SimpleBoard};
+use crate::eval::conditions::{only_empty, try_move, Direction};
+use crate::eval::iter::{dir, into_rolling_board_iterator};
 
-use super::play::SearchableGame;
-
-pub fn find_player_king(board: &Board, player: &Player) -> Position {
-    let king_pos_option = player_pieces_iter!(board: board, player: player)
-        .into_iter()
-        .filter(|pos| match board.square(pos) {
-            Some(piece) => piece.piece == PieceType::King,
-            None => false,
+fn find_king(board: &impl Board, player: &Player) -> Position {
+    match board
+        .iter()
+        .filter(|position| {
+            Some(Piece {
+                piece: PieceType::King,
+                player: *player,
+            }) == board.at(position)
         })
-        .collect::<Vec<Position>>();
-
-    // No king? More than 1 king? o_O
-    assert_eq!(
-        king_pos_option.len(),
-        1,
-        "no king for player {}:\n{}",
-        player,
-        board
-    );
-
-    *king_pos_option.first().unwrap()
+        .next()
+    {
+        Some(position) => position,
+        None => panic!("no king for player {}:\n{}", player, board),
+    }
 }
 
-fn position_is_unsafe_by_squares(board: &Board, position: &Position, player: &Player) -> bool {
-    let enemy_player = enemy(&player);
+fn is_position_unsafe(
+    board: &impl Board,
+    position: &Position,
+    player: &Player,
+    enemy_pawn_direction: i8,
+) -> bool {
+    let enemy_player = !*player;
 
     let is_enemy_piece = |position: &Option<Position>, piece: &PieceType| match position {
-        Some(pos) => match board.square(pos) {
+        Some(pos) => match board.at(pos) {
             Some(square) => square.piece == *piece && square.player == enemy_player,
             None => false,
         },
@@ -37,17 +39,19 @@ fn position_is_unsafe_by_squares(board: &Board, position: &Position, player: &Pl
     };
 
     let enemy_in_direction = |direction: &Direction| {
-        into_rolling_board_iterator(&board, &player, &position, direction)
-            .find_map(|pos| board.square(&pos))
+        into_rolling_board_iterator(board, &player, &position, direction)
+            .find_map(|pos| board.at(&pos))
             .map(|piece| piece.piece)
     };
 
     // 1. Pawns
-    let pd = -Board::pawn_progress_direction(&enemy_player);
-
-    if is_enemy_piece(&try_move(&position, &dir!(pd, -1)), &PieceType::Pawn)
-        || is_enemy_piece(&try_move(&position, &dir!(pd, 1)), &PieceType::Pawn)
-    {
+    if is_enemy_piece(
+        &try_move(&position, &dir!(enemy_pawn_direction, -1)),
+        &PieceType::Pawn,
+    ) || is_enemy_piece(
+        &try_move(&position, &dir!(enemy_pawn_direction, 1)),
+        &PieceType::Pawn,
+    ) {
         return true;
     }
 
@@ -108,13 +112,75 @@ fn position_is_unsafe_by_squares(board: &Board, position: &Position, player: &Pl
     false
 }
 
-#[cfg(feature = "bitboards")]
-mod bitboards_search {
-    use super::*;
-    use crate::eval::bitboards::PlayerBitboards;
+fn is_position_unsafe_generic<B: Board>(board: &B, position: &Position, player: &Player) -> bool {
+    let pd = -B::pawn_progress_direction(&!*player);
+    is_position_unsafe(board, position, player, pd)
+}
 
-    pub fn find_player_king_by_bitboards(game: &SearchableGame, player: &Player) -> Position {
-        let player_bitboards = game.bitboards_by_player(player);
+fn is_piece_unsafe<B: Board>(board: &impl Board, position: &Position) -> bool {
+    let Some(Piece { piece: _, player }) = board.at(position) else {
+        panic!("No piece at position {}:\n{}", position, board);
+    };
+
+    is_position_unsafe_generic(board, position, &player)
+}
+
+pub fn only_empty_and_safe<B: Board>(
+    board: &B,
+    position: Option<Position>,
+    player: &Player,
+) -> Option<Position> {
+    match &only_empty(board, position) {
+        Some(position_value) => {
+            if is_position_unsafe_generic(board, position_value, player) {
+                None
+            } else {
+                position
+            }
+        }
+        None => None,
+    }
+}
+
+pub trait SafetyChecks {
+    fn find_king(&self, player: &Player) -> Position;
+    fn is_position_unsafe(&self, position: &Position, player: &Player) -> bool;
+    fn is_piece_unsafe(&self, position: &Position) -> bool;
+}
+
+impl SafetyChecks for SimpleBoard {
+    fn find_king(&self, player: &Player) -> Position {
+        find_king(self, player)
+    }
+
+    fn is_position_unsafe(&self, position: &Position, player: &Player) -> bool {
+        is_position_unsafe_generic(self, position, player)
+    }
+
+    fn is_piece_unsafe(&self, position: &Position) -> bool {
+        is_piece_unsafe::<Self>(self, position)
+    }
+}
+
+#[cfg(feature = "compact-board")]
+impl SafetyChecks for CompactBoard {
+    fn find_king(&self, player: &Player) -> Position {
+        find_king(self, player)
+    }
+
+    fn is_position_unsafe(&self, position: &Position, player: &Player) -> bool {
+        is_position_unsafe_generic(self, position, player)
+    }
+
+    fn is_piece_unsafe(&self, position: &Position) -> bool {
+        is_piece_unsafe::<Self>(self, position)
+    }
+}
+
+#[cfg(feature = "bitboards")]
+impl SafetyChecks for Bitboards {
+    fn find_king(&self, player: &Player) -> Position {
+        let player_bitboards = self.by_player(player);
         let king_position = player_bitboards.piece_iter(&PieceType::King).next();
         assert!(
             king_position.is_some(),
@@ -124,11 +190,10 @@ mod bitboards_search {
         king_position.expect("Player has no king!")
     }
 
-    pub fn position_is_unsafe_by_bitboards(
-        player_bitboards: &PlayerBitboards,
-        enemy_bitboards: &PlayerBitboards,
-        position: &Position,
-    ) -> bool {
+    fn is_position_unsafe(&self, position: &Position, player: &Player) -> bool {
+        let player_bitboards = self.by_player(&player);
+        let enemy_bitboards = self.by_player(&!*player);
+
         let all_pieces_bitboard = player_bitboards.combined() | enemy_bitboards.combined();
 
         let attacker_in_rank =
@@ -220,59 +285,11 @@ mod bitboards_search {
 
         false
     }
-}
 
-fn position_is_unsafe(game: &SearchableGame, position: &Position, player: &Player) -> bool {
-    #[cfg(feature = "bitboards")]
-    {
-        bitboards_search::position_is_unsafe_by_bitboards(
-            game.bitboards_by_player(player),
-            game.bitboards_by_player(&enemy(player)),
-            position,
-        )
-    }
-    #[cfg(not(feature = "bitboards"))]
-    {
-        position_is_unsafe_by_squares(&game.as_ref().board, position, player)
-    }
-}
-
-pub fn piece_is_unsafe(board: &Board, position: &Position) -> bool {
-    let square = board.square(position);
-    let player = square.unwrap().player;
-    position_is_unsafe_by_squares(board, position, &player)
-}
-
-pub fn piece_is_unsafe_fast(game: &SearchableGame, position: &Position) -> bool {
-    let square = game.as_ref().board.square(position);
-    let player = square.unwrap().player;
-    position_is_unsafe(game, position, &player)
-}
-
-pub fn only_empty_and_safe(
-    game: &SearchableGame,
-    position: Option<Position>,
-    player: &Player,
-) -> Option<Position> {
-    match &only_empty(&game.as_ref().board, position) {
-        Some(position_value) => {
-            if position_is_unsafe(game, position_value, player) {
-                None
-            } else {
-                position
-            }
-        }
-        None => None,
-    }
-}
-
-pub fn find_player_king_fast(game: &SearchableGame, player: &Player) -> Position {
-    #[cfg(not(feature = "bitboards"))]
-    {
-        find_player_king(&game.as_ref().board, player)
-    }
-    #[cfg(feature = "bitboards")]
-    {
-        bitboards_search::find_player_king_by_bitboards(game, player)
+    fn is_piece_unsafe(&self, position: &Position) -> bool {
+        let Some(Piece { piece: _, player }) = self.at(position) else {
+            panic!("No piece at position {}:\n{}", position, self);
+        };
+        self.is_position_unsafe(position, &player)
     }
 }

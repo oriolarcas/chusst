@@ -1,25 +1,40 @@
-use crate::board::{Board, ModifiableBoard, Piece, PieceType, Position, Square};
-use crate::eval::conditions::{enemy, only_enemy, try_move, Direction};
-use crate::eval::get_possible_moves;
+use crate::board::{Board, ModifiableBoard, Piece, PieceType, Position};
+use crate::eval::conditions::{only_enemy, try_move, Direction};
+// use crate::eval::get_possible_moves;
 use crate::eval::iter::dir;
-use crate::game::{Game, GameInfo, Move, MoveAction, MoveActionType, MoveExtraInfo, MoveInfo};
+use crate::eval::Game;
+use crate::game::{GameInfo, GameState, Move, MoveAction, MoveActionType, MoveExtraInfo, MoveInfo};
 use crate::mv;
 use anyhow::{bail, Result};
+
+use super::check::SafetyChecks;
 
 pub struct ReversableMove {
     mv: Move,
     previous_piece: Option<Piece>,
 }
 
-pub trait PlayableGame<'a> {
-    fn as_ref(&self) -> &Game;
-    fn as_mut(&mut self) -> &mut Game;
+pub trait PlayableGame<B: Board>: ModifiableBoard<Position, Option<Piece>>
+where
+    B: SafetyChecks,
+{
+    fn as_ref(&self) -> &GameState<B>;
+    fn as_mut(&mut self) -> &mut GameState<B>;
 
-    fn do_move(&mut self, move_action: &MoveAction) -> bool {
+    fn clone_and_move(&self, mv: &MoveAction) -> Result<GameState<B>> {
+        let mut new_game = self.as_ref().clone();
+        new_game.do_move_no_checks(mv)?;
+        Ok(new_game)
+    }
+
+    // This is slower than using eval::GamePrivate::clone_and_move_with_checks()
+    // because here we don't know if the move is legal, so we check against
+    // all possible legal moves.
+    fn do_move_with_checks(&mut self, move_action: &MoveAction) -> bool {
         let board = &self.as_ref().board;
         let mv = &move_action.mv;
 
-        match board.square(&mv.source) {
+        match board.at(&mv.source) {
             Some(piece) => {
                 if piece.player != self.as_ref().player {
                     return false;
@@ -30,12 +45,7 @@ pub trait PlayableGame<'a> {
             }
         }
 
-        let possible_moves = get_possible_moves(
-            &board,
-            &self.as_ref().last_move,
-            &self.as_ref().info,
-            mv.source,
-        );
+        let possible_moves = self.as_ref().get_possible_moves(mv.source);
 
         if possible_moves
             .iter()
@@ -48,14 +58,12 @@ pub trait PlayableGame<'a> {
         self.do_move_no_checks(move_action).is_ok()
     }
 
-    fn do_move_no_checks(&mut self, mv: &MoveAction) -> Result<()>;
-}
+    fn do_move_no_checks(&mut self, move_action: &MoveAction) -> Result<()>;
 
-trait PlayableGamePrivate<'a>: PlayableGame<'a> + ModifiableBoard {
-    fn do_move_no_checks_private(&mut self, move_action: &MoveAction) -> Result<()> {
+    fn do_move_no_checks_internal(&mut self, move_action: &MoveAction) -> Result<()> {
         let mv = &move_action.mv;
 
-        let Some(source_square) = self.as_ref().board.square(&mv.source) else {
+        let Some(source_square) = self.as_ref().board.at(&mv.source) else {
             bail!("Move {} from empty square:\n{}", mv, self.as_ref().board);
         };
 
@@ -66,10 +74,10 @@ trait PlayableGamePrivate<'a>: PlayableGame<'a> + ModifiableBoard {
                 if mv.source.rank.abs_diff(mv.target.rank) == 2 {
                     MoveExtraInfo::Passed
                 } else if mv.source.file != mv.target.file
-                    && self.as_ref().board.square(&mv.target).is_none()
+                    && self.as_ref().board.at(&mv.target).is_none()
                 {
                     MoveExtraInfo::EnPassant
-                } else if mv.target.rank == Board::promotion_rank(&player) {
+                } else if mv.target.rank == B::promotion_rank(&player) {
                     let promotion_piece = match move_action.move_type {
                         MoveActionType::Normal => bail!("Promotion piece not specified"),
                         MoveActionType::Promotion(piece) => piece,
@@ -99,7 +107,7 @@ trait PlayableGamePrivate<'a>: PlayableGame<'a> + ModifiableBoard {
         match move_info {
             MoveExtraInfo::EnPassant => {
                 // Capture passed pawn
-                let direction = Board::pawn_progress_direction(&player);
+                let direction = B::pawn_progress_direction(&player);
                 let passed = only_enemy(
                     &self.as_ref().board,
                     try_move(&mv.target, &dir!(-direction, 0)),
@@ -133,7 +141,7 @@ trait PlayableGamePrivate<'a>: PlayableGame<'a> + ModifiableBoard {
         if moved_piece == PieceType::King {
             self.as_mut().info.disable_castle_kingside(&player);
             self.as_mut().info.disable_castle_queenside(&player);
-        } else if moved_piece == PieceType::Rook && mv.source.rank == Board::home_rank(&player) {
+        } else if moved_piece == PieceType::Rook && mv.source.rank == B::home_rank(&player) {
             match mv.source.file {
                 0 => self.as_mut().info.disable_castle_queenside(&player),
                 7 => self.as_mut().info.disable_castle_kingside(&player),
@@ -141,7 +149,7 @@ trait PlayableGamePrivate<'a>: PlayableGame<'a> + ModifiableBoard {
             }
         }
 
-        self.as_mut().player = enemy(&self.as_ref().player);
+        self.as_mut().player = !self.as_ref().player;
         self.as_mut().last_move = Some(MoveInfo {
             mv: *mv,
             info: move_info,
@@ -151,163 +159,58 @@ trait PlayableGamePrivate<'a>: PlayableGame<'a> + ModifiableBoard {
     }
 }
 
-#[cfg(not(feature = "bitboards"))]
-mod internal_searchable_game {
-    use super::*;
-
-    #[derive(Clone)]
-    pub struct InternalSearchableGame(Game);
-
-    impl InternalSearchableGame {
-        pub fn as_ref(&self) -> &Game {
-            &self.0
-        }
-
-        pub fn as_mut(&mut self) -> &mut Game {
-            &mut self.0
-        }
-    }
-
-    impl From<&Game> for InternalSearchableGame {
-        fn from(value: &Game) -> Self {
-            InternalSearchableGame(value.clone())
-        }
-    }
-
-    impl ModifiableBoard for InternalSearchableGame {
-        fn move_piece(&mut self, _source: &Position, _target: &Position) {
-            // do nothing
-        }
-
-        fn update(&mut self, _pos: &Position, _value: Square) {
-            // do nothing
-        }
-    }
-}
-
-#[cfg(feature = "bitboards")]
-mod internal_searchable_game {
-    use crate::eval::bitboards::BitboardGame;
-
-    pub type InternalSearchableGame = BitboardGame;
-}
-
-pub struct SearchableGame {
-    game: internal_searchable_game::InternalSearchableGame,
-}
-
-impl SearchableGame {
-    pub fn clone_and_move(&self, mv: &MoveAction) -> Result<SearchableGame> {
-        let mut new_game = SearchableGame {
-            game: self.game.clone(),
-        };
-
-        new_game.do_move_no_checks(mv)?;
-
-        Ok(new_game)
-    }
-
-    pub fn as_ref(&self) -> &Game {
-        &self.game.as_ref()
-    }
-
-    pub fn as_mut(&mut self) -> &mut Game {
-        self.game.as_mut()
-    }
-
-    #[cfg(feature = "bitboards")]
-    pub fn bitboards_by_player(
-        &self,
-        player: &crate::board::Player,
-    ) -> &super::bitboards::PlayerBitboards {
-        &self.game.by_player(player)
-    }
-}
-
-impl<'a> PlayableGame<'a> for SearchableGame {
-    fn as_ref(&self) -> &Game {
-        &self.game.as_ref()
-    }
-
-    fn as_mut(&mut self) -> &mut Game {
-        self.game.as_mut()
-    }
-
-    fn do_move_no_checks(&mut self, mv: &MoveAction) -> Result<()> {
-        self.do_move_no_checks_private(mv)
-    }
-}
-
-impl From<&Game> for SearchableGame {
-    fn from(game: &Game) -> SearchableGame {
-        SearchableGame {
-            game: internal_searchable_game::InternalSearchableGame::from(game),
-        }
-    }
-}
-
-impl ModifiableBoard for SearchableGame {
-    fn move_piece(&mut self, source: &Position, target: &Position) {
-        let mv = mv!(*source, *target);
-        self.game.move_piece(&mv.source, &mv.target);
-        self.as_mut().board.move_piece(&mv.source, &mv.target);
-    }
-
-    fn update(&mut self, pos: &Position, value: Square) {
-        self.game.update(pos, value);
-        self.as_mut().board.update(&pos, value);
-    }
-}
-
-impl<'a> PlayableGamePrivate<'a> for SearchableGame {}
-
-pub struct ReversableGame<'a> {
-    game: &'a mut Game,
+pub struct ReversableGame<'a, B: Board> {
+    game: &'a mut GameState<B>,
     moves: Vec<ReversableMove>,
     last_move: Option<MoveInfo>,
     info: Option<GameInfo>,
 }
 
-impl<'a> PlayableGame<'a> for ReversableGame<'a> {
-    fn as_ref(&self) -> &Game {
+impl<'a, B: Board + SafetyChecks> PlayableGame<B> for ReversableGame<'a, B> {
+    fn as_ref(&self) -> &GameState<B> {
         &self.game
     }
 
-    fn as_mut(&mut self) -> &mut Game {
+    fn as_mut(&mut self) -> &mut GameState<B> {
         &mut self.game
     }
 
     fn do_move_no_checks(&mut self, mv: &MoveAction) -> Result<()> {
         let mut moves: Vec<ReversableMove> = Vec::new();
-        self.do_move_no_checks_private(mv)?;
+        PlayableGame::do_move_no_checks_internal(self, mv)?;
         self.moves.append(&mut moves);
         Ok(())
     }
 }
 
-impl<'a> ModifiableBoard for ReversableGame<'a> {
+impl<'a, B: Board + SafetyChecks> ModifiableBoard<Position, Option<Piece>>
+    for ReversableGame<'a, B>
+{
+    fn at(&self, pos: &Position) -> Option<Piece> {
+        self.game.board.at(pos)
+    }
+
     fn move_piece(&mut self, source: &Position, target: &Position) {
         let mv = mv!(*source, *target);
         self.moves.push(ReversableMove {
             mv,
-            previous_piece: self.as_ref().board.square(&mv.target),
+            previous_piece: self.as_ref().board.at(&mv.target),
         });
         self.as_mut().board.move_piece(&mv.source, &mv.target);
     }
 
-    fn update(&mut self, pos: &Position, value: Square) {
+    fn update(&mut self, pos: &Position, value: Option<Piece>) {
         self.moves.push(ReversableMove {
             mv: mv!(*pos, *pos),
-            previous_piece: self.as_ref().board.square(pos),
+            previous_piece: self.as_ref().board.at(pos),
         });
         self.as_mut().board.update(&pos, value);
     }
 }
 
-impl<'a> PlayableGamePrivate<'a> for ReversableGame<'a> {}
-
-impl<'a> ReversableGame<'a> {
-    pub fn from(game: &'a mut Game) -> Self {
+impl<'a, B: Board> ReversableGame<'a, B> {
+    #[allow(dead_code)]
+    pub fn from(game: &'a mut GameState<B>) -> Self {
         let last_move = game.last_move;
         let game_info = game.info;
         ReversableGame {
@@ -331,7 +234,7 @@ impl<'a> ReversableGame<'a> {
         }
 
         self.moves.clear();
-        self.game.player = enemy(&self.game.player);
+        self.game.player = !self.game.player;
         self.game.last_move = self.last_move;
         self.game.info = self.info.unwrap();
         self.last_move = None;
