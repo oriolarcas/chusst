@@ -549,15 +549,14 @@ fn format_board(board: &impl Board, f: &mut fmt::Formatter) -> fmt::Result {
 
     rows.push("   a  b  c  d  e  f  g  h ".to_owned());
     for rank in (0..8).rev() {
-        let mut row_str = String::from(format!("{} ", rank + 1));
+        let mut row_str = format!("{} ", rank + 1);
         for file in 0..8 {
-            let piece = match board.at(&pos!(rank, file)) {
-                Some(square_value) => Some((
+            let piece = board.at(&pos!(rank, file)).map(|square_value| {
+                (
                     get_unicode_piece(square_value.piece, square_value.player),
                     square_value.player,
-                )),
-                None => None,
-            };
+                )
+            });
 
             let is_dark_square = square_dark(rank, file);
 

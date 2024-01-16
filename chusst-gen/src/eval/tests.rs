@@ -41,15 +41,15 @@ fn custom_board<B: Board>(board_opt: &Option<&str>) -> B {
 
             let mut rank = 8usize;
             for line in board_str.lines() {
-                match line.find("[") {
+                match line.find('[') {
                     Some(position) => {
-                        let mut file = 0usize;
                         rank -= 1;
 
-                        for piece_char in line
+                        for (file, piece_char) in line
                             .chars()
                             .skip(position)
                             .filter(|c| *c != '[' && *c != ']')
+                            .enumerate()
                         {
                             let piece = match piece_char {
                                 '♙' => p!(pw),
@@ -73,7 +73,6 @@ fn custom_board<B: Board>(board_opt: &Option<&str>) -> B {
                                 }
                             };
                             board.update(&pos!(rank, file), piece);
-                            file += 1;
                         }
                     }
                     None => continue,
@@ -229,7 +228,7 @@ fn move_reversable() {
         // Do setup moves
         for mv in &test_board.initial_moves {
             assert!(
-                game.do_move(&mv).is_some(),
+                game.do_move(mv).is_some(),
                 "move {} failed:\n{}",
                 mv.mv,
                 game.board
@@ -379,7 +378,7 @@ fn check_mate() {
         // Do setup moves
         for mv in &test_board.initial_moves {
             assert!(
-                game.do_move(&mv).is_some(),
+                game.do_move(mv).is_some(),
                 "move {} failed:\n{}",
                 mv.mv,
                 game.board
@@ -388,7 +387,7 @@ fn check_mate() {
 
         let name = game.move_name(&test_board.mv).unwrap();
         assert!(
-            name.ends_with("#"),
+            name.ends_with('#'),
             "notation `{}` for move {} doesn't show checkmate sign # in:\n{}",
             name,
             test_board.mv.mv,
@@ -469,7 +468,7 @@ fn quick_test() {
         // Do setup moves
         for mv in &test_board.initial_moves {
             assert!(
-                game.do_move(&mv).is_some(),
+                game.do_move(mv).is_some(),
                 "move {} failed:\n{}",
                 mv.mv,
                 game.board

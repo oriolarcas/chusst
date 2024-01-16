@@ -14,7 +14,7 @@ pub struct Tag {
 }
 
 #[derive(Default)]
-pub struct PGN {
+pub struct Pgn {
     pub tags: Vec<Tag>,
     pub moves: Vec<Move>,
     pub result: String,
@@ -22,23 +22,23 @@ pub struct PGN {
 
 #[derive(Default)]
 pub struct Parser {
-    pgns: Vec<PGN>,
-    current: Option<PGN>,
+    pgns: Vec<Pgn>,
+    current: Option<Pgn>,
     variation_level: u32,
 }
 
 impl Parser {
-    pub fn parse_file(path: &PathBuf) -> Result<Vec<PGN>> {
+    pub fn parse_file(path: &PathBuf) -> Result<Vec<Pgn>> {
         let mut parser = Parser::default();
         parser.parse_file(path)?;
         Ok(parser.pgns)
     }
 
-    fn current(&self) -> Result<&PGN> {
+    fn current(&self) -> Result<&Pgn> {
         self.current.as_ref().context("No current game")
     }
 
-    fn current_mut(&mut self) -> Result<&mut PGN> {
+    fn current_mut(&mut self) -> Result<&mut Pgn> {
         self.current.as_mut().context("No current game")
     }
 
@@ -56,7 +56,7 @@ impl LexerVisitor for Parser {
             bail!("Unexpected new game");
         }
 
-        self.current = Some(PGN::default());
+        self.current = Some(Pgn::default());
         Ok(())
     }
 

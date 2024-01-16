@@ -1,4 +1,4 @@
-use crate::reader::{Tag, PGN};
+use crate::reader::{Tag, Pgn};
 use anyhow::{bail, Result};
 use chusst_gen::{
     board::{Piece, PieceType, ModifiableBoard},
@@ -76,7 +76,7 @@ fn find_move_by_name(game: &SimpleGame, move_str: &str) -> Result<DetailedMoveIn
     let possible_moves = game.get_all_possible_moves();
     for move_action in &possible_moves {
         let mv = &move_action.mv;
-        let mv_name = game.move_name(&move_action).unwrap();
+        let mv_name = game.move_name(move_action).unwrap();
 
         if mv_name == move_str {
             let check_type = if move_str.contains('#') {
@@ -127,7 +127,7 @@ fn find_move_by_name(game: &SimpleGame, move_str: &str) -> Result<DetailedMoveIn
             return Ok(DetailedMoveInfo {
                 mv: *move_action,
                 short: move_str.to_string(),
-                long: long(&mv, is_capture),
+                long: long(mv, is_capture),
                 move_type: if piece == PieceType::Pawn && mv_rank_distance == 2 {
                     MoveType::PassingPawn
                 } else if piece == PieceType::Pawn && target_empty && mv_file_distance == 1 {
@@ -153,8 +153,7 @@ fn find_move_by_name(game: &SimpleGame, move_str: &str) -> Result<DetailedMoveIn
         game.board(),
         &possible_moves
             .iter()
-            .map(|mv| game.move_name(mv))
-            .flatten()
+            .filter_map(|mv| game.move_name(mv))
             .collect::<Vec<String>>()
             .join(", ")
     );
@@ -164,7 +163,7 @@ fn is_stalemate(game: &SimpleGame) -> bool {
     game.get_all_possible_moves().is_empty()
 }
 
-pub fn pgn_to_long_algebraic(pgn: &PGN) -> Result<DetailedGame> {
+pub fn pgn_to_long_algebraic(pgn: &Pgn) -> Result<DetailedGame> {
     let mut game = SimpleGame::new();
     let mut detailed = DetailedGame {
         tags: pgn.tags.clone(),

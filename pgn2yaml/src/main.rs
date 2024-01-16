@@ -50,7 +50,7 @@ fn main() -> Result<()> {
                     index,
                     path.extension().unwrap().to_string_lossy()
                 ));
-                write_pgn(&pgn, &path)?;
+                write_pgn(pgn, &path)?;
             }
         }
     }

@@ -183,8 +183,8 @@ fn engine_thread(
     }
 }
 
-pub fn create_engine_thread<'scope, 'env>(
-    scope: &'scope std::thread::Scope<'scope, 'env>,
+pub fn create_engine_thread<'scope>(
+    scope: &'scope std::thread::Scope<'scope, '_>,
 ) -> DuplexThread<'scope, EngineCommand, EngineResponse> {
     create_duplex_thread(scope, engine_thread)
 }

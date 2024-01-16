@@ -47,10 +47,9 @@ where
 
         let possible_moves = self.as_ref().get_possible_moves(mv.source);
 
-        if possible_moves
+        if !possible_moves
             .iter()
-            .find(|possible_move| mv.target == possible_move.mv.target)
-            .is_none()
+            .any(|possible_move| mv.target == possible_move.mv.target)
         {
             return false;
         }
@@ -168,11 +167,11 @@ pub struct ReversableGame<'a, B: Board> {
 
 impl<'a, B: Board + SafetyChecks> PlayableGame<B> for ReversableGame<'a, B> {
     fn as_ref(&self) -> &GameState<B> {
-        &self.game
+        self.game
     }
 
     fn as_mut(&mut self) -> &mut GameState<B> {
-        &mut self.game
+        self.game
     }
 
     fn do_move_no_checks(&mut self, mv: &MoveAction) -> Result<()> {
@@ -204,7 +203,7 @@ impl<'a, B: Board + SafetyChecks> ModifiableBoard<Position, Option<Piece>>
             mv: mv!(*pos, *pos),
             previous_piece: self.as_ref().board.at(pos),
         });
-        self.as_mut().board.update(&pos, value);
+        self.as_mut().board.update(pos, value);
     }
 }
 

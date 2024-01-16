@@ -85,7 +85,7 @@ impl fmt::Display for UciProtocolState {
     }
 }
 
-fn uci_loop<'scope, 'env>(scope: &'scope std::thread::Scope<'scope, 'env>) {
+fn uci_loop<'scope>(scope: &'scope std::thread::Scope<'scope, '_>) {
     let mut logger = Logger {
         file: match std::fs::OpenOptions::new()
             .write(true)
@@ -152,8 +152,8 @@ fn uci_loop<'scope, 'env>(scope: &'scope std::thread::Scope<'scope, 'env>) {
 
     let get_input = || -> Result<SyncInput, String> {
         select! {
-            recv(stdin_thread.from_thread) -> stdin_line => return Ok(SyncInput::FromStdin(stdin_line.map_err(stringify_stdin_err)?)),
-            recv(engine_thread.from_thread) -> engine_response => return Ok(SyncInput::FromEngine(engine_response.map_err(stringify_engine_err)?)),
+            recv(stdin_thread.from_thread) -> stdin_line => Ok(SyncInput::FromStdin(stdin_line.map_err(stringify_stdin_err)?)),
+            recv(engine_thread.from_thread) -> engine_response => Ok(SyncInput::FromEngine(engine_response.map_err(stringify_engine_err)?)),
         }
     };
 
@@ -287,13 +287,13 @@ fn uci_loop<'scope, 'env>(scope: &'scope std::thread::Scope<'scope, 'env>) {
                 write_command!("readyok")
             }
             (Some(UciProtocolOutput::EngineCommandNewGame), ParsedInput::UciStdInInput(_)) => {
-                if let Err(_) =
-                    engine_thread
-                        .to_thread
-                        .send(EngineCommand::NewGame(NewGameCommand {
-                            game: Some(BitboardGame::new()),
-                            moves: Vec::new(),
-                        }))
+                if engine_thread
+                    .to_thread
+                    .send(EngineCommand::NewGame(NewGameCommand {
+                        game: Some(BitboardGame::new()),
+                        moves: Vec::new(),
+                    }))
+                    .is_err()
                 {
                     log!("Error: could not send new game to engine");
                     break;
@@ -318,7 +318,8 @@ fn uci_loop<'scope, 'env>(scope: &'scope std::thread::Scope<'scope, 'env>) {
                         .map_while(|token| *token)
                         .collect();
 
-                        if let Some(new_game_from_fen) = BitboardGame::try_from_fen(fen.as_slice()) {
+                        if let Some(new_game_from_fen) = BitboardGame::try_from_fen(fen.as_slice())
+                        {
                             (param_iter.next(), Some(new_game_from_fen))
                         } else {
                             log!("Malformed FEN string in position command");
@@ -332,7 +333,7 @@ fn uci_loop<'scope, 'env>(scope: &'scope std::thread::Scope<'scope, 'env>) {
                     }
                 };
                 if let Some(game) = &new_game {
-                    let _ = log!("New position:\n{}", game.board());
+                    log!("New position:\n{}", game.board());
                 }
                 let mut new_game_command = NewGameCommand {
                     game: new_game,
@@ -341,7 +342,7 @@ fn uci_loop<'scope, 'env>(scope: &'scope std::thread::Scope<'scope, 'env>) {
                 match next_token {
                     Some("moves") => {
                         for mv_str in param_iter {
-                            if let Some(mv) = MoveAction::try_from_long_algebraic_str(&mv_str) {
+                            if let Some(mv) = MoveAction::try_from_long_algebraic_str(mv_str) {
                                 new_game_command.moves.push(mv);
                             } else {
                                 log!("Malformed move in position command");
@@ -397,7 +398,7 @@ fn uci_loop<'scope, 'env>(scope: &'scope std::thread::Scope<'scope, 'env>) {
                 last_best_move = Some(best_move_result);
             }
             (Some(UciProtocolOutput::EngineCommandStop), ParsedInput::UciStdInInput(_)) => {
-                if let Err(_) = engine_thread.to_thread.send(EngineCommand::Stop) {
+                if engine_thread.to_thread.send(EngineCommand::Stop).is_err() {
                     log!("Error: could not send go command to engine");
                     break;
                 }
@@ -407,7 +408,7 @@ fn uci_loop<'scope, 'env>(scope: &'scope std::thread::Scope<'scope, 'env>) {
                 ParsedInput::UciStdInInput(_),
             ) => {
                 if let Some(best_move) = &last_best_move {
-                    let best_move_str = move_to_uci_string(&best_move);
+                    let best_move_str = move_to_uci_string(best_move);
                     write_command!("bestmove {}", best_move_str);
                 }
             }

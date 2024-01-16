@@ -1,6 +1,4 @@
-use crate::board::{
-    Board, ModifiableBoard, Piece, PieceType, Player, Position, SimpleBoard,
-};
+use crate::board::{Board, ModifiableBoard, Piece, PieceType, Player, Position, SimpleBoard};
 use crate::{mv, pos};
 
 use serde::Serialize;
@@ -75,8 +73,7 @@ impl MoveAction {
         let promotion = mv_str
             .chars()
             .nth(4)
-            .map(PromotionPieces::try_from_char)
-            .flatten();
+            .and_then(PromotionPieces::try_from_char);
 
         match (source, target, promotion) {
             (Some(src_pos), Some(tgt_pos), None) => Some(MoveAction {

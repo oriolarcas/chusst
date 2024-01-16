@@ -179,7 +179,7 @@ impl PlayerBitboards {
 
 impl ModifiableBoard<Position, Option<PieceType>> for PlayerBitboards {
     fn at(&self, index: &Position) -> Option<PieceType> {
-        let position_mask = bitboard_from_position(&index);
+        let position_mask = bitboard_from_position(index);
         if self.pawns & position_mask != 0 {
             Some(PieceType::Pawn)
         } else if self.knights & position_mask != 0 {
@@ -332,13 +332,11 @@ impl ModifiableBoard<Position, Option<Piece>> for Bitboards {
                 player: Player::White,
                 piece,
             })
-        } else if let Some(piece) = self.black.at(pos) {
-            Some(Piece {
+        } else {
+            self.black.at(pos).map(|piece| Piece {
                 player: Player::Black,
                 piece,
             })
-        } else {
-            None
         }
     }
 

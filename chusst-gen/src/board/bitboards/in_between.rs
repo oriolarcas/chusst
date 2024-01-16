@@ -4258,17 +4258,16 @@ mod tests {
     #[test]
     fn check_in_between_table() {
         let inbetween_table = super::IN_BETWEEN_TABLE;
-        for source_index in 0..64 {
-            for target_index in 0..64 {
+        for (source_index, in_between_targets) in inbetween_table.iter().enumerate() {
+            for (target_index, in_between) in in_between_targets.iter().enumerate() {
                 let source = bitboard_index_to_position(source_index);
                 let target = bitboard_index_to_position(target_index);
-                let in_between = inbetween_table[source_index][target_index];
 
                 let rank_distance = ((source.rank as i8) - (target.rank as i8)).abs();
                 let file_distance = ((source.file as i8) - (target.file as i8)).abs();
 
                 if rank_distance <= 1 && file_distance <= 1 {
-                    assert_eq!(in_between, 0);
+                    assert_eq!(*in_between, 0);
                     continue;
                 }
 
@@ -4287,13 +4286,13 @@ mod tests {
                             1 << rank_and_file_to_bitboard_index(source.rank, file as usize);
                     }
                     assert_eq!(
-                        in_between,
+                        *in_between,
                         in_between_rank,
                         "source: {}, target: {}, expected:\n{}\nactual:\n{}",
                         source,
                         target,
                         format_bitboard(in_between_rank),
-                        format_bitboard(in_between),
+                        format_bitboard(*in_between),
                     );
                 } else if same_file {
                     let mut in_between_file = 0;
@@ -4305,7 +4304,7 @@ mod tests {
                         in_between_file |=
                             1 << rank_and_file_to_bitboard_index(rank as usize, source.file);
                     }
-                    assert_eq!(in_between, in_between_file);
+                    assert_eq!(*in_between, in_between_file);
                 } else if same_diagonal {
                     let mut in_between_diagonal = 0;
                     let rank_increment = if source.rank < target.rank { 1i8 } else { -1i8 };
@@ -4320,16 +4319,16 @@ mod tests {
                     }
 
                     assert_eq!(
-                        in_between,
+                        *in_between,
                         in_between_diagonal,
                         "source: {}, target: {}, expected:\n{}\nactual:\n{}",
                         source,
                         target,
                         format_bitboard(in_between_diagonal),
-                        format_bitboard(in_between),
+                        format_bitboard(*in_between),
                     );
                 } else {
-                    assert_eq!(in_between, 0);
+                    assert_eq!(*in_between, 0);
                 }
             }
         }

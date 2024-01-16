@@ -118,7 +118,7 @@ impl<'a> Serialize for SerializedMoveList<'a> {
 
 struct SerializedGameEnding(GameEnding);
 
-impl<'a> Serialize for SerializedGameEnding {
+impl Serialize for SerializedGameEnding {
     fn serialize<S>(&self, serializer: S) -> std::prelude::v1::Result<S::Ok, S::Error>
     where
         S: serde::Serializer,

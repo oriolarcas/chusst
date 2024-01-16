@@ -8,7 +8,7 @@ use super::{
 };
 use crate::p;
 
-#[derive(Copy, Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct SimpleBoard {
     ranks: Ranks<Option<Piece>>,
 }

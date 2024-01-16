@@ -1,22 +1,18 @@
-#[cfg(feature = "bitboards")]
-use crate::board::{Bitboards, ModifiableBoard, PlayerBitboards};
 #[cfg(feature = "compact-board")]
 use crate::board::CompactBoard;
+#[cfg(feature = "bitboards")]
+use crate::board::{Bitboards, ModifiableBoard, PlayerBitboards};
 use crate::board::{Board, Piece, PieceType, Player, Position, SimpleBoard};
 use crate::eval::conditions::{only_empty, try_move, Direction};
 use crate::eval::iter::{dir, into_rolling_board_iterator};
 
 fn find_king(board: &impl Board, player: &Player) -> Position {
-    match board
-        .iter()
-        .filter(|position| {
-            Some(Piece {
-                piece: PieceType::King,
-                player: *player,
-            }) == board.at(position)
-        })
-        .next()
-    {
+    match board.iter().find(|position| {
+        Some(Piece {
+            piece: PieceType::King,
+            player: *player,
+        }) == board.at(position)
+    }) {
         Some(position) => position,
         None => panic!("no king for player {}:\n{}", player, board),
     }
@@ -39,39 +35,41 @@ fn is_position_unsafe(
     };
 
     let enemy_in_direction = |direction: &Direction| {
-        into_rolling_board_iterator(board, &player, &position, direction)
+        into_rolling_board_iterator(board, player, position, direction)
             .find_map(|pos| board.at(&pos))
             .map(|piece| piece.piece)
     };
 
     // 1. Pawns
     if is_enemy_piece(
-        &try_move(&position, &dir!(enemy_pawn_direction, -1)),
+        &try_move(position, &dir!(enemy_pawn_direction, -1)),
         &PieceType::Pawn,
     ) || is_enemy_piece(
-        &try_move(&position, &dir!(enemy_pawn_direction, 1)),
+        &try_move(position, &dir!(enemy_pawn_direction, 1)),
         &PieceType::Pawn,
     ) {
         return true;
     }
 
     // 2. Knights
-    if is_enemy_piece(&try_move(&position, &dir!(-1, -2)), &PieceType::Knight)
-        || is_enemy_piece(&try_move(&position, &dir!(-1, 2)), &PieceType::Knight)
-        || is_enemy_piece(&try_move(&position, &dir!(-2, -1)), &PieceType::Knight)
-        || is_enemy_piece(&try_move(&position, &dir!(-2, 1)), &PieceType::Knight)
-        || is_enemy_piece(&try_move(&position, &dir!(2, -1)), &PieceType::Knight)
-        || is_enemy_piece(&try_move(&position, &dir!(2, 1)), &PieceType::Knight)
-        || is_enemy_piece(&try_move(&position, &dir!(1, -2)), &PieceType::Knight)
-        || is_enemy_piece(&try_move(&position, &dir!(1, 2)), &PieceType::Knight)
+    if is_enemy_piece(&try_move(position, &dir!(-1, -2)), &PieceType::Knight)
+        || is_enemy_piece(&try_move(position, &dir!(-1, 2)), &PieceType::Knight)
+        || is_enemy_piece(&try_move(position, &dir!(-2, -1)), &PieceType::Knight)
+        || is_enemy_piece(&try_move(position, &dir!(-2, 1)), &PieceType::Knight)
+        || is_enemy_piece(&try_move(position, &dir!(2, -1)), &PieceType::Knight)
+        || is_enemy_piece(&try_move(position, &dir!(2, 1)), &PieceType::Knight)
+        || is_enemy_piece(&try_move(position, &dir!(1, -2)), &PieceType::Knight)
+        || is_enemy_piece(&try_move(position, &dir!(1, 2)), &PieceType::Knight)
     {
         return true;
     }
 
     // 3. Bishops or queens on diagonals
-    let bishop_or_queen = |direction: &Direction| match enemy_in_direction(direction) {
-        Some(PieceType::Bishop) | Some(PieceType::Queen) => true,
-        _ => false,
+    let bishop_or_queen = |direction: &Direction| {
+        matches!(
+            enemy_in_direction(direction),
+            Some(PieceType::Bishop) | Some(PieceType::Queen)
+        )
     };
 
     if bishop_or_queen(&dir!(-1, -1))
@@ -83,9 +81,11 @@ fn is_position_unsafe(
     }
 
     // 4. Rooks or queens on files or ranks
-    let rook_or_queen = |direction: &Direction| match enemy_in_direction(direction) {
-        Some(PieceType::Rook) | Some(PieceType::Queen) => true,
-        _ => false,
+    let rook_or_queen = |direction: &Direction| {
+        matches!(
+            enemy_in_direction(direction),
+            Some(PieceType::Rook) | Some(PieceType::Queen)
+        )
     };
 
     if rook_or_queen(&dir!(0, -1))
@@ -97,14 +97,14 @@ fn is_position_unsafe(
     }
 
     // 6. King
-    if is_enemy_piece(&try_move(&position, &dir!(-1, -1)), &PieceType::King)
-        || is_enemy_piece(&try_move(&position, &dir!(-1, 0)), &PieceType::King)
-        || is_enemy_piece(&try_move(&position, &dir!(-1, 1)), &PieceType::King)
-        || is_enemy_piece(&try_move(&position, &dir!(0, -1)), &PieceType::King)
-        || is_enemy_piece(&try_move(&position, &dir!(0, 1)), &PieceType::King)
-        || is_enemy_piece(&try_move(&position, &dir!(1, -1)), &PieceType::King)
-        || is_enemy_piece(&try_move(&position, &dir!(1, 0)), &PieceType::King)
-        || is_enemy_piece(&try_move(&position, &dir!(1, 1)), &PieceType::King)
+    if is_enemy_piece(&try_move(position, &dir!(-1, -1)), &PieceType::King)
+        || is_enemy_piece(&try_move(position, &dir!(-1, 0)), &PieceType::King)
+        || is_enemy_piece(&try_move(position, &dir!(-1, 1)), &PieceType::King)
+        || is_enemy_piece(&try_move(position, &dir!(0, -1)), &PieceType::King)
+        || is_enemy_piece(&try_move(position, &dir!(0, 1)), &PieceType::King)
+        || is_enemy_piece(&try_move(position, &dir!(1, -1)), &PieceType::King)
+        || is_enemy_piece(&try_move(position, &dir!(1, 0)), &PieceType::King)
+        || is_enemy_piece(&try_move(position, &dir!(1, 1)), &PieceType::King)
     {
         return true;
     }
@@ -117,7 +117,7 @@ fn is_position_unsafe_generic<B: Board>(board: &B, position: &Position, player: 
     is_position_unsafe(board, position, player, pd)
 }
 
-fn is_piece_unsafe<B: Board>(board: &impl Board, position: &Position) -> bool {
+fn is_piece_unsafe(board: &impl Board, position: &Position) -> bool {
     let Some(Piece { piece: _, player }) = board.at(position) else {
         panic!("No piece at position {}:\n{}", position, board);
     };
@@ -158,7 +158,7 @@ impl SafetyChecks for SimpleBoard {
     }
 
     fn is_piece_unsafe(&self, position: &Position) -> bool {
-        is_piece_unsafe::<Self>(self, position)
+        is_piece_unsafe(self, position)
     }
 }
 
@@ -173,7 +173,7 @@ impl SafetyChecks for CompactBoard {
     }
 
     fn is_piece_unsafe(&self, position: &Position) -> bool {
-        is_piece_unsafe::<Self>(self, position)
+        is_piece_unsafe(self, position)
     }
 }
 
@@ -191,7 +191,7 @@ impl SafetyChecks for Bitboards {
     }
 
     fn is_position_unsafe(&self, position: &Position, player: &Player) -> bool {
-        let player_bitboards = self.by_player(&player);
+        let player_bitboards = self.by_player(player);
         let enemy_bitboards = self.by_player(&!*player);
 
         let all_pieces_bitboard = player_bitboards.combined() | enemy_bitboards.combined();
