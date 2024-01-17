@@ -91,7 +91,7 @@ fn uci_loop<'scope>(scope: &'scope std::thread::Scope<'scope, '_>) {
             .write(true)
             .create(true)
             .truncate(true)
-            .open("uci.log")
+            .open(format!("uci.{}.log", std::process::id()))
         {
             Ok(file) => file,
             Err(err) => {
