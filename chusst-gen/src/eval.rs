@@ -65,9 +65,9 @@ impl From<i32> for Score {
     }
 }
 
-impl Into<i32> for Score {
-    fn into(self) -> i32 {
-        self.0
+impl From<Score> for i32 {
+    fn from(val: Score) -> Self {
+        val.0
     }
 }
 
@@ -139,6 +139,22 @@ struct SearchResult {
     stopped: bool,
 }
 
+struct SearchScores {
+    parent: Score,
+    alpha: Score,
+    beta: Score,
+}
+
+impl Default for SearchScores {
+    fn default() -> Self {
+        Self {
+            parent: Score::from(0),
+            alpha: Score::MIN,
+            beta: Score::MAX,
+        }
+    }
+}
+
 // Value in centipawns
 fn get_piece_value(piece: PieceType) -> Score {
     match piece {
@@ -187,7 +203,7 @@ trait GamePrivate<B: Board + SafetyChecks>: PlayableGame<B> {
         // Before moving, check if it is a castling and it is valid
         if is_king && mv.source.file.abs_diff(mv.target.file) == 2 {
             let is_valid_castling_square = |direction: &Direction| {
-                only_empty_and_safe(self.board(), try_move(&mv.source, &direction), &player)
+                only_empty_and_safe(self.board(), try_move(&mv.source, direction), &player)
                     .is_some()
             };
             let can_castle = match mv.target.file {
@@ -221,7 +237,7 @@ trait GamePrivate<B: Board + SafetyChecks>: PlayableGame<B> {
         if new_game
             .as_ref()
             .board()
-            .is_piece_unsafe(&current_king_position)
+            .is_piece_unsafe(current_king_position)
         {
             return None;
         }
@@ -303,9 +319,9 @@ trait GamePrivate<B: Board + SafetyChecks>: PlayableGame<B> {
         let mut move_names = vec![];
 
         for mv in moves {
-            move_names.push(Game::move_name(&new_game, &mv).unwrap());
+            move_names.push(Game::move_name(&new_game, mv).unwrap());
 
-            assert!(Game::do_move(&mut new_game, *mv).is_some());
+            assert!(Game::do_move(&mut new_game, mv).is_some());
         }
 
         move_names
@@ -316,9 +332,7 @@ trait GamePrivate<B: Board + SafetyChecks>: PlayableGame<B> {
         &self,
         current_depth: u32,
         max_depth: u32,
-        alpha: Score,
-        beta: Score,
-        parent_score: Score,
+        scores: SearchScores,
         stop_signal: &mut impl HasStopSignal,
         feedback: &mut impl SearchFeedback,
     ) -> SearchResult {
@@ -334,7 +348,7 @@ trait GamePrivate<B: Board + SafetyChecks>: PlayableGame<B> {
 
         let king_position = self.board().find_king(&player);
 
-        let mut local_alpha = alpha;
+        let mut local_alpha = scores.alpha;
 
         let is_leaf_node = current_depth == max_depth;
         let mut stopped = false;
@@ -384,7 +398,7 @@ trait GamePrivate<B: Board + SafetyChecks>: PlayableGame<B> {
                         score: local_score,
                     }],
                     // Negamax: negate score from previous move
-                    score: local_score - parent_score,
+                    score: local_score - scores.parent,
                     searched: 0,
                 };
 
@@ -411,9 +425,11 @@ trait GamePrivate<B: Board + SafetyChecks>: PlayableGame<B> {
                         current_depth + 1,
                         max_depth,
                         // beta becomes the alpha of the other player, and viceversa
-                        -beta,
-                        -local_alpha,
-                        branch.score,
+                        SearchScores {
+                            parent: branch.score,
+                            alpha: -scores.beta,
+                            beta: -local_alpha,
+                        },
                         stop_signal,
                         feedback,
                     );
@@ -471,7 +487,7 @@ trait GamePrivate<B: Board + SafetyChecks>: PlayableGame<B> {
                         let _ = writeln!(feedback, "{}}}", indent(current_depth));
                     }
 
-                    if branch.score >= beta && branch.score < Score::MAX {
+                    if branch.score >= scores.beta && branch.score < Score::MAX {
                         // Fail hard beta cutoff
 
                         #[cfg(feature = "verbose-search")]
@@ -489,7 +505,7 @@ trait GamePrivate<B: Board + SafetyChecks>: PlayableGame<B> {
                             best_move = Some(branch);
                         }
 
-                        best_move.as_mut().unwrap().score = beta;
+                        best_move.as_mut().unwrap().score = scores.beta;
 
                         break 'main_loop;
                     }
@@ -535,9 +551,7 @@ trait GamePrivate<B: Board + SafetyChecks>: PlayableGame<B> {
         self.get_best_move_recursive_alpha_beta(
             0,
             0,
-            Score::MIN,
-            Score::MAX,
-            Score::from(0),
+            SearchScores::default(),
             &mut (),
             &mut SilentSearchFeedback::default(),
         )
@@ -547,27 +561,24 @@ trait GamePrivate<B: Board + SafetyChecks>: PlayableGame<B> {
     fn get_possible_captures_of_position(&self, position: &Position) -> Vec<Position> {
         let mut captures: Vec<Position> = Vec::new();
 
-        match self.board().at(position) {
-            Some(square) => {
-                for possible_position in self.get_possible_moves_iter(*position) {
-                    let is_capture = self.board().at(&possible_position).is_some();
+        if let Some(square) = self.board().at(position) {
+            for possible_position in self.get_possible_moves_iter(*position) {
+                let is_capture = self.board().at(&possible_position).is_some();
 
-                    if is_capture {
-                        captures.push(possible_position);
-                    } else if !is_capture
-                        && square.piece == PieceType::Pawn
-                        && position.file.abs_diff(position.file) != 0
-                    {
-                        let passed_rank = usize::try_from(
-                            i8::try_from(position.rank).unwrap()
-                                - B::pawn_progress_direction(&square.player),
-                        )
-                        .unwrap();
-                        captures.push(pos!(passed_rank, possible_position.file));
-                    }
+                if is_capture {
+                    captures.push(possible_position);
+                } else if !is_capture
+                    && square.piece == PieceType::Pawn
+                    && position.file.abs_diff(position.file) != 0
+                {
+                    let passed_rank = usize::try_from(
+                        i8::try_from(position.rank).unwrap()
+                            - B::pawn_progress_direction(&square.player),
+                    )
+                    .unwrap();
+                    captures.push(pos!(passed_rank, possible_position.file));
                 }
             }
-            None => (),
         }
 
         captures
@@ -639,9 +650,8 @@ pub trait Game<B: Board + SafetyChecks>: GamePrivate<B> {
             let tgt_piece_opt = board.at(&mv.target);
             let pieces_iter = player_pieces_iter!(board: board, player: player);
 
-            match piece_char(&src_piece.piece) {
-                Some(piece_char_value) => name.push(piece_char_value),
-                None => (),
+            if let Some(piece_char_value) = piece_char(&src_piece.piece) {
+                name.push(piece_char_value);
             }
 
             let is_pawn = src_piece.piece == PieceType::Pawn;
@@ -658,19 +668,15 @@ pub trait Game<B: Board + SafetyChecks>: GamePrivate<B> {
                     continue;
                 }
 
-                match board.at(&player_piece_position) {
-                    Some(player_piece) => {
-                        if player_piece.piece != src_piece.piece {
-                            continue;
-                        }
+                if let Some(player_piece) = board.at(&player_piece_position) {
+                    if player_piece.piece != src_piece.piece {
+                        continue;
                     }
-                    None => {}
                 }
 
                 if self
                     .get_possible_moves_iter(player_piece_position)
-                    .find(|possible_position| *possible_position == mv.target)
-                    .is_some()
+                    .any(|possible_position| possible_position == mv.target)
                 {
                     ambiguous_piece_exists = true;
                     if player_piece_position.rank == mv.source.rank {
@@ -746,9 +752,7 @@ pub trait Game<B: Board + SafetyChecks>: GamePrivate<B> {
         self.get_best_move_recursive_alpha_beta(
             0,
             search_depth,
-            Score::MIN,
-            Score::MAX,
-            Score::from(0),
+            SearchScores::default(),
             stop_signal,
             feedback,
         )
@@ -895,7 +899,6 @@ pub trait Game<B: Board + SafetyChecks>: GamePrivate<B> {
             Some(
                 enemy_army
                     .keys()
-                    .into_iter()
                     .map(|piece| Piece {
                         piece: *piece,
                         player: *enemy_player,

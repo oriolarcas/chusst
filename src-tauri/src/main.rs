@@ -55,8 +55,7 @@ fn get_history() -> Vec<TurnDescription> {
 fn get_possible_moves(rank: usize, file: usize) -> Vec<Position> {
     let position = Position { rank, file };
     let game = &mut GAME.lock().unwrap().game;
-    let possible_moves = game.get_possible_targets(position);
-    possible_moves
+    game.get_possible_targets(position)
 }
 
 #[tauri::command]
@@ -73,9 +72,7 @@ fn do_move(
     target_file: usize,
     promotion: Option<String>,
 ) -> bool {
-    let promotion_piece = promotion
-        .map(|piece_str| PromotionPieces::try_from_str(piece_str))
-        .flatten();
+    let promotion_piece = promotion.and_then(PromotionPieces::try_from_str);
     let mv = MoveAction {
         mv: Move {
             source: Position {

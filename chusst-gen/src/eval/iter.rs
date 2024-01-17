@@ -17,7 +17,7 @@ impl Default for BoardIter {
     }
 }
 
-impl<'a> Iterator for BoardIter {
+impl Iterator for BoardIter {
     type Item = Position;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -59,7 +59,7 @@ impl<'a, B: Board> Iterator for PlayerPiecesIter<'a, B> {
     type Item = Position;
 
     fn next(&mut self) -> Option<Self::Item> {
-        while let Some(position) = self.board_iter.next() {
+        for position in self.board_iter.by_ref() {
             if let Some(Piece { piece: _, player }) = self.board.at(&position) {
                 if player == *self.player {
                     return Some(position);
@@ -153,13 +153,13 @@ struct PieceIterGameState<'a, B: Board> {
 }
 
 pub enum PawnIterStates {
-    PawnIterNormal,
-    PawnIterPass,
-    PawnIterCaptureLeft,
-    PawnIterCaptureRight,
-    PawnIterCaptureEnPassantLeft,
-    PawnIterCaptureEnPassantRight,
-    PawnIterEnd,
+    Normal,
+    Pass,
+    CaptureLeft,
+    CaptureRight,
+    CaptureEnPassantLeft,
+    CaptureEnPassantRight,
+    End,
 }
 
 pub enum KnightIterStates {
@@ -246,54 +246,54 @@ type QueenIter<'a, B> = RollingPieceIter<'a, B, QueenIterStates>;
 type KingIter<'a, B> = PositionalPieceIter<'a, B, KingIterStates>;
 
 pub enum PieceIter<'a, B: Board> {
-    EmptySquareIterType(std::iter::Empty<Position>),
-    PawnIterType(PawnIter<'a, B>),
-    KnightIterType(KnightIter<'a, B>),
-    BishopIterType(BishopIter<'a, B>),
-    RookIterType(RookIter<'a, B>),
-    QueenIterType(QueenIter<'a, B>),
-    KingIterType(KingIter<'a, B>),
+    EmptySquare(std::iter::Empty<Position>),
+    Pawn(PawnIter<'a, B>),
+    Knight(KnightIter<'a, B>),
+    Bishop(BishopIter<'a, B>),
+    Rook(RookIter<'a, B>),
+    Queen(QueenIter<'a, B>),
+    King(KingIter<'a, B>),
 }
 
-pub fn piece_into_iter<'a, B: Board>(
-    game: &'a GameState<B>,
+pub fn piece_into_iter<B: Board>(
+    game: &GameState<B>,
     position: Position,
-) -> impl Iterator<Item = Position> + 'a {
+) -> impl Iterator<Item = Position> + '_ {
     let Some(Piece { piece, player }) = game.board.at(&position) else {
         // println!("Square {} is empty", position);
-        return PieceIter::EmptySquareIterType(std::iter::empty());
+        return PieceIter::EmptySquare(std::iter::empty());
     };
 
     let game_state = PieceIterGameState { game, position };
 
     match piece {
-        PieceType::Pawn => PieceIter::PawnIterType(PawnIter {
+        PieceType::Pawn => PieceIter::Pawn(PawnIter {
             game_state,
-            state: PawnIterStates::PawnIterNormal,
+            state: PawnIterStates::Normal,
         }),
-        PieceType::Knight => PieceIter::KnightIterType(KnightIter {
+        PieceType::Knight => PieceIter::Knight(KnightIter {
             game_state,
             state: KnightIterStates::KnightIter0,
         }),
-        PieceType::Bishop => PieceIter::BishopIterType(BishopIter {
+        PieceType::Bishop => PieceIter::Bishop(BishopIter {
             game_state,
             state: BishopIterStates::BishopIter0,
-            player: player,
+            player,
             walker: None,
         }),
-        PieceType::Rook => PieceIter::RookIterType(RookIter {
+        PieceType::Rook => PieceIter::Rook(RookIter {
             game_state,
             state: RookIterStates::RookIter0,
-            player: player,
+            player,
             walker: None,
         }),
-        PieceType::Queen => PieceIter::QueenIterType(QueenIter {
+        PieceType::Queen => PieceIter::Queen(QueenIter {
             game_state,
             state: QueenIterStates::QueenIter0,
-            player: player,
+            player,
             walker: None,
         }),
-        PieceType::King => PieceIter::KingIterType(KingIter {
+        PieceType::King => PieceIter::King(KingIter {
             game_state,
             state: KingIterStates::KingIter0,
         }),
@@ -305,13 +305,13 @@ impl<'a, B: Board> Iterator for PieceIter<'a, B> {
 
     fn next(&mut self) -> Option<Self::Item> {
         match self {
-            PieceIter::EmptySquareIterType(iter) => iter.next(),
-            PieceIter::PawnIterType(iter) => iter.next(),
-            PieceIter::KnightIterType(iter) => iter.next(),
-            PieceIter::BishopIterType(iter) => iter.next(),
-            PieceIter::RookIterType(iter) => iter.next(),
-            PieceIter::QueenIterType(iter) => iter.next(),
-            PieceIter::KingIterType(iter) => iter.next(),
+            PieceIter::EmptySquare(iter) => iter.next(),
+            PieceIter::Pawn(iter) => iter.next(),
+            PieceIter::Knight(iter) => iter.next(),
+            PieceIter::Bishop(iter) => iter.next(),
+            PieceIter::Rook(iter) => iter.next(),
+            PieceIter::Queen(iter) => iter.next(),
+            PieceIter::King(iter) => iter.next(),
         }
     }
 }
@@ -329,15 +329,15 @@ impl<'a, B: Board> Iterator for PawnIter<'a, B> {
         };
         loop {
             let result = match self.state {
-                PawnIterStates::PawnIterNormal => {
-                    self.state = PawnIterStates::PawnIterPass;
+                PawnIterStates::Normal => {
+                    self.state = PawnIterStates::Pass;
                     only_empty(
                         &self.game_state.game.board,
                         try_move(&self.game_state.position, &dir!(direction, 0)),
                     )
                 }
-                PawnIterStates::PawnIterPass => {
-                    self.state = PawnIterStates::PawnIterCaptureLeft;
+                PawnIterStates::Pass => {
+                    self.state = PawnIterStates::CaptureLeft;
                     if can_pass
                         && only_empty(
                             &self.game_state.game.board,
@@ -353,24 +353,24 @@ impl<'a, B: Board> Iterator for PawnIter<'a, B> {
                         None
                     }
                 }
-                PawnIterStates::PawnIterCaptureLeft => {
-                    self.state = PawnIterStates::PawnIterCaptureRight;
+                PawnIterStates::CaptureLeft => {
+                    self.state = PawnIterStates::CaptureRight;
                     only_enemy(
                         &self.game_state.game.board,
                         try_move(&self.game_state.position, &dir!(direction, -1)),
                         player,
                     )
                 }
-                PawnIterStates::PawnIterCaptureRight => {
-                    self.state = PawnIterStates::PawnIterCaptureEnPassantLeft;
+                PawnIterStates::CaptureRight => {
+                    self.state = PawnIterStates::CaptureEnPassantLeft;
                     only_enemy(
                         &self.game_state.game.board,
                         try_move(&self.game_state.position, &dir!(direction, 1)),
                         player,
                     )
                 }
-                PawnIterStates::PawnIterCaptureEnPassantLeft => {
-                    self.state = PawnIterStates::PawnIterCaptureEnPassantRight;
+                PawnIterStates::CaptureEnPassantLeft => {
+                    self.state = PawnIterStates::CaptureEnPassantRight;
                     only_en_passant(
                         &self.game_state.game.board,
                         &self.game_state.game.last_move,
@@ -379,8 +379,8 @@ impl<'a, B: Board> Iterator for PawnIter<'a, B> {
                         direction,
                     )
                 }
-                PawnIterStates::PawnIterCaptureEnPassantRight => {
-                    self.state = PawnIterStates::PawnIterEnd;
+                PawnIterStates::CaptureEnPassantRight => {
+                    self.state = PawnIterStates::End;
                     only_en_passant(
                         &self.game_state.game.board,
                         &self.game_state.game.last_move,
@@ -389,12 +389,11 @@ impl<'a, B: Board> Iterator for PawnIter<'a, B> {
                         direction,
                     )
                 }
-                PawnIterStates::PawnIterEnd => return None,
+                PawnIterStates::End => return None,
             };
 
-            match result {
-                Some(position) => return Some(position),
-                None => (),
+            if let Some(position) = result {
+                return Some(position);
             }
         }
     }
@@ -468,9 +467,8 @@ impl<'a, B: Board> Iterator for KnightIter<'a, B> {
                 KnightIterStates::KnightIterEnd => return None,
             };
 
-            match result {
-                Some(position) => return Some(position),
-                None => (),
+            if let Some(position) = result {
+                return Some(position);
             }
         }
     }
@@ -497,9 +495,8 @@ impl<'a, B: Board> Iterator for BishopIter<'a, B> {
                 BishopIterStates::BishopIterEnd => return None,
             };
 
-            match result {
-                Some(position) => return Some(position),
-                None => (),
+            if let Some(position) = result {
+                return Some(position);
             }
         }
     }
@@ -526,9 +523,8 @@ impl<'a, B: Board> Iterator for RookIter<'a, B> {
                 RookIterStates::RookIterEnd => return None,
             };
 
-            match result {
-                Some(position) => return Some(position),
-                None => (),
+            if let Some(position) = result {
+                return Some(position);
             }
         }
     }
@@ -567,9 +563,8 @@ impl<'a, B: Board> Iterator for QueenIter<'a, B> {
                 QueenIterStates::QueenIterEnd => return None,
             };
 
-            match result {
-                Some(position) => return Some(position),
-                None => (),
+            if let Some(position) = result {
+                return Some(position);
             }
         }
     }
@@ -651,9 +646,8 @@ impl<'a, B: Board> Iterator for KingIter<'a, B> {
                 KingIterStates::KingIterEnd => return None,
             };
 
-            match result {
-                Some(position) => return Some(position),
-                None => (),
+            if let Some(position) = result {
+                return Some(position);
             }
         }
     }

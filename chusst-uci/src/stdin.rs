@@ -34,8 +34,8 @@ fn stdin_thread(
     }
 }
 
-pub fn create_stdin_thread<'scope, 'env>(
-    scope: &'scope std::thread::Scope<'scope, 'env>,
+pub fn create_stdin_thread<'scope>(
+    scope: &'scope std::thread::Scope<'scope, '_>,
 ) -> DuplexThread<'scope, (), StdinResponse> {
     create_duplex_thread(scope, stdin_thread)
 }

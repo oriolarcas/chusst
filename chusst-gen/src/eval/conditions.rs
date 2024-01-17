@@ -12,11 +12,11 @@ pub fn try_move(position: &Position, direction: &Direction) -> Option<Position> 
     let row = i8::try_from(position.rank).unwrap() + direction.row_inc;
     let col = i8::try_from(position.file).unwrap() + direction.col_inc;
 
-    if row < 0 || row >= 8 {
+    if !(0..8).contains(&row) {
         return None;
     }
 
-    if col < 0 || col >= 8 {
+    if !(0..8).contains(&col) {
         return None;
     }
 

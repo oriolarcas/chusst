@@ -65,11 +65,11 @@ impl<'a> HasStopSignal for EngineCommandReceiver<'a> {
     }
 }
 
-struct SenderWriter<'a> {
-    sender: std::rc::Rc<&'a mut crossbeam_channel::Sender<EngineResponse>>,
+struct SenderWriter {
+    sender: std::rc::Rc<crossbeam_channel::Sender<EngineResponse>>,
 }
 
-impl<'a> std::io::Write for SenderWriter<'a> {
+impl std::io::Write for SenderWriter {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         let msg = String::from_utf8(buf.to_vec())
             .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err))?;
@@ -85,25 +85,22 @@ impl<'a> std::io::Write for SenderWriter<'a> {
     }
 }
 
-struct BufferedSenderWriter<'a> {
-    sender: std::rc::Rc<&'a mut crossbeam_channel::Sender<EngineResponse>>,
-    writer: std::io::LineWriter<SenderWriter<'a>>,
+struct BufferedSenderWriter {
+    sender: std::rc::Rc<crossbeam_channel::Sender<EngineResponse>>,
+    writer: std::io::LineWriter<SenderWriter>,
 }
 
-impl<'a> BufferedSenderWriter<'a> {
-    fn new(sender: &'a mut crossbeam_channel::Sender<EngineResponse>) -> BufferedSenderWriter<'a> {
+impl BufferedSenderWriter {
+    fn new(sender: crossbeam_channel::Sender<EngineResponse>) -> BufferedSenderWriter {
         let sender_rc = std::rc::Rc::new(sender);
-
         BufferedSenderWriter {
             sender: sender_rc.clone(),
-            writer: std::io::LineWriter::new(SenderWriter {
-                sender: sender_rc.clone(),
-            }),
+            writer: std::io::LineWriter::new(SenderWriter { sender: sender_rc }),
         }
     }
 }
 
-impl<'a> std::io::Write for BufferedSenderWriter<'a> {
+impl std::io::Write for BufferedSenderWriter {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         self.writer.write(buf)
     }
@@ -113,7 +110,7 @@ impl<'a> std::io::Write for BufferedSenderWriter<'a> {
     }
 }
 
-impl<'a> BufferedSenderWriter<'a> {
+impl BufferedSenderWriter {
     fn send(
         &self,
         msg: EngineResponse,
@@ -122,7 +119,7 @@ impl<'a> BufferedSenderWriter<'a> {
     }
 }
 
-impl<'a> EngineFeedback for BufferedSenderWriter<'a> {
+impl EngineFeedback for BufferedSenderWriter {
     fn send(&self, msg: EngineMessage) {
         match msg {
             EngineMessage::Info(msg) => {
@@ -139,8 +136,7 @@ fn engine_thread(
     to_engine: crossbeam_channel::Receiver<EngineCommand>,
     from_engine: crossbeam_channel::Sender<EngineResponse>,
 ) {
-    let mut from_engine_mut = from_engine;
-    let mut communicator = BufferedSenderWriter::new(&mut from_engine_mut);
+    let mut communicator = BufferedSenderWriter::new(from_engine);
     let mut game = BitboardGame::new();
     let mut command_receiver = EngineCommandReceiver {
         receiver: &to_engine,
@@ -183,8 +179,8 @@ fn engine_thread(
     }
 }
 
-pub fn create_engine_thread<'scope, 'env>(
-    scope: &'scope std::thread::Scope<'scope, 'env>,
+pub fn create_engine_thread<'scope>(
+    scope: &'scope std::thread::Scope<'scope, '_>,
 ) -> DuplexThread<'scope, EngineCommand, EngineResponse> {
     create_duplex_thread(scope, engine_thread)
 }

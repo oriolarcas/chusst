@@ -19,19 +19,19 @@ pub trait EngineFeedback: std::io::Write {
 }
 
 pub trait SearchFeedback: std::io::Write {
-    fn update(self: &mut Self, depth: u32, nodes: u32, score: i32);
-    fn info(self: &mut Self, message: &str);
+    fn update(&mut self, depth: u32, nodes: u32, score: i32);
+    fn info(&mut self, message: &str);
 }
 
 #[derive(Default)]
 pub struct SilentSearchFeedback();
 
 impl SearchFeedback for SilentSearchFeedback {
-    fn update(self: &mut Self, _depth: u32, _nodes: u32, _score: i32) {
+    fn update(&mut self, _depth: u32, _nodes: u32, _score: i32) {
         // do nothing
     }
 
-    fn info(self: &mut Self, message: &str) {
+    fn info(&mut self, message: &str) {
         println!("{}", message);
     }
 }
@@ -66,7 +66,7 @@ impl<'a> PeriodicalSearchFeedback<'a> {
 }
 
 impl<'a> SearchFeedback for PeriodicalSearchFeedback<'a> {
-    fn update(self: &mut Self, depth: u32, nodes: u32, score: i32) {
+    fn update(&mut self, depth: u32, nodes: u32, score: i32) {
         let now = std::time::Instant::now();
 
         if now - self.last_update < self.update_interval {
@@ -83,7 +83,7 @@ impl<'a> SearchFeedback for PeriodicalSearchFeedback<'a> {
         self.last_update = now;
     }
 
-    fn info(self: &mut Self, message: &str) {
+    fn info(&mut self, message: &str) {
         self.receiver.send(EngineMessage::Info(EngineInfoMessage {
             message: message.to_string(),
         }))
@@ -110,11 +110,11 @@ impl EngineFeedback for StdoutFeedback {
 }
 
 impl SearchFeedback for StdoutFeedback {
-    fn update(self: &mut Self, _depth: u32, _nodes: u32, _score: i32) {
+    fn update(&mut self, _depth: u32, _nodes: u32, _score: i32) {
         // ignore
     }
 
-    fn info(self: &mut Self, message: &str) {
+    fn info(&mut self, message: &str) {
         println!("{}", message);
     }
 }
