@@ -1,8 +1,8 @@
-use crate::board::{Board, Piece, PieceType, Player, Position};
+use crate::board::{Board, Piece, PieceType, Player, Position, ModifiableBoard};
 use crate::eval::conditions::{
     only_empty, only_empty_or_enemy, only_en_passant, only_enemy, try_move, Direction,
 };
-use crate::game::GameState;
+use crate::game::{GameState, ModifiableGame, CastlingRights};
 use crate::pos;
 
 pub struct BoardIter {
@@ -70,6 +70,7 @@ impl<'a, B: Board> Iterator for PlayerPiecesIter<'a, B> {
     }
 }
 
+#[macro_export]
 macro_rules! dir {
     ($row:expr, $col:expr) => {
         Direction {
@@ -78,7 +79,7 @@ macro_rules! dir {
         }
     };
 }
-pub(crate) use dir;
+pub use dir;
 
 struct WalkPath {
     position: Position,
@@ -259,7 +260,7 @@ pub fn piece_into_iter<B: Board>(
     game: &GameState<B>,
     position: Position,
 ) -> impl Iterator<Item = Position> + '_ {
-    let Some(Piece { piece, player }) = game.board.at(&position) else {
+    let Some(Piece { piece, player }) = game.at(&position) else {
         // println!("Square {} is empty", position);
         return PieceIter::EmptySquare(std::iter::empty());
     };
@@ -320,7 +321,7 @@ impl<'a, B: Board> Iterator for PawnIter<'a, B> {
     type Item = Position;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let square = self.game_state.game.board.at(&self.game_state.position);
+        let square = self.game_state.game.at(&self.game_state.position);
         let player = &square.unwrap().player;
         let direction = B::pawn_progress_direction(player);
         let can_pass = match player {
@@ -332,7 +333,7 @@ impl<'a, B: Board> Iterator for PawnIter<'a, B> {
                 PawnIterStates::Normal => {
                     self.state = PawnIterStates::Pass;
                     only_empty(
-                        &self.game_state.game.board,
+                        self.game_state.game.board(),
                         try_move(&self.game_state.position, &dir!(direction, 0)),
                     )
                 }
@@ -340,13 +341,13 @@ impl<'a, B: Board> Iterator for PawnIter<'a, B> {
                     self.state = PawnIterStates::CaptureLeft;
                     if can_pass
                         && only_empty(
-                            &self.game_state.game.board,
+                            self.game_state.game.board(),
                             try_move(&self.game_state.position, &dir!(direction, 0)),
                         )
                         .is_some()
                     {
                         only_empty(
-                            &self.game_state.game.board,
+                            self.game_state.game.board(),
                             try_move(&self.game_state.position, &dir!(direction * 2, 0)),
                         )
                     } else {
@@ -356,7 +357,7 @@ impl<'a, B: Board> Iterator for PawnIter<'a, B> {
                 PawnIterStates::CaptureLeft => {
                     self.state = PawnIterStates::CaptureRight;
                     only_enemy(
-                        &self.game_state.game.board,
+                        self.game_state.game.board(),
                         try_move(&self.game_state.position, &dir!(direction, -1)),
                         player,
                     )
@@ -364,7 +365,7 @@ impl<'a, B: Board> Iterator for PawnIter<'a, B> {
                 PawnIterStates::CaptureRight => {
                     self.state = PawnIterStates::CaptureEnPassantLeft;
                     only_enemy(
-                        &self.game_state.game.board,
+                        self.game_state.game.board(),
                         try_move(&self.game_state.position, &dir!(direction, 1)),
                         player,
                     )
@@ -372,7 +373,7 @@ impl<'a, B: Board> Iterator for PawnIter<'a, B> {
                 PawnIterStates::CaptureEnPassantLeft => {
                     self.state = PawnIterStates::CaptureEnPassantRight;
                     only_en_passant(
-                        &self.game_state.game.board,
+                        self.game_state.game.board(),
                         &self.game_state.game.last_move,
                         try_move(&self.game_state.position, &dir!(direction, -1)),
                         player,
@@ -382,7 +383,7 @@ impl<'a, B: Board> Iterator for PawnIter<'a, B> {
                 PawnIterStates::CaptureEnPassantRight => {
                     self.state = PawnIterStates::End;
                     only_en_passant(
-                        &self.game_state.game.board,
+                        self.game_state.game.board(),
                         &self.game_state.game.last_move,
                         try_move(&self.game_state.position, &dir!(direction, 1)),
                         player,
@@ -403,7 +404,7 @@ macro_rules! positional_state {
     ($self:ident, $player:expr, $dir:expr => $next_state:expr) => {{
         $self.state = $next_state;
         only_empty_or_enemy(
-            &$self.game_state.game.board,
+            $self.game_state.game.board(),
             try_move(&$self.game_state.position, &$dir),
             $player,
         )
@@ -420,7 +421,7 @@ macro_rules! walk_state {
             .walker
             .as_mut()
             .unwrap()
-            .next(&$self.game_state.game.board, &$self.player)
+            .next($self.game_state.game.board(), &$self.player)
         {
             Some(position) => Some(position),
             None => {
@@ -436,7 +437,7 @@ impl<'a, B: Board> Iterator for KnightIter<'a, B> {
     type Item = Position;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let square = self.game_state.game.board.at(&self.game_state.position);
+        let square = self.game_state.game.at(&self.game_state.position);
         let player = &square.unwrap().player;
         loop {
             let result = match self.state {
@@ -574,7 +575,7 @@ impl<'a, B: Board> Iterator for KingIter<'a, B> {
     type Item = Position;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let square = self.game_state.game.board.at(&self.game_state.position);
+        let square = self.game_state.game.at(&self.game_state.position);
         let player = &square.unwrap().player;
         loop {
             let result = match self.state {
@@ -604,16 +605,16 @@ impl<'a, B: Board> Iterator for KingIter<'a, B> {
                 }
                 KingIterStates::KingIterKingsideCastle => {
                     self.state = KingIterStates::KingIterQueensideCastle;
-                    if !self.game_state.game.info.can_castle_kingside(player) {
+                    if !self.game_state.game.can_castle_kingside(*player) {
                         None
                     } else if only_empty(
-                        &self.game_state.game.board,
+                        self.game_state.game.board(),
                         try_move(&self.game_state.position, &dir!(0, 1)),
                     )
                     .is_some()
                     {
                         only_empty(
-                            &self.game_state.game.board,
+                            self.game_state.game.board(),
                             try_move(&self.game_state.position, &dir!(0, 2)),
                         )
                     } else {
@@ -622,21 +623,21 @@ impl<'a, B: Board> Iterator for KingIter<'a, B> {
                 }
                 KingIterStates::KingIterQueensideCastle => {
                     self.state = KingIterStates::KingIterEnd;
-                    if !self.game_state.game.info.can_castle_queenside(player) {
+                    if !self.game_state.game.can_castle_queenside(*player) {
                         None
                     } else if only_empty(
-                        &self.game_state.game.board,
+                        self.game_state.game.board(),
                         try_move(&self.game_state.position, &dir!(0, -1)),
                     )
                     .is_some()
                         && only_empty(
-                            &self.game_state.game.board,
+                            self.game_state.game.board(),
                             try_move(&self.game_state.position, &dir!(0, -3)),
                         )
                         .is_some()
                     {
                         only_empty(
-                            &self.game_state.game.board,
+                            self.game_state.game.board(),
                             try_move(&self.game_state.position, &dir!(0, -2)),
                         )
                     } else {

@@ -1,9 +1,13 @@
+mod play;
+
 use crate::board::{Board, ModifiableBoard, Piece, PieceType, Player, Position, SimpleBoard};
 use crate::{mv, pos};
+use anyhow::Result;
 use serde::ser::SerializeMap;
-
 use serde::Serialize;
 use std::fmt;
+
+pub use play::ModifiableGame;
 
 #[derive(Copy, Clone, Debug, PartialEq, Serialize)]
 pub struct Move {
@@ -168,6 +172,13 @@ pub struct MoveInfo {
     pub info: MoveExtraInfo,
 }
 
+pub trait CastlingRights {
+    fn can_castle_kingside(&self, player: Player) -> bool;
+    fn can_castle_queenside(&self, player: Player) -> bool;
+    fn disable_castle_kingside(&mut self, player: Player);
+    fn disable_castle_queenside(&mut self, player: Player);
+}
+
 #[derive(Copy, Clone, Debug, PartialEq, Serialize)]
 pub struct GameInfo {
     white_kingside_castling_allowed: bool,
@@ -185,29 +196,31 @@ impl GameInfo {
             black_queenside_castling_allowed: true,
         }
     }
+}
 
-    pub fn can_castle_kingside(&self, player: &Player) -> bool {
+impl CastlingRights for GameInfo {
+    fn can_castle_kingside(&self, player: Player) -> bool {
         match player {
             Player::White => self.white_kingside_castling_allowed,
             Player::Black => self.black_kingside_castling_allowed,
         }
     }
 
-    pub fn can_castle_queenside(&self, player: &Player) -> bool {
+    fn can_castle_queenside(&self, player: Player) -> bool {
         match player {
             Player::White => self.white_queenside_castling_allowed,
             Player::Black => self.black_queenside_castling_allowed,
         }
     }
 
-    pub fn disable_castle_kingside(&mut self, player: &Player) {
+    fn disable_castle_kingside(&mut self, player: Player) {
         match player {
             Player::White => self.white_kingside_castling_allowed = false,
             Player::Black => self.black_kingside_castling_allowed = false,
         }
     }
 
-    pub fn disable_castle_queenside(&mut self, player: &Player) {
+    fn disable_castle_queenside(&mut self, player: Player) {
         match player {
             Player::White => self.white_queenside_castling_allowed = false,
             Player::Black => self.black_queenside_castling_allowed = false,
@@ -237,11 +250,11 @@ impl Default for GameInfo {
 #[derive(Clone, Debug, PartialEq)]
 pub struct GameState<B: Board> {
     // Serialized fields (exported to the UI)
-    pub(crate) board: B,
-    pub(crate) player: Player,
+    board: B,
+    player: Player,
     // Non-serialized fields (not exported to the UI)
-    pub(crate) last_move: Option<MoveInfo>,
-    pub(crate) info: GameInfo,
+    last_move: Option<MoveInfo>,
+    info: GameInfo,
 }
 
 impl<B: Board> Serialize for GameState<B> {
@@ -277,14 +290,6 @@ impl<B: Board> GameState<B> {
             last_move: None,
             info: GameInfo::new(),
         }
-    }
-
-    pub fn player(&self) -> Player {
-        self.player
-    }
-
-    pub fn board(&self) -> &B {
-        &self.board
     }
 
     pub fn try_from_fen(fen: &[&str]) -> Option<Self> {
@@ -362,11 +367,29 @@ impl<B: Board> ModifiableBoard<Position, Option<Piece>> for GameState<B> {
     }
 
     fn update(&mut self, pos: &Position, value: Option<Piece>) {
-        self.board.update(pos, value)
+        self.board.update(pos, value);
     }
 
     fn move_piece(&mut self, source: &Position, target: &Position) {
-        self.board.move_piece(source, target)
+        self.board.move_piece(source, target);
+    }
+}
+
+impl<B: Board> CastlingRights for GameState<B> {
+    fn can_castle_kingside(&self, player: Player) -> bool {
+        self.info.can_castle_kingside(player)
+    }
+
+    fn can_castle_queenside(&self, player: Player) -> bool {
+        self.info.can_castle_queenside(player)
+    }
+
+    fn disable_castle_kingside(&mut self, player: Player) {
+        self.info.disable_castle_kingside(player);
+    }
+
+    fn disable_castle_queenside(&mut self, player: Player) {
+        self.info.disable_castle_queenside(player);
     }
 }
 

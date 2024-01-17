@@ -7,16 +7,18 @@ mod play;
 #[cfg(test)]
 mod tests;
 
+pub use self::conditions::{only_enemy, try_move, Direction};
+pub use self::iter::dir;
+
 use self::check::{only_empty_and_safe, SafetyChecks};
-use self::conditions::{try_move, Direction};
 pub use self::feedback::{
     EngineFeedback, EngineFeedbackMessage, EngineMessage, SilentSearchFeedback, StdoutFeedback,
 };
 use self::feedback::{PeriodicalSearchFeedback, SearchFeedback};
-use self::iter::{dir, piece_into_iter, player_pieces_iter, BoardIter, PlayerPiecesIter};
+use self::iter::{piece_into_iter, player_pieces_iter, BoardIter, PlayerPiecesIter};
 use self::play::PlayableGame;
-use crate::board::{Board, Piece, PieceType, Player, Position, Ranks};
-use crate::game::{GameInfo, GameState, Move, MoveAction, MoveActionType, PromotionPieces};
+use crate::board::{Board, Piece, PieceType, Position, Ranks};
+use crate::game::{GameState, ModifiableGame, Move, MoveAction, MoveActionType, PromotionPieces};
 use crate::{mv, mva, pos};
 
 use core::panic;
@@ -177,19 +179,11 @@ impl<B: Board + SafetyChecks> PlayableGame<B> for GameState<B> {
     }
 
     fn do_move_no_checks(&mut self, move_action: &MoveAction) -> anyhow::Result<()> {
-        self.do_move_no_checks_internal(move_action)
+        ModifiableGame::do_move_no_checks(self, move_action)
     }
 }
 
-trait GamePrivate<B: Board + SafetyChecks>: PlayableGame<B> {
-    fn board(&self) -> &B;
-    fn board_mut(&mut self) -> &mut B;
-
-    fn player(&self) -> Player;
-    fn update_player(&mut self, player: Player);
-
-    fn info(&self) -> &GameInfo;
-
+trait GamePrivate<B: Board + SafetyChecks>: PlayableGame<B> + ModifiableGame<B> {
     // Only for moves from the move generator, not from unknown sources
     fn clone_and_move_with_checks(
         &self,
@@ -911,26 +905,6 @@ pub trait Game<B: Board + SafetyChecks>: GamePrivate<B> {
     }
 }
 
-impl<B: Board + SafetyChecks> GamePrivate<B> for GameState<B> {
-    fn board(&self) -> &B {
-        &self.board
-    }
-
-    fn board_mut(&mut self) -> &mut B {
-        &mut self.board
-    }
-
-    fn player(&self) -> Player {
-        self.player
-    }
-
-    fn update_player(&mut self, player: Player) {
-        self.player = player;
-    }
-
-    fn info(&self) -> &GameInfo {
-        &self.info
-    }
-}
+impl<B: Board + SafetyChecks> GamePrivate<B> for GameState<B> {}
 
 impl<B: Board + SafetyChecks> Game<B> for GameState<B> {}

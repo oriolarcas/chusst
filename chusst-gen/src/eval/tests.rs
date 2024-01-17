@@ -2,7 +2,9 @@ use super::play::{PlayableGame, ReversableGame};
 use crate::board::{Board, ModifiableBoard, Piece, PieceType, Player, Position};
 use crate::eval::check::SafetyChecks;
 use crate::eval::Game;
-use crate::game::{Move, MoveAction, MoveActionType, PromotionPieces, SimpleGame};
+use crate::game::{
+    CastlingRights, ModifiableGame, Move, MoveAction, MoveActionType, PromotionPieces, SimpleGame,
+};
 use crate::{mva, p, pos};
 
 struct PiecePosition {
@@ -231,11 +233,11 @@ fn move_reversable() {
                 game.do_move(mv).is_some(),
                 "move {} failed:\n{}",
                 mv.mv,
-                game.board
+                game.board()
             );
         }
 
-        let original_board = game.board.clone();
+        let original_board = game.board().clone();
 
         let mut rev_game = ReversableGame::from(&mut game);
 
@@ -244,7 +246,7 @@ fn move_reversable() {
             rev_game.do_move_with_checks(&test_board.mv),
             "failed to make legal move {} in:\n{}",
             test_board.mv.mv,
-            game.board
+            game.board()
         );
 
         for check in &test_board.checks {
@@ -260,16 +262,19 @@ fn move_reversable() {
                     .as_ref()
                     .at(&check.position)
                     .map_or("nothing".to_string(), |piece| format!("{}", piece.piece)),
-                rev_game.as_ref().board,
+                rev_game.board(),
             );
         }
 
         rev_game.undo();
 
         assert_eq!(
-            game.board, original_board,
+            game.board(),
+            &original_board,
             "after move {},\nmodified board:\n{}\noriginal board:\n{}",
-            test_board.mv.mv, game.board, original_board
+            test_board.mv.mv,
+            game.board(),
+            original_board
         );
     }
 }
@@ -370,10 +375,10 @@ fn check_mate() {
             info: Default::default(),
         };
 
-        game.info.disable_castle_kingside(&Player::White);
-        game.info.disable_castle_kingside(&Player::Black);
-        game.info.disable_castle_queenside(&Player::White);
-        game.info.disable_castle_queenside(&Player::Black);
+        game.disable_castle_kingside(Player::White);
+        game.disable_castle_kingside(Player::Black);
+        game.disable_castle_queenside(Player::White);
+        game.disable_castle_queenside(Player::Black);
 
         // Do setup moves
         for mv in &test_board.initial_moves {
@@ -381,7 +386,7 @@ fn check_mate() {
                 game.do_move(mv).is_some(),
                 "move {} failed:\n{}",
                 mv.mv,
-                game.board
+                game.board()
             );
         }
 
@@ -391,7 +396,7 @@ fn check_mate() {
             "notation `{}` for move {} doesn't show checkmate sign # in:\n{}",
             name,
             test_board.mv.mv,
-            game.board
+            game.board()
         );
 
         // Do move
@@ -401,17 +406,17 @@ fn check_mate() {
             rev_game.do_move_with_checks(&test_board.mv),
             "invalid move {}:\n{}",
             test_board.mv.mv,
-            rev_game.as_ref().board
+            rev_game.board()
         );
 
         let possible_moves = game.get_possible_moves(pos!(a1));
-        let in_check = game.board.is_piece_unsafe(&pos!(a1));
-        assert!(in_check, "king should be in check:\n{}", game.board);
+        let in_check = game.board().is_piece_unsafe(&pos!(a1));
+        assert!(in_check, "king should be in check:\n{}", game.board());
         assert!(
             possible_moves.is_empty(),
             "unexpected possible move {} in check mate:\n{}",
             possible_moves.first().unwrap().mv,
-            game.board
+            game.board()
         );
     }
 }
@@ -427,7 +432,7 @@ fn fen_parsing() {
     );
     assert!(parsed_game.is_some(), "Failed to parse FEN string");
     let game = parsed_game.unwrap();
-    assert_eq!(game, TestGame::new(), "\n{}", game.board);
+    assert_eq!(game, TestGame::new(), "\n{}", game.board());
 }
 
 // Template to quickly test a specific board/move
@@ -460,10 +465,11 @@ fn quick_test() {
             player: Player::White,
             last_move: None,
             info: Default::default(),
+            hash: None,
         };
 
-        game.info.disable_castle_kingside(&Player::White);
-        game.info.disable_castle_kingside(&Player::Black);
+        game.disable_castle_kingside(Player::White);
+        game.disable_castle_kingside(Player::Black);
 
         // Do setup moves
         for mv in &test_board.initial_moves {
@@ -471,7 +477,7 @@ fn quick_test() {
                 game.do_move(mv).is_some(),
                 "move {} failed:\n{}",
                 mv.mv,
-                game.board
+                game.board()
             );
         }
 
@@ -482,7 +488,7 @@ fn quick_test() {
             rev_game.do_move_with_checks(&test_board.mv),
             "invalid move {}:\n{}",
             test_board.mv.mv,
-            rev_game.as_ref().board
+            rev_game.as_ref().board()
         );
     }
 }

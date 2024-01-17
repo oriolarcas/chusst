@@ -1,11 +1,10 @@
-use crate::board::{Board, ModifiableBoard, Piece, PieceType, Position};
-use crate::eval::conditions::{only_enemy, try_move, Direction};
-// use crate::eval::get_possible_moves;
-use crate::eval::iter::dir;
+use crate::board::{Board, ModifiableBoard, Piece, Position};
 use crate::eval::Game;
-use crate::game::{GameInfo, GameState, Move, MoveAction, MoveActionType, MoveExtraInfo, MoveInfo};
+use crate::game::{
+    CastlingRights, GameInfo, GameState, ModifiableGame, Move, MoveAction, MoveInfo,
+};
 use crate::mv;
-use anyhow::{bail, Result};
+use anyhow::Result;
 
 use super::check::SafetyChecks;
 
@@ -14,7 +13,7 @@ pub struct ReversableMove {
     previous_piece: Option<Piece>,
 }
 
-pub trait PlayableGame<B: Board>: ModifiableBoard<Position, Option<Piece>>
+pub trait PlayableGame<B: Board>: ModifiableGame<B>
 where
     B: SafetyChecks,
 {
@@ -23,7 +22,7 @@ where
 
     fn clone_and_move(&self, mv: &MoveAction) -> Result<GameState<B>> {
         let mut new_game = self.as_ref().clone();
-        new_game.do_move_no_checks(mv)?;
+        PlayableGame::do_move_no_checks(&mut new_game, mv)?;
         Ok(new_game)
     }
 
@@ -31,12 +30,11 @@ where
     // because here we don't know if the move is legal, so we check against
     // all possible legal moves.
     fn do_move_with_checks(&mut self, move_action: &MoveAction) -> bool {
-        let board = &self.as_ref().board;
         let mv = &move_action.mv;
 
-        match board.at(&mv.source) {
+        match self.at(&mv.source) {
             Some(piece) => {
-                if piece.player != self.as_ref().player {
+                if piece.player != self.player() {
                     return false;
                 }
             }
@@ -54,108 +52,10 @@ where
             return false;
         }
 
-        self.do_move_no_checks(move_action).is_ok()
+        PlayableGame::do_move_no_checks(self, move_action).is_ok()
     }
 
     fn do_move_no_checks(&mut self, move_action: &MoveAction) -> Result<()>;
-
-    fn do_move_no_checks_internal(&mut self, move_action: &MoveAction) -> Result<()> {
-        let mv = &move_action.mv;
-
-        let Some(source_square) = self.as_ref().board.at(&mv.source) else {
-            bail!("Move {} from empty square:\n{}", mv, self.as_ref().board);
-        };
-
-        let player = source_square.player;
-        let moved_piece = source_square.piece;
-        let move_info = match moved_piece {
-            PieceType::Pawn => {
-                if mv.source.rank.abs_diff(mv.target.rank) == 2 {
-                    MoveExtraInfo::Passed
-                } else if mv.source.file != mv.target.file
-                    && self.as_ref().board.at(&mv.target).is_none()
-                {
-                    MoveExtraInfo::EnPassant
-                } else if mv.target.rank == B::promotion_rank(&player) {
-                    let promotion_piece = match move_action.move_type {
-                        MoveActionType::Normal => bail!("Promotion piece not specified"),
-                        MoveActionType::Promotion(piece) => piece,
-                    };
-
-                    MoveExtraInfo::Promotion(promotion_piece)
-                } else {
-                    MoveExtraInfo::Other
-                }
-            }
-            PieceType::King => {
-                if mv.source.file.abs_diff(mv.target.file) == 2 {
-                    match mv.target.file {
-                        2 => MoveExtraInfo::CastleQueenside,
-                        6 => MoveExtraInfo::CastleKingside,
-                        _ => bail!("invalid castling {} in:\n{}", mv, self.as_ref().board),
-                    }
-                } else {
-                    MoveExtraInfo::Other
-                }
-            }
-            _ => MoveExtraInfo::Other,
-        };
-
-        self.move_piece(&mv.source, &mv.target);
-
-        match move_info {
-            MoveExtraInfo::EnPassant => {
-                // Capture passed pawn
-                let direction = B::pawn_progress_direction(&player);
-                let passed = only_enemy(
-                    &self.as_ref().board,
-                    try_move(&mv.target, &dir!(-direction, 0)),
-                    &player,
-                )
-                .unwrap();
-                self.update(&passed, None);
-            }
-            MoveExtraInfo::Promotion(promotion_piece) => {
-                self.update(
-                    &mv.target,
-                    Some(Piece {
-                        piece: promotion_piece.into(),
-                        player,
-                    }),
-                );
-            }
-            MoveExtraInfo::CastleKingside => {
-                let rook_source = try_move(&mv.source, &dir!(0, 3)).unwrap();
-                let rook_target = try_move(&mv.source, &dir!(0, 1)).unwrap();
-                self.move_piece(&rook_source, &rook_target);
-            }
-            MoveExtraInfo::CastleQueenside => {
-                let rook_source = try_move(&mv.source, &dir!(0, -4)).unwrap();
-                let rook_target = try_move(&mv.source, &dir!(0, -1)).unwrap();
-                self.move_piece(&rook_source, &rook_target);
-            }
-            _ => (),
-        }
-
-        if moved_piece == PieceType::King {
-            self.as_mut().info.disable_castle_kingside(&player);
-            self.as_mut().info.disable_castle_queenside(&player);
-        } else if moved_piece == PieceType::Rook && mv.source.rank == B::home_rank(&player) {
-            match mv.source.file {
-                0 => self.as_mut().info.disable_castle_queenside(&player),
-                7 => self.as_mut().info.disable_castle_kingside(&player),
-                _ => (),
-            }
-        }
-
-        self.as_mut().player = !self.as_ref().player;
-        self.as_mut().last_move = Some(MoveInfo {
-            mv: *mv,
-            info: move_info,
-        });
-
-        Ok(())
-    }
 }
 
 pub struct ReversableGame<'a, B: Board> {
@@ -165,20 +65,21 @@ pub struct ReversableGame<'a, B: Board> {
     info: Option<GameInfo>,
 }
 
-impl<'a, B: Board + SafetyChecks> PlayableGame<B> for ReversableGame<'a, B> {
-    fn as_ref(&self) -> &GameState<B> {
-        self.game
+impl<'a, B: Board> CastlingRights for ReversableGame<'a, B> {
+    fn can_castle_kingside(&self, player: crate::board::Player) -> bool {
+        self.game.can_castle_kingside(player)
     }
 
-    fn as_mut(&mut self) -> &mut GameState<B> {
-        self.game
+    fn can_castle_queenside(&self, player: crate::board::Player) -> bool {
+        self.game.can_castle_queenside(player)
     }
 
-    fn do_move_no_checks(&mut self, mv: &MoveAction) -> Result<()> {
-        let mut moves: Vec<ReversableMove> = Vec::new();
-        PlayableGame::do_move_no_checks_internal(self, mv)?;
-        self.moves.append(&mut moves);
-        Ok(())
+    fn disable_castle_kingside(&mut self, player: crate::board::Player) {
+        self.game.disable_castle_kingside(player);
+    }
+
+    fn disable_castle_queenside(&mut self, player: crate::board::Player) {
+        self.game.disable_castle_queenside(player);
     }
 }
 
@@ -186,32 +87,61 @@ impl<'a, B: Board + SafetyChecks> ModifiableBoard<Position, Option<Piece>>
     for ReversableGame<'a, B>
 {
     fn at(&self, pos: &Position) -> Option<Piece> {
-        self.game.board.at(pos)
+        self.game.at(pos)
     }
 
     fn move_piece(&mut self, source: &Position, target: &Position) {
         let mv = mv!(*source, *target);
         self.moves.push(ReversableMove {
             mv,
-            previous_piece: self.as_ref().board.at(&mv.target),
+            previous_piece: self.game.at(&mv.target),
         });
-        self.as_mut().board.move_piece(&mv.source, &mv.target);
+        self.game.move_piece(&mv.source, &mv.target);
     }
 
     fn update(&mut self, pos: &Position, value: Option<Piece>) {
         self.moves.push(ReversableMove {
             mv: mv!(*pos, *pos),
-            previous_piece: self.as_ref().board.at(pos),
+            previous_piece: self.game.at(pos),
         });
-        self.as_mut().board.update(pos, value);
+        self.game.update(pos, value);
+    }
+}
+
+impl<'a, B: Board + SafetyChecks> ModifiableGame<B> for ReversableGame<'a, B> {
+    fn board(&self) -> &B {
+        self.board()
+    }
+
+    fn board_mut(&mut self) -> &mut B {
+        self.board_mut()
+    }
+
+    fn player(&self) -> crate::board::Player {
+        self.player()
+    }
+
+    fn update_player(&mut self, player: crate::board::Player) {
+        self.update_player(player)
+    }
+
+    fn info(&self) -> &GameInfo {
+        self.game.info()
+    }
+
+    fn do_move_no_checks(&mut self, move_action: &MoveAction) -> Result<()> {
+        let mut moves: Vec<ReversableMove> = Vec::new();
+        ModifiableGame::do_move_no_checks(self, move_action)?;
+        self.moves.append(&mut moves);
+        Ok(())
     }
 }
 
 impl<'a, B: Board> ReversableGame<'a, B> {
     #[allow(dead_code)]
     pub fn from(game: &'a mut GameState<B>) -> Self {
-        let last_move = game.last_move;
-        let game_info = game.info;
+        let last_move = game.last_move();
+        let game_info = game.info();
         ReversableGame {
             game,
             moves: vec![],
@@ -228,8 +158,8 @@ impl<'a, B: Board> ReversableGame<'a, B> {
         for rev_move in self.moves.iter().rev() {
             let mv = &rev_move.mv;
 
-            self.game.board.move_piece(&mv.target, &mv.source);
-            self.game.board.update(&mv.target, rev_move.previous_piece);
+            self.game.move_piece(&mv.target, &mv.source);
+            self.game.update(&mv.target, rev_move.previous_piece);
         }
 
         self.moves.clear();
@@ -238,5 +168,22 @@ impl<'a, B: Board> ReversableGame<'a, B> {
         self.game.info = self.info.unwrap();
         self.last_move = None;
         self.info = None;
+    }
+}
+
+impl<'a, B: Board + SafetyChecks> PlayableGame<B> for ReversableGame<'a, B> {
+    fn as_ref(&self) -> &GameState<B> {
+        self.game
+    }
+
+    fn as_mut(&mut self) -> &mut GameState<B> {
+        self.game
+    }
+
+    fn do_move_no_checks(&mut self, mv: &MoveAction) -> Result<()> {
+        let mut moves: Vec<ReversableMove> = Vec::new();
+        ModifiableGame::do_move_no_checks(self, mv)?;
+        self.moves.append(&mut moves);
+        Ok(())
     }
 }

@@ -30,8 +30,6 @@ type Move = {
 type Game = {
   board: {ranks: SquareType[][]};
   player: string;
-  turn: number;
-  last_move: Position | null;
 };
 
 export enum MateType {
