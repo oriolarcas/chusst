@@ -30,15 +30,15 @@ impl<B: Board> ModifiableGame<B> for GameState<B> {
     }
 
     fn player(&self) -> Player {
-        self.player
+        self.data.player
     }
 
     fn update_player(&mut self, player: Player) {
-        self.player = player;
+        self.data.player = player;
     }
 
     fn info(&self) -> &GameInfo {
-        &self.info
+        &self.data.info
     }
 
     fn do_move_no_checks(&mut self, move_action: &MoveAction) -> Result<()> {
@@ -128,8 +128,8 @@ impl<B: Board> ModifiableGame<B> for GameState<B> {
             }
         }
 
-        self.player = !self.player;
-        self.last_move = Some(MoveInfo {
+        self.data.player = !self.data.player;
+        self.data.last_move = Some(MoveInfo {
             mv: *mv,
             info: move_info,
         });

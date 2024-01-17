@@ -248,13 +248,16 @@ impl Default for GameInfo {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct GameState<B: Board> {
-    // Serialized fields (exported to the UI)
-    board: B,
+pub struct GameMobilityData {
     player: Player,
-    // Non-serialized fields (not exported to the UI)
     last_move: Option<MoveInfo>,
     info: GameInfo,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct GameState<B: Board> {
+    board: B,
+    data: GameMobilityData,
 }
 
 impl<B: Board> Serialize for GameState<B> {
@@ -265,7 +268,7 @@ impl<B: Board> Serialize for GameState<B> {
         let mut map = serializer.serialize_map(Some(2))?;
 
         map.serialize_entry("board", &self.board)?;
-        map.serialize_entry("player", &self.player)?;
+        map.serialize_entry("player", &self.data.player)?;
 
         map.end()
     }
@@ -275,9 +278,11 @@ impl<B: Board> From<B> for GameState<B> {
     fn from(value: B) -> Self {
         GameState {
             board: value,
-            player: Player::White,
-            last_move: None,
-            info: GameInfo::new(),
+            data: GameMobilityData {
+                player: Player::White,
+                last_move: None,
+                info: GameInfo::new(),
+            },
         }
     }
 }
@@ -286,10 +291,20 @@ impl<B: Board> GameState<B> {
     pub const fn new() -> GameState<B> {
         GameState {
             board: B::NEW_BOARD,
-            player: Player::White,
-            last_move: None,
-            info: GameInfo::new(),
+            data: GameMobilityData {
+                player: Player::White,
+                last_move: None,
+                info: GameInfo::new(),
+            },
         }
+    }
+
+    pub fn data(&self) -> &GameMobilityData {
+        &self.data
+    }
+
+    pub fn set_data(&mut self, data: &GameMobilityData) {
+        self.data = *data;
     }
 
     pub fn try_from_fen(fen: &[&str]) -> Option<Self> {
@@ -354,9 +369,11 @@ impl<B: Board> GameState<B> {
 
         Some(GameState {
             board,
-            player,
-            last_move,
-            info,
+            data: GameMobilityData {
+                player,
+                last_move,
+                info,
+            },
         })
     }
 }
@@ -377,19 +394,19 @@ impl<B: Board> ModifiableBoard<Position, Option<Piece>> for GameState<B> {
 
 impl<B: Board> CastlingRights for GameState<B> {
     fn can_castle_kingside(&self, player: Player) -> bool {
-        self.info.can_castle_kingside(player)
+        self.data.info.can_castle_kingside(player)
     }
 
     fn can_castle_queenside(&self, player: Player) -> bool {
-        self.info.can_castle_queenside(player)
+        self.data.info.can_castle_queenside(player)
     }
 
     fn disable_castle_kingside(&mut self, player: Player) {
-        self.info.disable_castle_kingside(player);
+        self.data.info.disable_castle_kingside(player);
     }
 
     fn disable_castle_queenside(&mut self, player: Player) {
-        self.info.disable_castle_queenside(player);
+        self.data.info.disable_castle_queenside(player);
     }
 }
 

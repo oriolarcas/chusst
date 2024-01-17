@@ -1,7 +1,7 @@
 use crate::board::{Board, ModifiableBoard, Piece, Position};
 use crate::eval::Game;
 use crate::game::{
-    CastlingRights, GameInfo, GameState, ModifiableGame, Move, MoveAction, MoveInfo,
+    CastlingRights, GameInfo, GameMobilityData, GameState, ModifiableGame, Move, MoveAction,
 };
 use crate::mv;
 use anyhow::Result;
@@ -60,9 +60,8 @@ where
 
 pub struct ReversableGame<'a, B: Board> {
     game: &'a mut GameState<B>,
+    backup: GameMobilityData,
     moves: Vec<ReversableMove>,
-    last_move: Option<MoveInfo>,
-    info: Option<GameInfo>,
 }
 
 impl<'a, B: Board> CastlingRights for ReversableGame<'a, B> {
@@ -140,13 +139,11 @@ impl<'a, B: Board + SafetyChecks> ModifiableGame<B> for ReversableGame<'a, B> {
 impl<'a, B: Board> ReversableGame<'a, B> {
     #[allow(dead_code)]
     pub fn from(game: &'a mut GameState<B>) -> Self {
-        let last_move = game.last_move();
         let game_info = game.info();
         ReversableGame {
             game,
-            moves: vec![],
-            last_move,
-            info: Some(game_info),
+            backup: *game.data(),
+            moves: Vec::new(),
         }
     }
 
@@ -163,11 +160,7 @@ impl<'a, B: Board> ReversableGame<'a, B> {
         }
 
         self.moves.clear();
-        self.game.player = !self.game.player;
-        self.game.last_move = self.last_move;
-        self.game.info = self.info.unwrap();
-        self.last_move = None;
-        self.info = None;
+        self.game.set_data(&self.backup);
     }
 }
 

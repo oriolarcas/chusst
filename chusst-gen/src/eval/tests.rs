@@ -3,7 +3,8 @@ use crate::board::{Board, ModifiableBoard, Piece, PieceType, Player, Position};
 use crate::eval::check::SafetyChecks;
 use crate::eval::Game;
 use crate::game::{
-    CastlingRights, ModifiableGame, Move, MoveAction, MoveActionType, PromotionPieces, SimpleGame,
+    CastlingRights, GameState, ModifiableGame, Move, MoveAction, MoveActionType, PromotionPieces,
+    SimpleGame,
 };
 use crate::{mva, p, pos};
 
@@ -36,8 +37,8 @@ struct TestBoard<'a> {
 
 type TestGame = SimpleGame;
 
-fn custom_board<B: Board>(board_opt: &Option<&str>) -> B {
-    match board_opt {
+fn custom_game<B: Board>(board_opt: &Option<&str>, player: Player) -> GameState<B> {
+    let mut game = match board_opt {
         Some(board_str) => {
             let mut board = B::default();
 
@@ -80,10 +81,14 @@ fn custom_board<B: Board>(board_opt: &Option<&str>) -> B {
                     None => continue,
                 }
             }
-            board
+            GameState::from(board)
         }
-        None => B::NEW_BOARD,
-    }
+        None => GameState::from(B::NEW_BOARD),
+    };
+
+    game.update_player(player);
+
+    game
 }
 
 #[test]
@@ -220,12 +225,7 @@ fn move_reversable() {
 
     for test_board in &test_boards {
         // Prepare board
-        let mut game = TestGame {
-            board: custom_board(&test_board.board),
-            player: Player::White,
-            last_move: None,
-            info: Default::default(),
-        };
+        let mut game: TestGame = custom_game(&test_board.board, Player::White);
 
         // Do setup moves
         for mv in &test_board.initial_moves {
@@ -368,12 +368,7 @@ fn check_mate() {
 
     for test_board in test_boards {
         // Prepare board
-        let mut game = TestGame {
-            board: custom_board(&test_board.board),
-            player: Player::Black,
-            last_move: None,
-            info: Default::default(),
-        };
+        let mut game: TestGame = custom_game(&test_board.board, Player::Black);
 
         game.disable_castle_kingside(Player::White);
         game.disable_castle_kingside(Player::Black);
@@ -460,13 +455,7 @@ fn quick_test() {
 
     for test_board in test_boards {
         // Prepare board
-        let mut game = TestGame {
-            board: custom_board(&test_board.board),
-            player: Player::White,
-            last_move: None,
-            info: Default::default(),
-            hash: None,
-        };
+        let mut game: TestGame = custom_game(&test_board.board, Player::White);
 
         game.disable_castle_kingside(Player::White);
         game.disable_castle_kingside(Player::Black);
