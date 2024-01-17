@@ -1,5 +1,6 @@
 use crate::board::{Board, ModifiableBoard, Piece, PieceType, Player, Position, SimpleBoard};
 use crate::{mv, pos};
+use serde::ser::SerializeMap;
 
 use serde::Serialize;
 use std::fmt;
@@ -233,12 +234,28 @@ impl Default for GameInfo {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct GameState<B: Board> {
+    // Serialized fields (exported to the UI)
     pub(crate) board: B,
     pub(crate) player: Player,
+    // Non-serialized fields (not exported to the UI)
     pub(crate) last_move: Option<MoveInfo>,
     pub(crate) info: GameInfo,
+}
+
+impl<B: Board> Serialize for GameState<B> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut map = serializer.serialize_map(Some(2))?;
+
+        map.serialize_entry("board", &self.board)?;
+        map.serialize_entry("player", &self.player)?;
+
+        map.end()
+    }
 }
 
 impl<B: Board> From<B> for GameState<B> {
