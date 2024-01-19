@@ -651,8 +651,10 @@ where
         }
 
         if let Some(position) = self.iter.next() {
-            if self.iter.representation().at(&position).is_none() {
-                return Some(position);
+            match self.iter.representation().at(&position) {
+                Some(piece) if piece.player == self.player => return Some(position),
+                None => return Some(position),
+                _ => {}
             }
         }
 
