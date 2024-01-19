@@ -275,7 +275,7 @@ macro_rules! walk_state {
                     .game_state
                     .game
                     .direction_iterator(&$self.game_state.position, &$dir)
-                    .take_while_empty_or_enemy($self.player),
+                    .take_while_empty_until_enemy($self.player),
             ));
             $self.iter.as_mut().unwrap()
         } else {

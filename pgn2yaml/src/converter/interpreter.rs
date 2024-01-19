@@ -1,8 +1,9 @@
-use crate::reader::{Tag, Pgn};
+use crate::reader::{Pgn, Tag};
 use anyhow::{bail, Result};
 use chusst_gen::{
-    board::{Piece, PieceType, ModifiableBoard},
-    game::{SimpleGame, MoveAction, ModifiableGame}, eval::Game,
+    board::{ModifiableBoard, Piece, PieceType},
+    eval::Game,
+    game::{ModifiableGame, MoveAction, SimpleGame},
 };
 
 #[derive(PartialEq)]

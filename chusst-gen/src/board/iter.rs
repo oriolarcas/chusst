@@ -61,8 +61,11 @@ pub trait PositionIterator<'a, R>: Iterator<Item = Position> + Clone + Sized {
         IterateWhileEmpty::new(self.clone())
     }
 
-    fn take_while_empty_or_enemy(&self, player: Player) -> IterateWhileEmptyOrPlayer<'a, Self, R> {
-        IterateWhileEmptyOrPlayer::new(self.clone(), !player)
+    fn take_while_empty_until_enemy(
+        &self,
+        player: Player,
+    ) -> IterateWhileEmptyUntilPlayer<'a, Self, R> {
+        IterateWhileEmptyUntilPlayer::new(self.clone(), !player)
     }
 
     fn first_non_empty(&self) -> IterateFirstNonEmpty<'a, Self, R> {
@@ -591,21 +594,21 @@ where
     }
 }
 
-// IterateWhileEmptyOrPlayer
+// IterateWhileEmptyUntilPlayer
 
-pub struct IterateWhileEmptyOrPlayer<'a, I, R> {
+pub struct IterateWhileEmptyUntilPlayer<'a, I, R> {
     iter: I,
     player: Player,
     stop: bool,
     _unused: PhantomData<&'a R>,
 }
 
-impl<'a, I, R> IterateWhileEmptyOrPlayer<'a, I, R>
+impl<'a, I, R> IterateWhileEmptyUntilPlayer<'a, I, R>
 where
     I: PositionIterator<'a, R>,
 {
     pub fn new(iter: I, player: Player) -> Self {
-        IterateWhileEmptyOrPlayer {
+        IterateWhileEmptyUntilPlayer {
             iter,
             player,
             stop: false,
@@ -614,7 +617,7 @@ where
     }
 }
 
-impl<'a, I, R> PositionIterator<'a, R> for IterateWhileEmptyOrPlayer<'a, I, R>
+impl<'a, I, R> PositionIterator<'a, R> for IterateWhileEmptyUntilPlayer<'a, I, R>
 where
     R: ModifiableBoard<Position, Option<Piece>>,
     I: PositionIterator<'a, R>,
@@ -624,7 +627,7 @@ where
     }
 }
 
-impl<'a, I, R> Clone for IterateWhileEmptyOrPlayer<'a, I, R>
+impl<'a, I, R> Clone for IterateWhileEmptyUntilPlayer<'a, I, R>
 where
     I: PositionIterator<'a, R>,
 {
@@ -638,7 +641,7 @@ where
     }
 }
 
-impl<'a, I, R> Iterator for IterateWhileEmptyOrPlayer<'a, I, R>
+impl<'a, I, R> Iterator for IterateWhileEmptyUntilPlayer<'a, I, R>
 where
     R: ModifiableBoard<Position, Option<Piece>>,
     I: PositionIterator<'a, R>,
@@ -652,9 +655,15 @@ where
 
         if let Some(position) = self.iter.next() {
             match self.iter.representation().at(&position) {
-                Some(piece) if piece.player == self.player => return Some(position),
+                Some(piece) if piece.player == self.player => {
+                    self.stop = true;
+                    return Some(position);
+                }
                 None => return Some(position),
-                _ => {}
+                _ => {
+                    self.stop = true;
+                    return None;
+                }
             }
         }
 
