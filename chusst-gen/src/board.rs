@@ -1,3 +1,5 @@
+mod iter;
+
 // Board representations
 #[cfg(feature = "bitboards")]
 mod bitboards;
@@ -12,6 +14,10 @@ pub(crate) use bitboards::PlayerBitboards;
 #[cfg(feature = "compact-board")]
 pub use compact::CompactBoard;
 pub use simple::SimpleBoard;
+
+pub use self::iter::{BoardIter, Direction, PositionIter, PositionIterator};
+
+use self::iter::{try_move, DirectionIter};
 
 use atty;
 use colored::Colorize;
@@ -408,14 +414,43 @@ macro_rules! pos {
 pub type Files<T> = [T; 8];
 pub type Ranks<T> = [Files<T>; 8];
 
-pub trait ModifiableBoard<K, V> {
+pub trait ModifiableBoard<K, V>
+where
+    Self: Sized,
+{
     fn at(&self, pos: &K) -> V;
     fn update(&mut self, pos: &K, value: V);
     fn move_piece(&mut self, source: &K, target: &K);
 }
 
+pub trait IterableBoard
+where
+    Self: Sized,
+{
+    fn try_move(&self, position: &Position, direction: &Direction) -> PositionIter<Self> {
+        PositionIter::new(self, try_move(position, direction))
+    }
+
+    fn position_iter(&self, position: &Position) -> PositionIter<Self> {
+        PositionIter::new(self, Some(*position))
+    }
+
+    fn board_iter(&self) -> BoardIter<Self> {
+        BoardIter::new(self)
+    }
+
+    fn direction_iterator(
+        &self,
+        position: &Position,
+        direction: &Direction,
+    ) -> DirectionIter<Self> {
+        DirectionIter::new(self, Some(*position), *direction)
+    }
+}
+
 pub trait Board:
     ModifiableBoard<Position, Option<Piece>>
+    + IterableBoard
     + Clone
     + Default
     + fmt::Debug

@@ -7,7 +7,6 @@ mod play;
 #[cfg(test)]
 mod tests;
 
-pub use self::conditions::{only_enemy, try_move, Direction};
 pub use self::iter::dir;
 
 use self::check::{only_empty_and_safe, SafetyChecks};
@@ -15,9 +14,9 @@ pub use self::feedback::{
     EngineFeedback, EngineFeedbackMessage, EngineMessage, SilentSearchFeedback, StdoutFeedback,
 };
 use self::feedback::{PeriodicalSearchFeedback, SearchFeedback};
-use self::iter::{piece_into_iter, player_pieces_iter, BoardIter, PlayerPiecesIter};
+use self::iter::piece_into_iter;
 use self::play::PlayableGame;
-use crate::board::{Board, Piece, PieceType, Position, Ranks};
+use crate::board::{Board, Direction, Piece, PieceType, Position, PositionIterator, Ranks};
 use crate::game::{GameState, ModifiableGame, Move, MoveAction, MoveActionType, PromotionPieces};
 use crate::{mv, mva, pos};
 
@@ -197,8 +196,12 @@ trait GamePrivate<B: Board + SafetyChecks>: PlayableGame<B> + ModifiableGame<B> 
         // Before moving, check if it is a castling and it is valid
         if is_king && mv.source.file.abs_diff(mv.target.file) == 2 {
             let is_valid_castling_square = |direction: &Direction| {
-                only_empty_and_safe(self.board(), try_move(&mv.source, direction), &player)
-                    .is_some()
+                only_empty_and_safe(
+                    self.board(),
+                    self.try_move(&mv.source, direction).next(),
+                    &player,
+                )
+                .is_some()
             };
             let can_castle = match mv.target.file {
                 // Queenside
@@ -333,8 +336,10 @@ trait GamePrivate<B: Board + SafetyChecks>: PlayableGame<B> + ModifiableGame<B> 
         let board = self.board();
         let player = self.player();
 
-        let pieces_iter =
-            player_pieces_iter!(board: board, player: &player).collect::<Vec<Position>>();
+        let pieces_iter = self
+            .board_iter()
+            .only_player(player)
+            .collect::<Vec<Position>>();
 
         let mut best_move: Option<Branch> = None;
 
@@ -606,7 +611,7 @@ pub trait Game<B: Board + SafetyChecks>: GamePrivate<B> {
     fn get_all_possible_moves(&self) -> Vec<MoveAction> {
         let mut moves: Vec<MoveAction> = vec![];
 
-        for piece_position in player_pieces_iter!(board: self.board(), player: &self.player()) {
+        for piece_position in self.board_iter().only_player(self.player()) {
             moves.extend(self.get_possible_moves_from_game(piece_position));
         }
 
@@ -642,7 +647,7 @@ pub trait Game<B: Board + SafetyChecks>: GamePrivate<B> {
                 _ => None,
             };
             let tgt_piece_opt = board.at(&mv.target);
-            let pieces_iter = player_pieces_iter!(board: board, player: player);
+            let pieces_iter = self.board_iter().only_player(*player);
 
             if let Some(piece_char_value) = piece_char(&src_piece.piece) {
                 name.push(piece_char_value);
@@ -754,10 +759,9 @@ pub trait Game<B: Board + SafetyChecks>: GamePrivate<B> {
     }
 
     fn get_possible_captures(&self) -> BoardCaptures {
-        let board_iter: BoardIter = Default::default();
         let mut board_captures: BoardCaptures = Default::default();
 
-        for source_position in board_iter.into_iter() {
+        for source_position in self.board_iter() {
             for capture in self.get_possible_captures_of_position(&source_position) {
                 board_captures[capture.rank][capture.file].push(source_position);
             }
@@ -854,10 +858,12 @@ pub trait Game<B: Board + SafetyChecks>: GamePrivate<B> {
     }
 
     fn do_move(&mut self, mv: &MoveAction) -> Option<Vec<Piece>> {
-        let enemy_player = &!self.player();
+        let enemy_player = !self.player();
         let mut enemy_army: HashMap<PieceType, u32> = HashMap::new();
 
-        for piece in player_pieces_iter!(board: self.board(), player: &enemy_player)
+        for piece in self
+            .board_iter()
+            .only_player(enemy_player)
             .map(|position| self.board().at(&position).unwrap().piece)
         {
             match enemy_army.get_mut(&piece) {
@@ -873,7 +879,9 @@ pub trait Game<B: Board + SafetyChecks>: GamePrivate<B> {
         let result = PlayableGame::do_move_with_checks(self.as_mut(), mv);
 
         if result {
-            for piece in player_pieces_iter!(board: self.board(), player: &enemy_player)
+            for piece in self
+                .board_iter()
+                .only_player(enemy_player)
                 .map(|position| self.board().at(&position).unwrap().piece)
             {
                 match enemy_army.get_mut(&piece) {
@@ -895,7 +903,7 @@ pub trait Game<B: Board + SafetyChecks>: GamePrivate<B> {
                     .keys()
                     .map(|piece| Piece {
                         piece: *piece,
-                        player: *enemy_player,
+                        player: enemy_player,
                     })
                     .collect(),
             )

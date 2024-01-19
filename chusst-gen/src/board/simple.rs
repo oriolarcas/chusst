@@ -3,8 +3,8 @@ use core::fmt;
 use serde::Serialize;
 
 use super::{
-    format_board, serialize_board, Board, ModifiableBoard, Piece, PieceType, Player, Position,
-    Ranks,
+    format_board, serialize_board, Board, IterableBoard, ModifiableBoard, Piece, PieceType, Player,
+    Position, Ranks,
 };
 use crate::p;
 
@@ -80,6 +80,8 @@ impl ModifiableBoard<Position, Option<Piece>> for SimpleBoard {
         self.ranks[source.rank][source.file] = None;
     }
 }
+
+impl IterableBoard for SimpleBoard {}
 
 impl Board for SimpleBoard {
     const NEW_BOARD: Self = SimpleBoard::new();

@@ -1,13 +1,15 @@
 use super::{
     CastlingRights, GameInfo, GameState, MoveAction, MoveActionType, MoveExtraInfo, MoveInfo,
 };
-use crate::board::{Board, ModifiableBoard, Piece, PieceType, Player, Position};
+use crate::board::{
+    Board, Direction, IterableBoard, ModifiableBoard, Piece, PieceType, Player, Position,
+    PositionIterator,
+};
 use crate::dir;
-use crate::eval::{only_enemy, try_move, Direction};
 use anyhow::{bail, Result};
 
 pub trait ModifiableGame<B: Board>:
-    ModifiableBoard<Position, Option<Piece>> + CastlingRights
+    ModifiableBoard<Position, Option<Piece>> + CastlingRights + IterableBoard
 {
     fn board(&self) -> &B;
     fn board_mut(&mut self) -> &mut B;
@@ -16,6 +18,8 @@ pub trait ModifiableGame<B: Board>:
     fn update_player(&mut self, player: Player);
 
     fn info(&self) -> &GameInfo;
+
+    fn last_move(&self) -> &Option<MoveInfo>;
 
     fn do_move_no_checks(&mut self, mv: &MoveAction) -> Result<()>;
 }
@@ -39,6 +43,10 @@ impl<B: Board> ModifiableGame<B> for GameState<B> {
 
     fn info(&self) -> &GameInfo {
         &self.data.info
+    }
+
+    fn last_move(&self) -> &Option<MoveInfo> {
+        &self.data.last_move
     }
 
     fn do_move_no_checks(&mut self, move_action: &MoveAction) -> Result<()> {
@@ -87,12 +95,11 @@ impl<B: Board> ModifiableGame<B> for GameState<B> {
             MoveExtraInfo::EnPassant => {
                 // Capture passed pawn
                 let direction = B::pawn_progress_direction(&player);
-                let passed = only_enemy(
-                    &self.board,
-                    try_move(&mv.target, &dir!(-direction, 0)),
-                    &player,
-                )
-                .unwrap();
+                let passed = self
+                    .try_move(&mv.target, &dir!(-direction, 0))
+                    .only_enemy(player)
+                    .next()
+                    .unwrap();
                 self.update(&passed, None);
             }
             MoveExtraInfo::Promotion(promotion_piece) => {
@@ -105,13 +112,13 @@ impl<B: Board> ModifiableGame<B> for GameState<B> {
                 );
             }
             MoveExtraInfo::CastleKingside => {
-                let rook_source = try_move(&mv.source, &dir!(0, 3)).unwrap();
-                let rook_target = try_move(&mv.source, &dir!(0, 1)).unwrap();
+                let rook_source = self.try_move(&mv.source, &dir!(0, 3)).next().unwrap();
+                let rook_target = self.try_move(&mv.source, &dir!(0, 1)).next().unwrap();
                 self.move_piece(&rook_source, &rook_target);
             }
             MoveExtraInfo::CastleQueenside => {
-                let rook_source = try_move(&mv.source, &dir!(0, -4)).unwrap();
-                let rook_target = try_move(&mv.source, &dir!(0, -1)).unwrap();
+                let rook_source = self.try_move(&mv.source, &dir!(0, -4)).next().unwrap();
+                let rook_target = self.try_move(&mv.source, &dir!(0, -1)).next().unwrap();
                 self.move_piece(&rook_source, &rook_target);
             }
             _ => (),
@@ -137,3 +144,5 @@ impl<B: Board> ModifiableGame<B> for GameState<B> {
         Ok(())
     }
 }
+
+impl<B: Board> IterableBoard for GameState<B> {}

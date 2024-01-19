@@ -304,7 +304,7 @@ impl<B: Board> GameState<B> {
     }
 
     pub fn set_data(&mut self, data: &GameMobilityData) {
-        self.data = *data;
+        self.data = data.clone();
     }
 
     pub fn try_from_fen(fen: &[&str]) -> Option<Self> {

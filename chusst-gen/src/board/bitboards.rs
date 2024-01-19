@@ -4,7 +4,8 @@ mod in_between;
 use serde::Serialize;
 
 use super::{
-    format_board, serialize_board, Board, ModifiableBoard, Piece, PieceType, Player, Position,
+    format_board, serialize_board, Board, IterableBoard, ModifiableBoard, Piece, PieceType, Player,
+    Position,
 };
 use std::fmt;
 
@@ -377,6 +378,8 @@ impl ModifiableBoard<Position, Option<Piece>> for Bitboards {
         self.update(source, None);
     }
 }
+
+impl IterableBoard for Bitboards {}
 
 impl Board for Bitboards {
     const NEW_BOARD: Self = Bitboards::new();

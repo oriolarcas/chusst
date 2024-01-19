@@ -2,7 +2,7 @@ use crate::reader::{Tag, Pgn};
 use anyhow::{bail, Result};
 use chusst_gen::{
     board::{Piece, PieceType, ModifiableBoard},
-    game::{SimpleGame, MoveAction}, eval::Game,
+    game::{SimpleGame, MoveAction, ModifiableGame}, eval::Game,
 };
 
 #[derive(PartialEq)]

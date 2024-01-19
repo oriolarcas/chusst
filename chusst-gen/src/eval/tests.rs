@@ -1,4 +1,4 @@
-use super::play::{PlayableGame, ReversableGame};
+use super::play::PlayableGame;
 use crate::board::{Board, ModifiableBoard, Piece, PieceType, Player, Position};
 use crate::eval::check::SafetyChecks;
 use crate::eval::Game;
@@ -237,13 +237,9 @@ fn move_reversable() {
             );
         }
 
-        let original_board = game.board().clone();
-
-        let mut rev_game = ReversableGame::from(&mut game);
-
         // Do move
         assert!(
-            rev_game.do_move_with_checks(&test_board.mv),
+            game.do_move_with_checks(&test_board.mv),
             "failed to make legal move {} in:\n{}",
             test_board.mv.mv,
             game.board()
@@ -251,31 +247,19 @@ fn move_reversable() {
 
         for check in &test_board.checks {
             assert_eq!(
-                rev_game.as_ref().at(&check.position),
+                game.as_ref().at(&check.position),
                 check.piece,
                 "expected {} in {}, found {}:\n{}",
                 check
                     .piece
                     .map_or("nothing".to_string(), |piece| format!("{}", piece.piece)),
                 check.position,
-                rev_game
-                    .as_ref()
+                game.as_ref()
                     .at(&check.position)
                     .map_or("nothing".to_string(), |piece| format!("{}", piece.piece)),
-                rev_game.board(),
+                game.board(),
             );
         }
-
-        rev_game.undo();
-
-        assert_eq!(
-            game.board(),
-            &original_board,
-            "after move {},\nmodified board:\n{}\noriginal board:\n{}",
-            test_board.mv.mv,
-            game.board(),
-            original_board
-        );
     }
 }
 
@@ -395,13 +379,12 @@ fn check_mate() {
         );
 
         // Do move
-        let mut rev_game = ReversableGame::from(&mut game);
 
         assert!(
-            rev_game.do_move_with_checks(&test_board.mv),
+            game.do_move_with_checks(&test_board.mv),
             "invalid move {}:\n{}",
             test_board.mv.mv,
-            rev_game.board()
+            game.board()
         );
 
         let possible_moves = game.get_possible_moves(pos!(a1));
@@ -471,13 +454,11 @@ fn quick_test() {
         }
 
         // Do move
-        let mut rev_game = ReversableGame::from(&mut game);
-
         assert!(
-            rev_game.do_move_with_checks(&test_board.mv),
+            game.do_move_with_checks(&test_board.mv),
             "invalid move {}:\n{}",
             test_board.mv.mv,
-            rev_game.as_ref().board()
+            game.as_ref().board()
         );
     }
 }

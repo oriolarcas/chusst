@@ -2,9 +2,10 @@
 use crate::board::CompactBoard;
 #[cfg(feature = "bitboards")]
 use crate::board::{Bitboards, ModifiableBoard, PlayerBitboards};
-use crate::board::{Board, Piece, PieceType, Player, Position, SimpleBoard};
-use crate::eval::conditions::{only_empty, try_move, Direction};
-use crate::eval::iter::{dir, into_rolling_board_iterator};
+use crate::board::{
+    Board, Direction, Piece, PieceType, Player, Position, PositionIterator, SimpleBoard,
+};
+use crate::eval::iter::dir;
 
 fn find_king(board: &impl Board, player: &Player) -> Position {
     match board.iter().find(|position| {
@@ -24,42 +25,40 @@ fn is_position_unsafe(
     player: &Player,
     enemy_pawn_direction: i8,
 ) -> bool {
-    let enemy_player = !*player;
-
-    let is_enemy_piece = |position: &Option<Position>, piece: &PieceType| match position {
-        Some(pos) => match board.at(pos) {
-            Some(square) => square.piece == *piece && square.player == enemy_player,
-            None => false,
-        },
-        None => false,
+    let is_enemy_piece = |direction: Direction, piece: PieceType| {
+        board
+            .try_move(position, &direction)
+            .only_enemy_piece(*player, piece)
+            .next()
+            .is_some()
     };
 
     let enemy_in_direction = |direction: &Direction| {
-        into_rolling_board_iterator(board, player, position, direction)
-            .find_map(|pos| board.at(&pos))
+        board
+            .direction_iterator(position, direction)
+            .skip_while_empty()
+            .only_enemy(*player)
+            .next()
+            .and_then(|pos| board.at(&pos))
             .map(|piece| piece.piece)
     };
 
     // 1. Pawns
-    if is_enemy_piece(
-        &try_move(position, &dir!(enemy_pawn_direction, -1)),
-        &PieceType::Pawn,
-    ) || is_enemy_piece(
-        &try_move(position, &dir!(enemy_pawn_direction, 1)),
-        &PieceType::Pawn,
-    ) {
+    if is_enemy_piece(dir!(enemy_pawn_direction, -1), PieceType::Pawn)
+        || is_enemy_piece(dir!(enemy_pawn_direction, 1), PieceType::Pawn)
+    {
         return true;
     }
 
     // 2. Knights
-    if is_enemy_piece(&try_move(position, &dir!(-1, -2)), &PieceType::Knight)
-        || is_enemy_piece(&try_move(position, &dir!(-1, 2)), &PieceType::Knight)
-        || is_enemy_piece(&try_move(position, &dir!(-2, -1)), &PieceType::Knight)
-        || is_enemy_piece(&try_move(position, &dir!(-2, 1)), &PieceType::Knight)
-        || is_enemy_piece(&try_move(position, &dir!(2, -1)), &PieceType::Knight)
-        || is_enemy_piece(&try_move(position, &dir!(2, 1)), &PieceType::Knight)
-        || is_enemy_piece(&try_move(position, &dir!(1, -2)), &PieceType::Knight)
-        || is_enemy_piece(&try_move(position, &dir!(1, 2)), &PieceType::Knight)
+    if is_enemy_piece(dir!(-1, -2), PieceType::Knight)
+        || is_enemy_piece(dir!(-1, 2), PieceType::Knight)
+        || is_enemy_piece(dir!(-2, -1), PieceType::Knight)
+        || is_enemy_piece(dir!(-2, 1), PieceType::Knight)
+        || is_enemy_piece(dir!(2, -1), PieceType::Knight)
+        || is_enemy_piece(dir!(2, 1), PieceType::Knight)
+        || is_enemy_piece(dir!(1, -2), PieceType::Knight)
+        || is_enemy_piece(dir!(1, 2), PieceType::Knight)
     {
         return true;
     }
@@ -97,14 +96,14 @@ fn is_position_unsafe(
     }
 
     // 6. King
-    if is_enemy_piece(&try_move(position, &dir!(-1, -1)), &PieceType::King)
-        || is_enemy_piece(&try_move(position, &dir!(-1, 0)), &PieceType::King)
-        || is_enemy_piece(&try_move(position, &dir!(-1, 1)), &PieceType::King)
-        || is_enemy_piece(&try_move(position, &dir!(0, -1)), &PieceType::King)
-        || is_enemy_piece(&try_move(position, &dir!(0, 1)), &PieceType::King)
-        || is_enemy_piece(&try_move(position, &dir!(1, -1)), &PieceType::King)
-        || is_enemy_piece(&try_move(position, &dir!(1, 0)), &PieceType::King)
-        || is_enemy_piece(&try_move(position, &dir!(1, 1)), &PieceType::King)
+    if is_enemy_piece(dir!(-1, -1), PieceType::King)
+        || is_enemy_piece(dir!(-1, 0), PieceType::King)
+        || is_enemy_piece(dir!(-1, 1), PieceType::King)
+        || is_enemy_piece(dir!(0, -1), PieceType::King)
+        || is_enemy_piece(dir!(0, 1), PieceType::King)
+        || is_enemy_piece(dir!(1, -1), PieceType::King)
+        || is_enemy_piece(dir!(1, 0), PieceType::King)
+        || is_enemy_piece(dir!(1, 1), PieceType::King)
     {
         return true;
     }
@@ -130,15 +129,11 @@ pub fn only_empty_and_safe<B: Board>(
     position: Option<Position>,
     player: &Player,
 ) -> Option<Position> {
-    match &only_empty(board, position) {
-        Some(position_value) => {
-            if is_position_unsafe_generic(board, position_value, player) {
-                None
-            } else {
-                position
-            }
-        }
-        None => None,
+    let position_value = board.position_iter(&position?).only_empty().next()?;
+    if is_position_unsafe_generic(board, &position_value, player) {
+        None
+    } else {
+        position
     }
 }
 
