@@ -231,7 +231,7 @@ impl<'a, B: Board> Iterator for PawnIter<'a, B> {
                             .next(),
                         direction,
                         player,
-                        &self.game_state.game.last_move(),
+                        self.game_state.game.last_move(),
                     )
                 }
                 PawnIterStates::CaptureEnPassantRight => {
@@ -242,7 +242,7 @@ impl<'a, B: Board> Iterator for PawnIter<'a, B> {
                             .next(),
                         direction,
                         player,
-                        &self.game_state.game.last_move(),
+                        self.game_state.game.last_move(),
                     )
                 }
                 PawnIterStates::End => return None,

@@ -36,7 +36,7 @@ fn is_position_unsafe(
     let enemy_in_direction = |direction: &Direction| {
         board
             .direction_iterator(position, direction)
-            .skip_while_empty()
+            .first_non_empty()
             .only_enemy(*player)
             .next()
             .and_then(|pos| board.at(&pos))

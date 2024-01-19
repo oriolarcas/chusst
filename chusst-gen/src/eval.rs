@@ -413,7 +413,7 @@ trait GamePrivate<B: Board + SafetyChecks>: PlayableGame<B> + ModifiableGame<B> 
                         mv,
                         branch.score,
                         local_alpha,
-                        beta,
+                        scores.beta,
                         if !is_leaf_node { " {" } else { "" },
                     );
                 }
@@ -496,7 +496,7 @@ trait GamePrivate<B: Board + SafetyChecks>: PlayableGame<B> + ModifiableGame<B> 
                                 "{}β cutoff: {} >= {}",
                                 indent(current_depth),
                                 branch.score,
-                                beta
+                                scores.beta
                             );
                         }
 

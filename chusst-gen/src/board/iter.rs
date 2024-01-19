@@ -65,8 +65,8 @@ pub trait PositionIterator<'a, R>: Iterator<Item = Position> + Clone + Sized {
         IterateWhileEmptyOrPlayer::new(self.clone(), !player)
     }
 
-    fn skip_while_empty(&self) -> IterateSkipWhileEmpty<'a, Self, R> {
-        IterateSkipWhileEmpty::new(self.clone())
+    fn first_non_empty(&self) -> IterateFirstNonEmpty<'a, Self, R> {
+        IterateFirstNonEmpty::new(self.clone())
     }
 }
 
@@ -663,24 +663,26 @@ where
 
 // IterateSkipEmpty
 
-pub struct IterateSkipWhileEmpty<'a, I, R> {
+pub struct IterateFirstNonEmpty<'a, I, R> {
     iter: I,
+    stop: bool,
     _unused: PhantomData<&'a R>,
 }
 
-impl<'a, I, R> IterateSkipWhileEmpty<'a, I, R>
+impl<'a, I, R> IterateFirstNonEmpty<'a, I, R>
 where
     I: PositionIterator<'a, R>,
 {
     pub fn new(iter: I) -> Self {
-        IterateSkipWhileEmpty {
+        IterateFirstNonEmpty {
             iter,
+            stop: false,
             _unused: PhantomData,
         }
     }
 }
 
-impl<'a, I, R> PositionIterator<'a, R> for IterateSkipWhileEmpty<'a, I, R>
+impl<'a, I, R> PositionIterator<'a, R> for IterateFirstNonEmpty<'a, I, R>
 where
     R: ModifiableBoard<Position, Option<Piece>>,
     I: PositionIterator<'a, R>,
@@ -690,19 +692,20 @@ where
     }
 }
 
-impl<'a, I, R> Clone for IterateSkipWhileEmpty<'a, I, R>
+impl<'a, I, R> Clone for IterateFirstNonEmpty<'a, I, R>
 where
     I: PositionIterator<'a, R>,
 {
     fn clone(&self) -> Self {
         Self {
             iter: self.iter.clone(),
+            stop: self.stop,
             _unused: PhantomData,
         }
     }
 }
 
-impl<'a, I, R> Iterator for IterateSkipWhileEmpty<'a, I, R>
+impl<'a, I, R> Iterator for IterateFirstNonEmpty<'a, I, R>
 where
     R: ModifiableBoard<Position, Option<Piece>>,
     I: PositionIterator<'a, R>,
@@ -710,9 +713,13 @@ where
     type Item = Position;
 
     fn next(&mut self) -> Option<Self::Item> {
+        if self.stop {
+            return None;
+        }
         loop {
             let position = self.iter.next()?;
             if self.iter.representation().at(&position).is_some() {
+                self.stop = true;
                 return Some(position);
             }
         }
