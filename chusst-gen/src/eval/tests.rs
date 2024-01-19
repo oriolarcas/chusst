@@ -1,8 +1,11 @@
-use super::play::{PlayableGame, ReversableGame};
+use super::play::PlayableGame;
 use crate::board::{Board, ModifiableBoard, Piece, PieceType, Player, Position};
 use crate::eval::check::SafetyChecks;
 use crate::eval::Game;
-use crate::game::{Move, MoveAction, MoveActionType, PromotionPieces, SimpleGame};
+use crate::game::{
+    CastlingRights, GameState, ModifiableGame, Move, MoveAction, MoveActionType, PromotionPieces,
+    SimpleGame,
+};
 use crate::{mva, p, pos};
 
 struct PiecePosition {
@@ -34,8 +37,8 @@ struct TestBoard<'a> {
 
 type TestGame = SimpleGame;
 
-fn custom_board<B: Board>(board_opt: &Option<&str>) -> B {
-    match board_opt {
+fn custom_game<B: Board>(board_opt: &Option<&str>, player: Player) -> GameState<B> {
+    let mut game = match board_opt {
         Some(board_str) => {
             let mut board = B::default();
 
@@ -78,10 +81,14 @@ fn custom_board<B: Board>(board_opt: &Option<&str>) -> B {
                     None => continue,
                 }
             }
-            board
+            GameState::from(board)
         }
-        None => B::NEW_BOARD,
-    }
+        None => GameState::from(B::NEW_BOARD),
+    };
+
+    game.update_player(player);
+
+    game
 }
 
 #[test]
@@ -218,12 +225,7 @@ fn move_reversable() {
 
     for test_board in &test_boards {
         // Prepare board
-        let mut game = TestGame {
-            board: custom_board(&test_board.board),
-            player: Player::White,
-            last_move: None,
-            info: Default::default(),
-        };
+        let mut game: TestGame = custom_game(&test_board.board, Player::White);
 
         // Do setup moves
         for mv in &test_board.initial_moves {
@@ -231,46 +233,33 @@ fn move_reversable() {
                 game.do_move(mv).is_some(),
                 "move {} failed:\n{}",
                 mv.mv,
-                game.board
+                game.board()
             );
         }
 
-        let original_board = game.board.clone();
-
-        let mut rev_game = ReversableGame::from(&mut game);
-
         // Do move
         assert!(
-            rev_game.do_move_with_checks(&test_board.mv),
+            game.do_move_with_checks(&test_board.mv),
             "failed to make legal move {} in:\n{}",
             test_board.mv.mv,
-            game.board
+            game.board()
         );
 
         for check in &test_board.checks {
             assert_eq!(
-                rev_game.as_ref().at(&check.position),
+                game.as_ref().at(&check.position),
                 check.piece,
                 "expected {} in {}, found {}:\n{}",
                 check
                     .piece
                     .map_or("nothing".to_string(), |piece| format!("{}", piece.piece)),
                 check.position,
-                rev_game
-                    .as_ref()
+                game.as_ref()
                     .at(&check.position)
                     .map_or("nothing".to_string(), |piece| format!("{}", piece.piece)),
-                rev_game.as_ref().board,
+                game.board(),
             );
         }
-
-        rev_game.undo();
-
-        assert_eq!(
-            game.board, original_board,
-            "after move {},\nmodified board:\n{}\noriginal board:\n{}",
-            test_board.mv.mv, game.board, original_board
-        );
     }
 }
 
@@ -363,17 +352,12 @@ fn check_mate() {
 
     for test_board in test_boards {
         // Prepare board
-        let mut game = TestGame {
-            board: custom_board(&test_board.board),
-            player: Player::Black,
-            last_move: None,
-            info: Default::default(),
-        };
+        let mut game: TestGame = custom_game(&test_board.board, Player::Black);
 
-        game.info.disable_castle_kingside(&Player::White);
-        game.info.disable_castle_kingside(&Player::Black);
-        game.info.disable_castle_queenside(&Player::White);
-        game.info.disable_castle_queenside(&Player::Black);
+        game.disable_castle_kingside(Player::White);
+        game.disable_castle_kingside(Player::Black);
+        game.disable_castle_queenside(Player::White);
+        game.disable_castle_queenside(Player::Black);
 
         // Do setup moves
         for mv in &test_board.initial_moves {
@@ -381,7 +365,7 @@ fn check_mate() {
                 game.do_move(mv).is_some(),
                 "move {} failed:\n{}",
                 mv.mv,
-                game.board
+                game.board()
             );
         }
 
@@ -391,27 +375,26 @@ fn check_mate() {
             "notation `{}` for move {} doesn't show checkmate sign # in:\n{}",
             name,
             test_board.mv.mv,
-            game.board
+            game.board()
         );
 
         // Do move
-        let mut rev_game = ReversableGame::from(&mut game);
 
         assert!(
-            rev_game.do_move_with_checks(&test_board.mv),
+            game.do_move_with_checks(&test_board.mv),
             "invalid move {}:\n{}",
             test_board.mv.mv,
-            rev_game.as_ref().board
+            game.board()
         );
 
         let possible_moves = game.get_possible_moves(pos!(a1));
-        let in_check = game.board.is_piece_unsafe(&pos!(a1));
-        assert!(in_check, "king should be in check:\n{}", game.board);
+        let in_check = game.board().is_piece_unsafe(&pos!(a1));
+        assert!(in_check, "king should be in check:\n{}", game.board());
         assert!(
             possible_moves.is_empty(),
             "unexpected possible move {} in check mate:\n{}",
             possible_moves.first().unwrap().mv,
-            game.board
+            game.board()
         );
     }
 }
@@ -427,7 +410,7 @@ fn fen_parsing() {
     );
     assert!(parsed_game.is_some(), "Failed to parse FEN string");
     let game = parsed_game.unwrap();
-    assert_eq!(game, TestGame::new(), "\n{}", game.board);
+    assert_eq!(game, TestGame::new(), "\n{}", game.board());
 }
 
 // Template to quickly test a specific board/move
@@ -455,15 +438,10 @@ fn quick_test() {
 
     for test_board in test_boards {
         // Prepare board
-        let mut game = TestGame {
-            board: custom_board(&test_board.board),
-            player: Player::White,
-            last_move: None,
-            info: Default::default(),
-        };
+        let mut game: TestGame = custom_game(&test_board.board, Player::White);
 
-        game.info.disable_castle_kingside(&Player::White);
-        game.info.disable_castle_kingside(&Player::Black);
+        game.disable_castle_kingside(Player::White);
+        game.disable_castle_kingside(Player::Black);
 
         // Do setup moves
         for mv in &test_board.initial_moves {
@@ -471,18 +449,16 @@ fn quick_test() {
                 game.do_move(mv).is_some(),
                 "move {} failed:\n{}",
                 mv.mv,
-                game.board
+                game.board()
             );
         }
 
         // Do move
-        let mut rev_game = ReversableGame::from(&mut game);
-
         assert!(
-            rev_game.do_move_with_checks(&test_board.mv),
+            game.do_move_with_checks(&test_board.mv),
             "invalid move {}:\n{}",
             test_board.mv.mv,
-            rev_game.as_ref().board
+            game.as_ref().board()
         );
     }
 }

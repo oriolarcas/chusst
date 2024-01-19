@@ -3,7 +3,7 @@ mod engine;
 mod stdin;
 
 use chusst_gen::eval::GameMove;
-use chusst_gen::game::{BitboardGame, MoveAction};
+use chusst_gen::game::{BitboardGame, ModifiableGame, MoveAction};
 use engine::{create_engine_thread, EngineCommand, EngineResponse, GoCommand, NewGameCommand};
 use stdin::{create_stdin_thread, StdinResponse};
 
