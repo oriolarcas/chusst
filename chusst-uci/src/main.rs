@@ -3,7 +3,7 @@ mod engine;
 mod stdin;
 
 use chusst_gen::eval::GameMove;
-use chusst_gen::game::{BitboardGame, ModifiableGame, MoveAction};
+use chusst_gen::game::{BitboardGame, MoveAction};
 use engine::{create_engine_thread, EngineCommand, EngineResponse, GoCommand, NewGameCommand};
 use stdin::{create_stdin_thread, StdinResponse};
 
@@ -289,10 +289,10 @@ fn uci_loop<'scope>(scope: &'scope std::thread::Scope<'scope, '_>) {
             (Some(UciProtocolOutput::EngineCommandNewGame), ParsedInput::UciStdInInput(_)) => {
                 if engine_thread
                     .to_thread
-                    .send(EngineCommand::NewGame(NewGameCommand {
+                    .send(EngineCommand::NewGame(Box::new(NewGameCommand {
                         game: Some(BitboardGame::new()),
                         moves: Vec::new(),
-                    }))
+                    })))
                     .is_err()
                 {
                     log!("Error: could not send new game to engine");
@@ -332,9 +332,6 @@ fn uci_loop<'scope>(scope: &'scope std::thread::Scope<'scope, '_>) {
                         continue;
                     }
                 };
-                if let Some(game) = &new_game {
-                    log!("New position:\n{}", game.board());
-                }
                 let mut new_game_command = NewGameCommand {
                     game: new_game,
                     moves: Vec::new(),
@@ -358,7 +355,7 @@ fn uci_loop<'scope>(scope: &'scope std::thread::Scope<'scope, '_>) {
                 }
                 if engine_thread
                     .to_thread
-                    .send(EngineCommand::NewGame(new_game_command))
+                    .send(EngineCommand::NewGame(Box::new(new_game_command)))
                     .is_err()
                 {
                     log!("Error: could not send new game command to engine");

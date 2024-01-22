@@ -12,8 +12,12 @@ where
     fn as_ref(&self) -> &GameState<B>;
     fn as_mut(&mut self) -> &mut GameState<B>;
 
-    fn clone_and_move(&self, mv: &MoveAction) -> Result<GameState<B>> {
-        let mut new_game = self.as_ref().clone();
+    fn clone_and_move(&self, mv: &MoveAction, reset_hash: bool) -> Result<GameState<B>> {
+        let mut new_game = if reset_hash {
+            self.as_ref().clone_unhashed()
+        } else {
+            self.as_ref().clone()
+        };
         PlayableGame::do_move_no_checks(&mut new_game, mv)?;
         Ok(new_game)
     }

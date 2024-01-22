@@ -1,13 +1,20 @@
 mod play;
+mod zobrist;
 
-use crate::board::{Board, ModifiableBoard, Piece, PieceType, Player, Position, SimpleBoard};
-use crate::{mv, pos};
+use std::fmt;
+
 use anyhow::Result;
 use serde::ser::SerializeMap;
 use serde::Serialize;
-use std::fmt;
 
+use crate::board::{Board, ModifiableBoard, Piece, PieceType, Player, Position, SimpleBoard};
+use crate::{mv, pos};
+use zobrist::ZobristHash;
+
+// Exports
 pub use play::ModifiableGame;
+
+pub type GameHash = u64;
 
 #[derive(Copy, Clone, Debug, PartialEq, Serialize)]
 pub struct Move {
@@ -252,6 +259,7 @@ pub struct GameMobilityData {
     player: Player,
     last_move: Option<MoveInfo>,
     info: GameInfo,
+    hash: Option<ZobristHash>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -282,6 +290,7 @@ impl<B: Board> From<B> for GameState<B> {
                 player: Player::White,
                 last_move: None,
                 info: GameInfo::new(),
+                hash: None,
             },
         }
     }
@@ -295,8 +304,15 @@ impl<B: Board> GameState<B> {
                 player: Player::White,
                 last_move: None,
                 info: GameInfo::new(),
+                hash: None,
             },
         }
+    }
+
+    pub fn clone_unhashed(&self) -> Self {
+        let mut new_game = self.clone();
+        new_game.data.hash = None;
+        new_game
     }
 
     pub fn data(&self) -> &GameMobilityData {
@@ -373,8 +389,42 @@ impl<B: Board> GameState<B> {
                 player,
                 last_move,
                 info,
+                hash: None,
             },
         })
+    }
+
+    pub fn hash(&mut self) -> GameHash {
+        if let Some(hash) = self.data.hash {
+            return hash.into();
+        }
+
+        let mut hash = ZobristHash::from(&self.board);
+
+        if self.data.player == Player::Black {
+            hash.switch_turn();
+        }
+
+        for player in [Player::White, Player::Black] {
+            if !self.data.info.can_castle_kingside(player) {
+                hash.switch_kingside_castling(player);
+            }
+            if !self.data.info.can_castle_queenside(player) {
+                hash.switch_queenside_castling(player);
+            }
+        }
+
+        if let Some(MoveInfo {
+            mv,
+            info: MoveExtraInfo::Passed,
+        }) = self.data.last_move
+        {
+            hash.switch_en_passant_file(mv.target.file);
+        }
+
+        self.data.hash = Some(hash);
+
+        hash.into()
     }
 }
 
@@ -384,10 +434,21 @@ impl<B: Board> ModifiableBoard<Position, Option<Piece>> for GameState<B> {
     }
 
     fn update(&mut self, pos: &Position, value: Option<Piece>) {
+        if let Some(hash) = self.data.hash.as_mut() {
+            hash.update_piece(pos, self.board.at(pos), value);
+        }
         self.board.update(pos, value);
     }
 
     fn move_piece(&mut self, source: &Position, target: &Position) {
+        if let Some(hash) = self.data.hash.as_mut() {
+            if let Some(captured_piece) = self.board.at(target) {
+                hash.update_piece(target, Some(captured_piece), None);
+            }
+            if let Some(moved_piece) = self.board.at(source) {
+                hash.move_piece(source, target, moved_piece);
+            }
+        }
         self.board.move_piece(source, target);
     }
 }
@@ -402,11 +463,23 @@ impl<B: Board> CastlingRights for GameState<B> {
     }
 
     fn disable_castle_kingside(&mut self, player: Player) {
+        if !self.data.info.can_castle_kingside(player) {
+            return;
+        }
         self.data.info.disable_castle_kingside(player);
+        if let Some(hash) = self.data.hash.as_mut() {
+            hash.switch_kingside_castling(player);
+        }
     }
 
     fn disable_castle_queenside(&mut self, player: Player) {
+        if !self.data.info.can_castle_queenside(player) {
+            return;
+        }
         self.data.info.disable_castle_queenside(player);
+        if let Some(hash) = self.data.hash.as_mut() {
+            hash.switch_queenside_castling(player);
+        }
     }
 }
 

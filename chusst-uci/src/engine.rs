@@ -1,6 +1,7 @@
 use crate::duplex_thread::{create_duplex_thread, DuplexThread};
 use chusst_gen::eval::{
-    EngineFeedback, EngineFeedbackMessage, EngineMessage, Game, GameMove, HasStopSignal,
+    EngineFeedback, EngineFeedbackMessage, EngineMessage, Game, GameHistory, GameMove,
+    HasStopSignal,
 };
 use chusst_gen::game::{BitboardGame, MoveAction};
 
@@ -20,7 +21,7 @@ pub struct NewGameCommand {
 
 #[derive(Clone)]
 pub enum EngineCommand {
-    NewGame(NewGameCommand),
+    NewGame(Box<NewGameCommand>), // boxed due to big size
     Go(GoCommand),
     Stop,
     Exit,
@@ -138,6 +139,7 @@ fn engine_thread(
 ) {
     let mut communicator = BufferedSenderWriter::new(from_engine);
     let mut game = BitboardGame::new();
+    let mut history = GameHistory::new();
     let mut command_receiver = EngineCommandReceiver {
         receiver: &to_engine,
         messages: Vec::new(),
@@ -153,17 +155,20 @@ fn engine_thread(
             Some(EngineCommand::NewGame(new_game_cmd)) => {
                 if let Some(new_game) = new_game_cmd.game {
                     game = new_game;
+                    history.clear();
                 }
                 for mv in new_game_cmd.moves {
                     if game.do_move(&mv).is_none() {
                         let _ = communicator
                             .send(EngineResponse::Error(format!("Invalid move {}", mv.mv)));
                     }
+                    history.push(mv);
                 }
             }
             Some(EngineCommand::Go(go_command)) => {
                 let best_move = game.get_best_move_with_logger(
                     go_command.depth,
+                    &history,
                     &mut command_receiver,
                     &mut communicator,
                 );
