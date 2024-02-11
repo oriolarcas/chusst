@@ -555,6 +555,51 @@ pub trait Board:
 
         Some(board)
     }
+
+    fn to_fen(&self) -> String {
+        let mut fen = String::new();
+
+        for rank in (0..8).rev() {
+            let mut empty = 0;
+            for file in 0..8 {
+                let piece = self.at(&pos!(rank, file));
+                match piece {
+                    Some(Piece { piece, player }) => {
+                        if empty > 0 {
+                            fen.push_str(&empty.to_string());
+                            empty = 0;
+                        }
+                        let piece_char = match (player, piece) {
+                            (Player::White, PieceType::Pawn) => 'P',
+                            (Player::White, PieceType::Knight) => 'N',
+                            (Player::White, PieceType::Bishop) => 'B',
+                            (Player::White, PieceType::Rook) => 'R',
+                            (Player::White, PieceType::Queen) => 'Q',
+                            (Player::White, PieceType::King) => 'K',
+                            (Player::Black, PieceType::Pawn) => 'p',
+                            (Player::Black, PieceType::Knight) => 'n',
+                            (Player::Black, PieceType::Bishop) => 'b',
+                            (Player::Black, PieceType::Rook) => 'r',
+                            (Player::Black, PieceType::Queen) => 'q',
+                            (Player::Black, PieceType::King) => 'k',
+                        };
+                        fen.push(piece_char);
+                    }
+                    None => {
+                        empty += 1;
+                    }
+                }
+            }
+            if empty > 0 {
+                fen.push_str(&empty.to_string());
+            }
+            if rank > 0 {
+                fen.push('/');
+            }
+        }
+
+        fen
+    }
 }
 
 fn get_unicode_piece(piece: PieceType, player: Player) -> char {

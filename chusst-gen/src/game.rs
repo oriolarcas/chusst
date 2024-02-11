@@ -394,6 +394,59 @@ impl<B: Board> GameState<B> {
         })
     }
 
+    pub fn to_fen(&self) -> String {
+        let mut fen = self.board.to_fen();
+        let player = match self.data.player {
+            Player::White => "w",
+            Player::Black => "b",
+        };
+        let mut castling = format!(
+            "{}{}{}{}",
+            if self.data.info.can_castle_kingside(Player::White) {
+                "K"
+            } else {
+                ""
+            },
+            if self.data.info.can_castle_queenside(Player::White) {
+                "Q"
+            } else {
+                ""
+            },
+            if self.data.info.can_castle_kingside(Player::Black) {
+                "k"
+            } else {
+                ""
+            },
+            if self.data.info.can_castle_queenside(Player::Black) {
+                "q"
+            } else {
+                ""
+            }
+        );
+
+        if castling.is_empty() {
+            castling = "-".to_string();
+        }
+
+        let en_passant = match self.data.last_move {
+            Some(MoveInfo {
+                mv: Move { source: _, target },
+                info: MoveExtraInfo::EnPassant,
+            }) => {
+                let rank = match self.data.player {
+                    Player::White => target.rank + 1,
+                    Player::Black => target.rank - 1,
+                };
+                format!("{}", pos!(rank, target.file))
+            }
+            _ => "-".to_string(),
+        };
+
+        fen.push_str(&format!(" {} {} {} 0 1", player, castling, en_passant));
+
+        fen
+    }
+
     pub fn hash(&mut self) -> GameHash {
         if let Some(hash) = self.data.hash {
             return hash.into();
