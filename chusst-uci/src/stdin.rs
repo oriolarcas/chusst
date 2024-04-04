@@ -1,41 +1,47 @@
-use std::time::Duration;
+use anyhow::{anyhow, Result};
+use mio::unix::SourceFd;
+use mio::{Events, Interest, Poll, Token};
+use std::io::stdin;
+use std::os::fd::{FromRawFd, RawFd};
+use tokio::sync::mpsc;
 
-use crate::duplex_thread::{create_duplex_thread, DuplexThread};
+pub type StdinResponse = Result<String>;
 
-pub type StdinResponse = Result<String, String>;
+pub async fn stdin_task(
+    poll: Poll,
+    _: mpsc::UnboundedReceiver<()>,
+    stdin_lines_sender: mpsc::UnboundedSender<StdinResponse>,
+) -> anyhow::Result<()> {
+    const STDIN_FILENO: i32 = 0;
+    const STDIN_TOKEN: Token = Token(0);
+    let stdin_file: RawFd = unsafe { FromRawFd::from_raw_fd(STDIN_FILENO) };
+    let mut stdin_fd = SourceFd(&stdin_file);
+    let mut events = Events::with_capacity(1);
 
-fn stdin_thread(
-    stop_signal: crossbeam_channel::Receiver<()>,
-    stdin_lines_sender: crossbeam_channel::Sender<StdinResponse>,
-) {
-    let stdin = async_std::io::stdin();
-    loop {
-        if stop_signal.try_recv().is_ok() {
-            break;
-        }
+    let mut poll = poll;
+    poll.registry()
+        .register(&mut stdin_fd, STDIN_TOKEN, Interest::READABLE)?;
 
-        let try_to_read_stdin = async_std::io::timeout(Duration::from_millis(100), async {
-            let mut line = String::new();
-            let _ = stdin.read_line(&mut line).await;
-            Ok(line)
-        });
-        match async_std::task::block_on(try_to_read_stdin) {
-            Ok(line) => {
-                let _ = stdin_lines_sender.send(Ok(line));
-            }
-            Err(err) => {
-                if err.kind() == async_std::io::ErrorKind::TimedOut {
-                    continue;
+    let stdin = stdin();
+
+    'main_loop: loop {
+        poll.poll(&mut events, None)?;
+
+        for event in events.iter() {
+            match event.token() {
+                STDIN_TOKEN => {
+                    let mut line = String::new();
+                    let message = match stdin.read_line(&mut line) {
+                        Ok(_) => Ok(line),
+                        Err(err) => Err(anyhow!(err)),
+                    };
+                    stdin_lines_sender.send(message)?;
                 }
-                let _ = stdin_lines_sender.send(Err(format!("{err}")));
-                break;
+                // Waker
+                _ => break 'main_loop,
             }
         }
     }
-}
 
-pub fn create_stdin_thread<'scope>(
-    scope: &'scope std::thread::Scope<'scope, '_>,
-) -> DuplexThread<'scope, (), StdinResponse> {
-    create_duplex_thread(scope, stdin_thread)
+    Ok(())
 }

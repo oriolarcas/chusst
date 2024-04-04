@@ -6,7 +6,13 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+anyhow = "1.0.79"
 chusst-gen = { path = "../chusst-gen", features = ["bitboards"]}
-async-std = "1.12.0"
+console-subscriber = { version = "0.2.0", optional = true}
+mio = { version = "0.8.10", features = ["os-poll", "os-ext"] }
 rust-fsm = "0.6.1"
-crossbeam-channel = "0.5.8"
+tokio = { version = "1.35.1", features = ["sync", "macros"] }
+
+[features]
+default = []
+tokio-console = ["dep:console-subscriber"]

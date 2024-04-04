@@ -1,8 +1,9 @@
-use crate::duplex_thread::{create_duplex_thread, DuplexThread};
+use anyhow::Result;
 use chusst_gen::eval::{
     EngineFeedback, EngineFeedbackMessage, EngineMessage, Game, GameMove, HasStopSignal,
 };
 use chusst_gen::game::{BitboardGame, MoveAction};
+use tokio::sync::mpsc;
 
 use std::fmt;
 use std::io::Write;
@@ -49,7 +50,7 @@ impl fmt::Display for EngineResponse {
 }
 
 struct EngineCommandReceiver<'a> {
-    receiver: &'a crossbeam_channel::Receiver<EngineCommand>,
+    receiver: &'a mut mpsc::UnboundedReceiver<EngineCommand>,
     messages: Vec<EngineCommand>,
 }
 
@@ -66,10 +67,10 @@ impl<'a> HasStopSignal for EngineCommandReceiver<'a> {
 }
 
 struct SenderWriter {
-    sender: std::rc::Rc<crossbeam_channel::Sender<EngineResponse>>,
+    sender: mpsc::UnboundedSender<EngineResponse>,
 }
 
-impl std::io::Write for SenderWriter {
+impl<'a> std::io::Write for SenderWriter {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         let msg = String::from_utf8(buf.to_vec())
             .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err))?;
@@ -86,16 +87,15 @@ impl std::io::Write for SenderWriter {
 }
 
 struct BufferedSenderWriter {
-    sender: std::rc::Rc<crossbeam_channel::Sender<EngineResponse>>,
+    sender: mpsc::UnboundedSender<EngineResponse>,
     writer: std::io::LineWriter<SenderWriter>,
 }
 
 impl BufferedSenderWriter {
-    fn new(sender: crossbeam_channel::Sender<EngineResponse>) -> BufferedSenderWriter {
-        let sender_rc = std::rc::Rc::new(sender);
+    fn new(sender: mpsc::UnboundedSender<EngineResponse>) -> BufferedSenderWriter {
         BufferedSenderWriter {
-            sender: sender_rc.clone(),
-            writer: std::io::LineWriter::new(SenderWriter { sender: sender_rc }),
+            sender: sender.clone(),
+            writer: std::io::LineWriter::new(SenderWriter { sender: sender }),
         }
     }
 }
@@ -111,11 +111,9 @@ impl std::io::Write for BufferedSenderWriter {
 }
 
 impl BufferedSenderWriter {
-    fn send(
-        &self,
-        msg: EngineResponse,
-    ) -> Result<(), crossbeam_channel::SendError<EngineResponse>> {
-        self.sender.send(msg)
+    fn send(&self, msg: EngineResponse) -> Result<()> {
+        self.sender.send(msg)?;
+        Ok(())
     }
 }
 
@@ -132,14 +130,16 @@ impl EngineFeedback for BufferedSenderWriter {
     }
 }
 
-fn engine_thread(
-    to_engine: crossbeam_channel::Receiver<EngineCommand>,
-    from_engine: crossbeam_channel::Sender<EngineResponse>,
+pub async fn engine_task(
+    _input: (),
+    to_engine: mpsc::UnboundedReceiver<EngineCommand>,
+    from_engine: mpsc::UnboundedSender<EngineResponse>,
 ) {
+    let mut to_engine = to_engine;
     let mut communicator = BufferedSenderWriter::new(from_engine);
     let mut game = BitboardGame::new();
     let mut command_receiver = EngineCommandReceiver {
-        receiver: &to_engine,
+        receiver: &mut to_engine,
         messages: Vec::new(),
     };
 
@@ -148,7 +148,8 @@ fn engine_thread(
     }
 
     loop {
-        let command = command_receiver.messages.pop().or(to_engine.recv().ok());
+        let command_option = command_receiver.messages.pop();
+        let command = command_option.or(command_receiver.receiver.recv().await);
         match command {
             Some(EngineCommand::NewGame(new_game_cmd)) => {
                 if let Some(new_game) = new_game_cmd.game {
@@ -177,10 +178,4 @@ fn engine_thread(
             }
         }
     }
-}
-
-pub fn create_engine_thread<'scope>(
-    scope: &'scope std::thread::Scope<'scope, '_>,
-) -> DuplexThread<'scope, EngineCommand, EngineResponse> {
-    create_duplex_thread(scope, engine_thread)
 }
