@@ -70,7 +70,7 @@ struct SenderWriter {
     sender: mpsc::UnboundedSender<EngineResponse>,
 }
 
-impl<'a> std::io::Write for SenderWriter {
+impl std::io::Write for SenderWriter {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         let msg = String::from_utf8(buf.to_vec())
             .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err))?;
@@ -95,7 +95,7 @@ impl BufferedSenderWriter {
     fn new(sender: mpsc::UnboundedSender<EngineResponse>) -> BufferedSenderWriter {
         BufferedSenderWriter {
             sender: sender.clone(),
-            writer: std::io::LineWriter::new(SenderWriter { sender: sender }),
+            writer: std::io::LineWriter::new(SenderWriter { sender }),
         }
     }
 }
