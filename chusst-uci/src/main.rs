@@ -2,18 +2,21 @@ mod duplex_thread;
 mod engine;
 mod stdin;
 
+use anyhow::Result;
 use chusst_gen::eval::GameMove;
 use chusst_gen::game::{BitboardGame, ModifiableGame, MoveAction};
-use engine::{create_engine_thread, EngineCommand, EngineResponse, GoCommand, NewGameCommand};
-use stdin::{create_stdin_thread, StdinResponse};
-
-use crossbeam_channel::select;
+use duplex_thread::DuplexChannel;
+use engine::{EngineCommand, EngineResponse, GoCommand, NewGameCommand};
+use mio::{Poll, Token, Waker};
 use rust_fsm::*;
-
 use std::fmt;
 use std::fs::File;
 use std::io::Write;
 use std::time::Instant;
+use stdin::{stdin_task, StdinResponse};
+
+use crate::duplex_thread::create_duplex_thread;
+use crate::engine::engine_task;
 
 enum SyncInput {
     FromStdin(StdinResponse),
@@ -85,7 +88,7 @@ impl fmt::Display for UciProtocolState {
     }
 }
 
-fn uci_loop<'scope>(scope: &'scope std::thread::Scope<'scope, '_>) {
+async fn uci_main() -> Result<()> {
     let mut logger = Logger {
         file: match std::fs::OpenOptions::new()
             .write(true)
@@ -96,12 +99,50 @@ fn uci_loop<'scope>(scope: &'scope std::thread::Scope<'scope, '_>) {
             Ok(file) => file,
             Err(err) => {
                 eprintln!("Could not open the log file: {}", err);
-                return;
+                return Ok(());
             }
         },
         last_event: Instant::now(),
     };
 
+    const WAKE_TOKEN: Token = Token(10);
+    let poll = Poll::new()?;
+    let waker = Waker::new(poll.registry(), WAKE_TOKEN)?;
+
+    let mut engine_thread = create_duplex_thread("Engine", engine_task, ());
+    let mut stdin_thread = create_duplex_thread("Stdin", stdin_task, poll);
+
+    uci_loop(
+        &mut logger,
+        &mut stdin_thread.channel,
+        &mut engine_thread.channel,
+    )
+    .await;
+
+    // Wake stdin task
+    if let Err(err) = waker.wake() {
+        let _ = writeln!(logger.file, "Error waking up stdin task: {}", err);
+    }
+
+    // Stop engine
+    let _ = engine_thread.channel.to_thread.send(EngineCommand::Stop);
+    let _ = engine_thread.channel.to_thread.send(EngineCommand::Exit);
+
+    if let Err(_stdin_err) = stdin_thread.thread_handle.join() {
+        let _ = writeln!(logger.file, "stdin task finished with error");
+    }
+    if let Err(_engine_err) = engine_thread.thread_handle.join() {
+        let _ = writeln!(logger.file, "Engine task with error");
+    }
+
+    Ok(())
+}
+
+async fn uci_loop(
+    logger: &mut Logger,
+    stdin_channel: &mut DuplexChannel<(), StdinResponse>,
+    engine_channel: &mut DuplexChannel<EngineCommand, EngineResponse>,
+) {
     macro_rules! write_command {
         ($str:expr) => {
             {
@@ -133,13 +174,11 @@ fn uci_loop<'scope>(scope: &'scope std::thread::Scope<'scope, '_>) {
     }
 
     let mut search_depth = 3;
-    let engine_thread = create_engine_thread(scope);
-    let stdin_thread = create_stdin_thread(scope);
 
     log!("Starting engine");
 
-    match engine_thread.from_thread.recv() {
-        Ok(EngineResponse::Ready) => (),
+    match engine_channel.from_thread.recv().await {
+        Some(EngineResponse::Ready) => (),
         _ => {
             log!("Could not start engine thread");
             return;
@@ -150,22 +189,19 @@ fn uci_loop<'scope>(scope: &'scope std::thread::Scope<'scope, '_>) {
 
     let mut uci_protocol: StateMachine<UciProtocol> = StateMachine::new();
 
-    let get_input = || -> Result<SyncInput, String> {
-        select! {
-            recv(stdin_thread.from_thread) -> stdin_line => Ok(SyncInput::FromStdin(stdin_line.map_err(stringify_stdin_err)?)),
-            recv(engine_thread.from_thread) -> engine_response => Ok(SyncInput::FromEngine(engine_response.map_err(stringify_engine_err)?)),
-        }
-    };
-
     let mut last_best_move: Option<Option<GameMove>> = None;
 
     loop {
-        let input = get_input();
+        let input = tokio::select! {
+            Some(stdin_line) = stdin_channel.from_thread.recv() => Some(SyncInput::FromStdin(stdin_line)),
+            Some(engine_response) = engine_channel.from_thread.recv() => Some(SyncInput::FromEngine(engine_response)),
+            else => None,
+        };
 
         let (protocol_input, parsed_input) = match &input {
-            Ok(SyncInput::FromStdin(stdin_response)) => match &stdin_response {
+            Some(SyncInput::FromStdin(stdin_response)) => match &stdin_response {
                 Ok(stdin_line) => {
-                    let words = parse_command(stdin_line.as_str(), &mut logger);
+                    let words = parse_command(stdin_line.as_str(), logger);
                     let protocol_stdin_input = if let Some(stdin_command) = words.first() {
                         match stdin_command.as_str() {
                             "uci" => UciProtocolInput::CommandUci,
@@ -194,7 +230,7 @@ fn uci_loop<'scope>(scope: &'scope std::thread::Scope<'scope, '_>) {
                     break;
                 }
             },
-            Ok(SyncInput::FromEngine(engine_response)) => {
+            Some(SyncInput::FromEngine(engine_response)) => {
                 let engine_protocol_input = match &engine_response {
                     EngineResponse::Log(message) => {
                         let trimmed_message = message.trim();
@@ -216,8 +252,8 @@ fn uci_loop<'scope>(scope: &'scope std::thread::Scope<'scope, '_>) {
                     ParsedInput::EngineMessage(engine_response.clone()),
                 )
             }
-            Err(error_message) => {
-                log!("I/O error: {error_message}");
+            None => {
+                log!("I/O error: input channels have been closed unexpectedly");
                 log!("Exiting");
                 break;
             }
@@ -287,7 +323,7 @@ fn uci_loop<'scope>(scope: &'scope std::thread::Scope<'scope, '_>) {
                 write_command!("readyok")
             }
             (Some(UciProtocolOutput::EngineCommandNewGame), ParsedInput::UciStdInInput(_)) => {
-                if engine_thread
+                if engine_channel
                     .to_thread
                     .send(EngineCommand::NewGame(NewGameCommand {
                         game: Some(BitboardGame::new()),
@@ -356,7 +392,7 @@ fn uci_loop<'scope>(scope: &'scope std::thread::Scope<'scope, '_>) {
                     }
                     None => (),
                 }
-                if engine_thread
+                if engine_channel
                     .to_thread
                     .send(EngineCommand::NewGame(new_game_command))
                     .is_err()
@@ -372,7 +408,7 @@ fn uci_loop<'scope>(scope: &'scope std::thread::Scope<'scope, '_>) {
                 //   Search with this amount of time
                 match words.get(1).map(String::as_str) {
                     Some("infinite") => {
-                        if engine_thread
+                        if engine_channel
                             .to_thread
                             .send(EngineCommand::Go(GoCommand {
                                 depth: search_depth,
@@ -398,7 +434,7 @@ fn uci_loop<'scope>(scope: &'scope std::thread::Scope<'scope, '_>) {
                 last_best_move = Some(best_move_result);
             }
             (Some(UciProtocolOutput::EngineCommandStop), ParsedInput::UciStdInInput(_)) => {
-                if engine_thread.to_thread.send(EngineCommand::Stop).is_err() {
+                if engine_channel.to_thread.send(EngineCommand::Stop).is_err() {
                     log!("Error: could not send go command to engine");
                     break;
                 }
@@ -440,35 +476,6 @@ fn uci_loop<'scope>(scope: &'scope std::thread::Scope<'scope, '_>) {
             }
         }
     }
-
-    let _ = stdin_thread.to_thread.send(());
-
-    let _ = engine_thread.to_thread.send(EngineCommand::Stop);
-    let _ = engine_thread.to_thread.send(EngineCommand::Exit);
-
-    let _ = stdin_thread.thread_handle.join();
-    let _ = engine_thread.thread_handle.join();
-}
-
-fn stringify_stdin_err<T>(value: T) -> String
-where
-    T: std::fmt::Display,
-{
-    stringify(value, "stdin")
-}
-
-fn stringify_engine_err<T>(value: T) -> String
-where
-    T: std::fmt::Display,
-{
-    stringify(value, "engine")
-}
-
-fn stringify<T>(value: T, prefix: &str) -> String
-where
-    T: std::fmt::Display,
-{
-    format!("{prefix}: {value}")
 }
 
 fn move_to_uci_string(mv: &Option<GameMove>) -> String {
@@ -490,6 +497,14 @@ fn parse_command(line: &str, logger: &mut Logger) -> Vec<String> {
         .collect()
 }
 
-fn main() {
-    std::thread::scope(|scope| uci_loop(scope));
+fn main() -> Result<()> {
+    #[cfg(feature = "tokio-console")]
+    console_subscriber::init();
+
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?
+        .block_on(uci_main())?;
+
+    Ok(())
 }
