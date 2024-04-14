@@ -9,6 +9,7 @@ edition = "2021"
 anyhow = "1.0.79"
 chusst-gen = { path = "../chusst-gen", features = ["bitboards"]}
 console-subscriber = { version = "0.2.0", optional = true}
+libc = "0.2.153"
 mio = { version = "0.8.10", features = ["os-poll", "os-ext"] }
 rust-fsm = "0.6.1"
 tokio = { version = "1.35.1", features = ["sync", "macros"] }
