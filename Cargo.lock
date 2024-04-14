@@ -444,7 +444,7 @@ dependencies = [
 
 [[package]]
 name = "chusst"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "chusst-gen",
  "serde",
@@ -468,7 +468,7 @@ dependencies = [
 
 [[package]]
 name = "chusst-uci"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "chusst-gen",
