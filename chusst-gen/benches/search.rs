@@ -21,6 +21,35 @@ fn search(bench: &mut Bencher) {
     bench.bytes = searched;
 }
 
+fn perft4(bench: &mut Bencher) {
+    let mut searched = 0u64;
+
+    fn possible_moves_recursive(game: &BitboardGame, depth: u8) -> u64 {
+        if depth == 0 {
+            return 1;
+        }
+
+        let mut count = 0;
+
+        let moves = game.get_all_possible_moves();
+        for mv in moves {
+            let mut game = game.clone();
+            game.do_move(&mv);
+            count += possible_moves_recursive(&game, depth - 1);
+        }
+
+        count
+    }
+
+    bench.iter(|| {
+        let game = BitboardGame::new();
+
+        searched = possible_moves_recursive(&game, 4);
+    });
+
+    bench.bytes = searched;
+}
+
 fn game_benchmark() -> u64 {
     // use std::io::Write;
 
@@ -83,5 +112,5 @@ fn game(bench: &mut Bencher) {
     bench.bytes = searched;
 }
 
-benchmark_group!(benches, game, search);
+benchmark_group!(benches, game, search, perft4);
 benchmark_main!(benches);
