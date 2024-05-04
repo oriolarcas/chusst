@@ -16,30 +16,107 @@ fn search(bench: Bencher) {
     });
 }
 
-#[divan::bench]
-fn perft4(bench: Bencher) {
-    fn possible_moves_recursive(game: &BitboardGame, depth: u8) -> u64 {
-        if depth == 0 {
-            return 1;
-        }
-
-        let mut count = 0;
-
-        let moves = game.get_all_possible_moves();
-        for mv in moves {
-            let mut game = game.clone();
-            game.do_move(&mv);
-            count += possible_moves_recursive(&game, depth - 1);
-        }
-
-        count
+#[divan::bench_group]
+mod perft {
+    struct PerftDepth {
+        pub depth: u8,
+        pub moves: u64,
     }
 
-    bench.bench_local(|| {
-        let game = BitboardGame::new();
+    const PERFT_DEPTHS: [PerftDepth; 6] = [
+        PerftDepth {
+            depth: 1,
+            moves: 20,
+        },
+        PerftDepth {
+            depth: 2,
+            moves: 400,
+        },
+        PerftDepth {
+            depth: 3,
+            moves: 8902,
+        },
+        PerftDepth {
+            depth: 4,
+            moves: 197281,
+        },
+        PerftDepth {
+            depth: 5,
+            moves: 4865609,
+        },
+        PerftDepth {
+            depth: 6,
+            moves: 119060324,
+        },
+    ];
 
-        possible_moves_recursive(&game, 4)
-    });
+    const PERFT_DEPTH: &PerftDepth = &PERFT_DEPTHS[3];
+
+    #[divan::bench(items_count = PERFT_DEPTH.moves)]
+    fn chusst() {
+        use chusst_gen::eval::Game;
+        use chusst_gen::game::BitboardGame;
+
+        fn possible_moves_recursive(game: BitboardGame, depth: u8) {
+            if depth == 0 {
+                return;
+            }
+
+            for mv in game.get_all_possible_moves() {
+                if depth == 1 {
+                    continue;
+                }
+                let mut game = game.clone();
+                game.do_move(&mv);
+                possible_moves_recursive(game, depth - 1);
+            }
+        }
+
+        possible_moves_recursive(BitboardGame::new(), PERFT_DEPTH.depth);
+    }
+
+    #[divan::bench(items_count = PERFT_DEPTH.moves)]
+    fn chess() {
+        use chess::{Board, MoveGen};
+
+        fn possible_moves_recursive(board: Board, depth: u8) {
+            if depth == 0 {
+                return;
+            }
+
+            for mv in MoveGen::new_legal(&board) {
+                if depth == 1 {
+                    continue;
+                }
+                let board = board.make_move_new(mv);
+                possible_moves_recursive(board, depth - 1);
+            }
+        }
+
+        possible_moves_recursive(Board::default(), PERFT_DEPTH.depth);
+    }
+
+    #[divan::bench(items_count = PERFT_DEPTH.moves)]
+    pub fn shackmaty() {
+        use shakmaty::{Chess, Position};
+
+        fn possible_moves_recursive(game: Chess, depth: u8) {
+            if depth == 0 {
+                return;
+            }
+
+            for mv in game.legal_moves() {
+                if depth == 1 {
+                    continue;
+                }
+                let mut game = game.clone();
+                game.play_unchecked(&mv);
+                possible_moves_recursive(game, depth - 1);
+            }
+        }
+
+        possible_moves_recursive(Chess::default(), PERFT_DEPTH.depth);
+    }
 }
 
 fn game_benchmark() -> u64 {
