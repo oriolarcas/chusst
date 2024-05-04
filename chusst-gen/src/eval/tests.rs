@@ -91,6 +91,15 @@ fn custom_game<B: Board>(board_opt: &Option<&str>, player: Player) -> GameState<
     game
 }
 
+fn game_from_fen(fen: &str) -> TestGame {
+    TestGame::try_from_fen(
+        fen.split_ascii_whitespace()
+            .collect::<Vec<&str>>()
+            .as_slice(),
+    )
+    .unwrap_or_else(|| panic!("Failed to parse FEN string {}", fen))
+}
+
 #[test]
 fn move_reversable() {
     let test_boards = [
@@ -411,6 +420,76 @@ fn fen_parsing() {
     assert!(parsed_game.is_some(), "Failed to parse FEN string");
     let game = parsed_game.unwrap();
     assert_eq!(game, TestGame::new(), "\n{}", game.board());
+}
+
+#[test]
+fn perft() {
+    fn mv_rec(game: &TestGame, depth: u8) -> u64 {
+        if depth == 0 {
+            return 1;
+        }
+
+        let mut nodes = 0;
+        for mv in game.get_all_possible_moves() {
+            if depth == 1 {
+                nodes += 1;
+                continue;
+            }
+            let mut game_copy = game.clone();
+            game_copy.do_move(&mv);
+            nodes += mv_rec(&game_copy, depth - 1);
+        }
+
+        nodes
+    }
+
+    let game = TestGame::new();
+
+    assert_eq!(mv_rec(&game, 1), 20);
+    assert_eq!(mv_rec(&game, 2), 400);
+    assert_eq!(mv_rec(&game, 3), 8902);
+    assert_eq!(mv_rec(&game, 4), 197281);
+
+    // Perft position 3 from https://www.chessprogramming.org/Perft_Results
+    let game = game_from_fen("8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1");
+
+    assert_eq!(mv_rec(&game, 1), 14, "Perft 3 depth 1 expected 14");
+    assert_eq!(mv_rec(&game, 2), 191, "Perft 3 depth 2 expected 191");
+    assert_eq!(mv_rec(&game, 3), 2812, "Perft 3 depth 3 expected 2812");
+    assert_eq!(mv_rec(&game, 4), 43238, "Perft 3 depth 4 expected 43238");
+
+    // Perft position 4 from https://www.chessprogramming.org/Perft_Results
+    let game = game_from_fen("r3k2r/Pppp1ppp/1b3nbN/nP6/BBP1P3/q4N2/Pp1P2PP/R2Q1RK1 w kq - 0 1");
+
+    assert_eq!(mv_rec(&game, 1), 6, "Perft 4 depth 1 expected 6");
+    assert_eq!(mv_rec(&game, 2), 264, "Perft 4 depth 2 expected 264");
+    assert_eq!(mv_rec(&game, 3), 9467, "Perft 4 depth 3 expected 9467");
+    assert_eq!(mv_rec(&game, 4), 422333, "Perft 4 depth 4 expected 422333");
+
+    // Perft position 5 from https://www.chessprogramming.org/Perft_Results
+    let game = game_from_fen("rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8");
+
+    assert_eq!(mv_rec(&game, 1), 44, "Perft 5 depth 1 expected 44");
+    assert_eq!(mv_rec(&game, 2), 1486, "Perft 5 depth 2 expected 1486");
+    assert_eq!(mv_rec(&game, 3), 62379, "Perft 5 depth 3 expected 62379");
+    assert_eq!(
+        mv_rec(&game, 4),
+        2103487,
+        "Perft 5 depth 4 expected 2103487"
+    );
+
+    // Perft position 6 from https://www.chessprogramming.org/Perft_Results
+    let game =
+        game_from_fen("r4rk1/1pp1qppp/p1np1n2/2b1p1B1/2B1P1b1/P1NP1N2/1PP1QPPP/R4RK1 w - - 0 10");
+
+    assert_eq!(mv_rec(&game, 1), 46, "Perft 6 depth 1 expected 46");
+    assert_eq!(mv_rec(&game, 2), 2079, "Perft 6 depth 2 expected 2079");
+    assert_eq!(mv_rec(&game, 3), 89890, "Perft 6 depth 3 expected 89890");
+    assert_eq!(
+        mv_rec(&game, 4),
+        3894594,
+        "Perft 6 depth 4 expected 3894594"
+    );
 }
 
 // Template to quickly test a specific board/move
