@@ -1,29 +1,23 @@
+use divan::Bencher;
+
 use chusst_gen::eval::{Game, SilentSearchFeedback};
 use chusst_gen::game::BitboardGame;
 
-#[macro_use]
-extern crate bencher;
-
-use bencher::Bencher;
-
-fn search(bench: &mut Bencher) {
-    let mut searched = 0u64;
-    bench.iter(|| {
+#[divan::bench]
+fn search(bench: Bencher) {
+    bench.bench_local(|| {
         let game = BitboardGame::new();
 
         let best_branch = game
             .get_best_move_recursive(4, &mut (), &mut SilentSearchFeedback::default())
             .unwrap();
 
-        searched = u64::from(best_branch.searched);
+        best_branch.searched
     });
-
-    bench.bytes = searched;
 }
 
-fn perft4(bench: &mut Bencher) {
-    let mut searched = 0u64;
-
+#[divan::bench]
+fn perft4(bench: Bencher) {
     fn possible_moves_recursive(game: &BitboardGame, depth: u8) -> u64 {
         if depth == 0 {
             return 1;
@@ -41,13 +35,11 @@ fn perft4(bench: &mut Bencher) {
         count
     }
 
-    bench.iter(|| {
+    bench.bench_local(|| {
         let game = BitboardGame::new();
 
-        searched = possible_moves_recursive(&game, 4);
+        possible_moves_recursive(&game, 4)
     });
-
-    bench.bytes = searched;
 }
 
 fn game_benchmark() -> u64 {
@@ -104,13 +96,11 @@ fn game_benchmark() -> u64 {
     // );
 }
 
-fn game(bench: &mut Bencher) {
-    let mut searched = 0u64;
-    bench.iter(|| {
-        searched = game_benchmark();
-    });
-    bench.bytes = searched;
+#[divan::bench]
+fn game(bench: Bencher) {
+    bench.bench_local(game_benchmark);
 }
 
-benchmark_group!(benches, game, search, perft4);
-benchmark_main!(benches);
+fn main() {
+    divan::main();
+}
