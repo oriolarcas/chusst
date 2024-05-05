@@ -559,8 +559,7 @@ fn fen_parsing() {
     assert_eq!(game, TestGame::new(), "\n{}", game.board());
 }
 
-#[test]
-fn perft() {
+fn perft_impl(force_comparison: bool) {
     fn mv_rec(game: &TestGame, depth: u8) -> u64 {
         if depth == 0 {
             return 1;
@@ -580,8 +579,14 @@ fn perft() {
         nodes
     }
 
-    fn assert_perft(fen: &str, name: &str, depth: u8, expected: u64) {
+    let assert_perft = |fen: &str, name: &str, depth: u8, expected: u64| {
         let game = game_from_fen(fen);
+
+        if force_comparison {
+            perft_compare_against_shakmaty(fen, depth);
+            return;
+        }
+
         let nodes = mv_rec(&game, depth);
         if nodes != expected {
             println!(
@@ -592,9 +597,9 @@ fn perft() {
 
             perft_compare_against_shakmaty(fen, depth);
 
-            panic!("Perft failed");
+            panic!("Perft failed"); // just in case the comparison didn't panic
         }
-    }
+    };
 
     let fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
@@ -634,6 +639,17 @@ fn perft() {
     assert_perft(fen, "position 6", 2, 2079);
     assert_perft(fen, "position 6", 3, 89890);
     assert_perft(fen, "position 6", 4, 3894594);
+}
+
+#[test]
+fn perft() {
+    perft_impl(false);
+}
+
+#[test]
+#[ignore]
+fn perft_slow() {
+    perft_impl(true);
 }
 
 // Template to quickly test a specific board/move
