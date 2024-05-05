@@ -147,11 +147,10 @@ fn perft_compare_against_shakmaty(fen: &str, depth: u8) {
         .expect("Failed to convert FEN to position");
 
     fn perft_compare(
-        initial_game: &TestGame,
         chusst_game: TestGame,
         shakmaty_game: shakmaty::Chess,
         depth: u8,
-        moves: &[&MoveAction],
+        moves: &[&TestGame],
     ) {
         use shakmaty::Position;
         use std::collections::HashMap;
@@ -201,10 +200,12 @@ fn perft_compare_against_shakmaty(fen: &str, depth: u8) {
                 })
                 .collect::<Vec<_>>();
 
+            for game in moves {
+                println!("After:\n{}", game.board());
+            }
+
             panic!(
-                "Initial board:\n{}\nAfter moves: [{}]\nPlayer {} in board:\n{}\nChusst moves: [{}]\nShakmaty moves: [{}]\nMoves not in Shakmaty: [{}]\nMoves not in Chusst: [{}]\n                     [{}]",
-                initial_game.board(),
-                format_mv_list(moves.iter().copied()),
+                "Player {} in board:\n{}\nChusst moves: [{}]\nShakmaty moves: [{}]\nMoves not in Shakmaty: [{}]\nMoves not in Chusst: [{}]\n                     [{}]",
                 chusst_game.player(),
                 chusst_game.board(),
                 format_mv_list(chusst_moves.iter()),
@@ -216,7 +217,7 @@ fn perft_compare_against_shakmaty(fen: &str, depth: u8) {
         }
 
         for chusst_mv in chusst_moves.iter() {
-            let mut chusst_game = chusst_game.clone();
+            let mut new_chusst_game = chusst_game.clone();
             let mut shakmaty_game = shakmaty_game.clone();
             let shakmaty_mv = shakmaty_moves_map
                 .iter()
@@ -224,16 +225,16 @@ fn perft_compare_against_shakmaty(fen: &str, depth: u8) {
                 .unwrap()
                 .0;
 
-            chusst_game.do_move(chusst_mv);
+            new_chusst_game.do_move(chusst_mv);
             shakmaty_game.play_unchecked(shakmaty_mv);
 
-            let moves = Vec::from_iter(moves.iter().chain(&[chusst_mv]).copied());
+            let moves = Vec::from_iter(moves.iter().chain(&[&chusst_game]).copied());
 
-            perft_compare(initial_game, chusst_game, shakmaty_game, depth - 1, &moves);
+            perft_compare(new_chusst_game, shakmaty_game, depth - 1, &moves);
         }
     }
 
-    perft_compare(&chusst_game, chusst_game.clone(), shakmaty_game, depth, &[]);
+    perft_compare(chusst_game.clone(), shakmaty_game, depth, &[]);
 }
 
 #[test]
