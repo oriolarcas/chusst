@@ -89,6 +89,8 @@ impl<B: Board> ModifiableGame<B> for GameState<B> {
             _ => MoveExtraInfo::Other,
         };
 
+        let captured = self.board.at(&mv.target);
+
         self.move_piece(&mv.source, &mv.target);
 
         match move_info {
@@ -132,6 +134,16 @@ impl<B: Board> ModifiableGame<B> for GameState<B> {
                 0 => self.disable_castle_queenside(player),
                 7 => self.disable_castle_kingside(player),
                 _ => (),
+            }
+        }
+
+        if let Some(captured) = captured {
+            if captured.piece == PieceType::Rook && mv.target.rank == B::home_rank(&captured.player) {
+                match mv.target.file {
+                    0 => self.disable_castle_queenside(captured.player),
+                    7 => self.disable_castle_kingside(captured.player),
+                    _ => (),
+                }
             }
         }
 
