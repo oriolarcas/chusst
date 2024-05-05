@@ -100,6 +100,142 @@ fn game_from_fen(fen: &str) -> TestGame {
     .unwrap_or_else(|| panic!("Failed to parse FEN string {}", fen))
 }
 
+impl From<shakmaty::Square> for Position {
+    fn from(pos: shakmaty::Square) -> Self {
+        pos!(pos.rank() as usize, pos.file() as usize)
+    }
+}
+
+impl From<shakmaty::Move> for MoveAction {
+    fn from(mv: shakmaty::Move) -> Self {
+        match mv {
+            shakmaty::Move::Normal {
+                from,
+                to,
+                promotion,
+                ..
+            } => {
+                let from = from.into();
+                let to = to.into();
+                match promotion {
+                    Some(shakmaty::Role::Knight) => mva!(from, to, PromotionPieces::Knight),
+                    Some(shakmaty::Role::Bishop) => mva!(from, to, PromotionPieces::Bishop),
+                    Some(shakmaty::Role::Rook) => mva!(from, to, PromotionPieces::Rook),
+                    Some(shakmaty::Role::Queen) => mva!(from, to, PromotionPieces::Queen),
+                    _ => mva!(from, to),
+                }
+            }
+            shakmaty::Move::Castle { king, rook } => {
+                if rook.file() as usize == 0 {
+                    mva!(king.into(), pos!(king.rank().into(), 2))
+                } else {
+                    mva!(king.into(), pos!(king.rank().into(), 6))
+                }
+            }
+            shakmaty::Move::EnPassant { from, to } => mva!(from.into(), to.into()),
+            _ => panic!("Shakmaty move not supported"),
+        }
+    }
+}
+
+fn perft_compare_against_shakmaty(fen: &str, depth: u8) {
+    let chusst_game = game_from_fen(fen);
+    let shakmaty_game = fen
+        .parse::<shakmaty::fen::Fen>()
+        .expect("Failed to parse FEN string")
+        .into_position::<shakmaty::Chess>(shakmaty::CastlingMode::Standard)
+        .expect("Failed to convert FEN to position");
+
+    fn perft_compare(
+        initial_game: &TestGame,
+        chusst_game: TestGame,
+        shakmaty_game: shakmaty::Chess,
+        depth: u8,
+        moves: &[&MoveAction],
+    ) {
+        use shakmaty::Position;
+        use std::collections::HashMap;
+
+        if depth == 0 {
+            return;
+        }
+
+        let chusst_moves = chusst_game.get_all_possible_moves();
+        let shakmaty_moves = shakmaty_game.legal_moves();
+        let shakmaty_moves_map: HashMap<shakmaty::Move, MoveAction> = HashMap::from_iter(
+            shakmaty_moves
+                .iter()
+                .map(|mv| (mv.clone(), MoveAction::from(mv.clone()))),
+        );
+
+        // Compare the list of moves and panic if they don't match, displaying the moves that are different
+        let chusst_moves_not_in_shakmaty = chusst_moves
+            .iter()
+            .filter(|mv| !shakmaty_moves_map.values().collect::<Vec<_>>().contains(mv))
+            .cloned()
+            .collect::<Vec<_>>();
+        let shakmaty_moves_not_in_chusst = shakmaty_moves_map
+            .values()
+            .filter(|mv| !chusst_moves.contains(mv))
+            .cloned()
+            .collect::<Vec<_>>();
+
+        if !chusst_moves_not_in_shakmaty.is_empty() || !shakmaty_moves_not_in_chusst.is_empty() {
+            fn format_mv_list<'a, I>(moves: I) -> String
+            where
+                I: Iterator<Item = &'a MoveAction>,
+            {
+                moves
+                    .map(|mv| format!("{}", mv.mv))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            }
+
+            let shakmaty_moves_not_in_chusst_names = shakmaty_moves_not_in_chusst
+                .iter()
+                .map(|mv| {
+                    format!(
+                        "{}",
+                        shakmaty_moves_map.iter().find(|(_, v)| *v == mv).unwrap().0
+                    )
+                })
+                .collect::<Vec<_>>();
+
+            panic!(
+                "Initial board:\n{}\nAfter moves: [{}]\nPlayer {} in board:\n{}\nChusst moves: [{}]\nShakmaty moves: [{}]\nMoves not in Shakmaty: [{}]\nMoves not in Chusst: [{}]\n                     [{}]",
+                initial_game.board(),
+                format_mv_list(moves.iter().copied()),
+                chusst_game.player(),
+                chusst_game.board(),
+                format_mv_list(chusst_moves.iter()),
+                format_mv_list(shakmaty_moves_map.values()),
+                format_mv_list(chusst_moves_not_in_shakmaty.iter()),
+                format_mv_list(shakmaty_moves_not_in_chusst.iter()),
+                shakmaty_moves_not_in_chusst_names.join(", "),
+            );
+        }
+
+        for chusst_mv in chusst_moves.iter() {
+            let mut chusst_game = chusst_game.clone();
+            let mut shakmaty_game = shakmaty_game.clone();
+            let shakmaty_mv = shakmaty_moves_map
+                .iter()
+                .find(|(_, mv)| *mv == chusst_mv)
+                .unwrap()
+                .0;
+
+            chusst_game.do_move(chusst_mv);
+            shakmaty_game.play_unchecked(shakmaty_mv);
+
+            let moves = Vec::from_iter(moves.iter().chain(&[chusst_mv]).copied());
+
+            perft_compare(initial_game, chusst_game, shakmaty_game, depth - 1, &moves);
+        }
+    }
+
+    perft_compare(&chusst_game, chusst_game.clone(), shakmaty_game, depth, &[]);
+}
+
 #[test]
 fn move_reversable() {
     let test_boards = [
@@ -443,53 +579,60 @@ fn perft() {
         nodes
     }
 
-    let game = TestGame::new();
+    fn assert_perft(fen: &str, name: &str, depth: u8, expected: u64) {
+        let game = game_from_fen(fen);
+        let nodes = mv_rec(&game, depth);
+        if nodes != expected {
+            println!(
+                "Perft {} depth {} expected {}, got {}",
+                name, depth, expected, nodes
+            );
+            println!("Comparing against Shakmaty:");
 
-    assert_eq!(mv_rec(&game, 1), 20);
-    assert_eq!(mv_rec(&game, 2), 400);
-    assert_eq!(mv_rec(&game, 3), 8902);
-    assert_eq!(mv_rec(&game, 4), 197281);
+            perft_compare_against_shakmaty(fen, depth);
+
+            panic!("Perft failed");
+        }
+    }
+
+    let fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+
+    assert_perft(fen, "position 1", 1, 20);
+    assert_perft(fen, "position 1", 2, 400);
+    assert_perft(fen, "position 1", 3, 8902);
+    assert_perft(fen, "position 1", 4, 197281);
 
     // Perft position 3 from https://www.chessprogramming.org/Perft_Results
-    let game = game_from_fen("8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1");
+    let fen = "8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1";
 
-    assert_eq!(mv_rec(&game, 1), 14, "Perft 3 depth 1 expected 14");
-    assert_eq!(mv_rec(&game, 2), 191, "Perft 3 depth 2 expected 191");
-    assert_eq!(mv_rec(&game, 3), 2812, "Perft 3 depth 3 expected 2812");
-    assert_eq!(mv_rec(&game, 4), 43238, "Perft 3 depth 4 expected 43238");
+    assert_perft(fen, "position 3", 1, 14);
+    assert_perft(fen, "position 3", 2, 191);
+    assert_perft(fen, "position 3", 3, 2812);
+    assert_perft(fen, "position 3", 4, 43238);
 
     // Perft position 4 from https://www.chessprogramming.org/Perft_Results
-    let game = game_from_fen("r3k2r/Pppp1ppp/1b3nbN/nP6/BBP1P3/q4N2/Pp1P2PP/R2Q1RK1 w kq - 0 1");
+    let fen = "r3k2r/Pppp1ppp/1b3nbN/nP6/BBP1P3/q4N2/Pp1P2PP/R2Q1RK1 w kq - 0 1";
 
-    assert_eq!(mv_rec(&game, 1), 6, "Perft 4 depth 1 expected 6");
-    assert_eq!(mv_rec(&game, 2), 264, "Perft 4 depth 2 expected 264");
-    assert_eq!(mv_rec(&game, 3), 9467, "Perft 4 depth 3 expected 9467");
-    assert_eq!(mv_rec(&game, 4), 422333, "Perft 4 depth 4 expected 422333");
+    assert_perft(fen, "position 4", 1, 6);
+    assert_perft(fen, "position 4", 2, 264);
+    assert_perft(fen, "position 4", 3, 9467);
+    assert_perft(fen, "position 4", 4, 422333);
 
     // Perft position 5 from https://www.chessprogramming.org/Perft_Results
-    let game = game_from_fen("rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8");
+    let fen = "rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8";
 
-    assert_eq!(mv_rec(&game, 1), 44, "Perft 5 depth 1 expected 44");
-    assert_eq!(mv_rec(&game, 2), 1486, "Perft 5 depth 2 expected 1486");
-    assert_eq!(mv_rec(&game, 3), 62379, "Perft 5 depth 3 expected 62379");
-    assert_eq!(
-        mv_rec(&game, 4),
-        2103487,
-        "Perft 5 depth 4 expected 2103487"
-    );
+    assert_perft(fen, "position 5", 1, 44);
+    assert_perft(fen, "position 5", 2, 1486);
+    assert_perft(fen, "position 5", 3, 62379);
+    assert_perft(fen, "position 5", 4, 2103487);
 
     // Perft position 6 from https://www.chessprogramming.org/Perft_Results
-    let game =
-        game_from_fen("r4rk1/1pp1qppp/p1np1n2/2b1p1B1/2B1P1b1/P1NP1N2/1PP1QPPP/R4RK1 w - - 0 10");
+    let fen = "r4rk1/1pp1qppp/p1np1n2/2b1p1B1/2B1P1b1/P1NP1N2/1PP1QPPP/R4RK1 w - - 0 10";
 
-    assert_eq!(mv_rec(&game, 1), 46, "Perft 6 depth 1 expected 46");
-    assert_eq!(mv_rec(&game, 2), 2079, "Perft 6 depth 2 expected 2079");
-    assert_eq!(mv_rec(&game, 3), 89890, "Perft 6 depth 3 expected 89890");
-    assert_eq!(
-        mv_rec(&game, 4),
-        3894594,
-        "Perft 6 depth 4 expected 3894594"
-    );
+    assert_perft(fen, "position 6", 1, 46);
+    assert_perft(fen, "position 6", 2, 2079);
+    assert_perft(fen, "position 6", 3, 89890);
+    assert_perft(fen, "position 6", 4, 3894594);
 }
 
 // Template to quickly test a specific board/move
