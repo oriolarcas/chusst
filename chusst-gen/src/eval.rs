@@ -267,6 +267,10 @@ trait GamePrivate<B: Board + SafetyChecks>: PlayableGame<B> + ModifiableGame<B> 
                 possible_moves.push(mva!(position, target));
                 possible_moves.push(MoveAction {
                     mv: mv!(position, target),
+                    move_type: MoveActionType::Promotion(PromotionPieces::Knight),
+                });
+                possible_moves.push(MoveAction {
+                    mv: mv!(position, target),
                     move_type: MoveActionType::Promotion(PromotionPieces::Bishop),
                 });
                 possible_moves.push(MoveAction {
