@@ -2,7 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use chusst_gen::board::{Piece, Position};
-use chusst_gen::eval::{self, Game};
+use chusst_gen::eval::{self, Game, GameHistory};
 use chusst_gen::game::{Move, MoveAction, MoveActionType, PromotionPieces};
 
 #[cfg(feature = "bitboards")]
@@ -30,13 +30,18 @@ struct TurnDescription {
 }
 
 struct GameData {
+    /// The game state
     game: GameModel,
+    /// The game history required by the engine
+    move_history: GameHistory,
+    /// The game history required by the UI
     history: Vec<TurnDescription>,
 }
 
 static GAME: Mutex<GameData> = Mutex::new(GameData {
     game: GameModel::new(),
-    history: vec![],
+    move_history: Vec::new(),
+    history: Vec::new(),
 });
 
 // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
@@ -71,7 +76,16 @@ fn do_move(
     target_file: usize,
     promotion: Option<String>,
 ) -> bool {
-    let promotion_piece = promotion.and_then(PromotionPieces::try_from_str);
+    let promotion_piece = if let Some(promotion_value) = promotion {
+        let promotion_piece = PromotionPieces::try_from_str(promotion_value.clone());
+        if promotion_piece.is_none() {
+            println!("Invalid promotion piece: {}", promotion_value);
+            return false;
+        }
+        promotion_piece
+    } else {
+        None
+    };
     let mv = MoveAction {
         mv: Move {
             source: Position {
@@ -89,9 +103,8 @@ fn do_move(
         },
     };
     let game_data = &mut GAME.lock().unwrap();
-    let game = &mut game_data.game;
 
-    let white_move = match game.move_name(&mv) {
+    let white_move = match game_data.game.move_name(&mv) {
         Some(name) => name,
         None => {
             println!("Invalid move: {}", mv.mv);
@@ -99,7 +112,7 @@ fn do_move(
         }
     };
 
-    let white_captures = match game.do_move(&mv) {
+    let white_captures = match game_data.game.do_move(&mv) {
         Some(captures) => captures,
         None => {
             println!("Invalid move: {}", white_move);
@@ -107,22 +120,27 @@ fn do_move(
         }
     };
 
-    let (black_move_opt, black_captures, mate) = match game.get_best_move(4) {
-        eval::GameMove::Normal(mv) => {
-            let description = game.move_name(&mv);
+    game_data.move_history.push(mv);
 
-            let black_captures = game.do_move(&mv);
-            assert!(black_captures.is_some());
+    let (black_move_opt, black_captures, mate) =
+        match game_data.game.get_best_move(&game_data.move_history, 4) {
+            eval::GameMove::Normal(mv) => {
+                let description = game_data.game.move_name(&mv);
 
-            let black_mate = game.is_mate();
+                let black_captures = game_data.game.do_move(&mv);
+                assert!(black_captures.is_some());
 
-            (description, black_captures.unwrap(), black_mate)
-        }
-        eval::GameMove::Mate(mate) => match mate {
-            eval::MateType::Stalemate => (None, vec![], Some(eval::MateType::Stalemate)),
-            eval::MateType::Checkmate => (None, vec![], Some(eval::MateType::Checkmate)),
-        },
-    };
+                game_data.move_history.push(mv);
+
+                let black_mate = game_data.game.is_mate();
+
+                (description, black_captures.unwrap(), black_mate)
+            }
+            eval::GameMove::Mate(mate) => match mate {
+                eval::MateType::Stalemate => (None, vec![], Some(eval::MateType::Stalemate)),
+                eval::MateType::Checkmate => (None, vec![], Some(eval::MateType::Checkmate)),
+            },
+        };
 
     let history = &mut game_data.history;
     let turn = history.len() + 1;

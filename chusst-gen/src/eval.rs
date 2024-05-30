@@ -1,22 +1,24 @@
 mod check;
 mod conditions;
 mod feedback;
+mod history;
 mod iter;
 mod play;
 
 #[cfg(test)]
 mod tests;
 
-pub use self::iter::dir;
-
 use self::check::{only_empty_and_safe, SafetyChecks};
 pub use self::feedback::{
     EngineFeedback, EngineFeedbackMessage, EngineMessage, SilentSearchFeedback, StdoutFeedback,
 };
 use self::feedback::{PeriodicalSearchFeedback, SearchFeedback};
+pub use self::history::GameHistory;
+use self::history::HashedHistory;
+pub use self::iter::dir;
 use self::iter::piece_into_iter;
 use self::play::PlayableGame;
-use crate::board::{Board, Direction, Piece, PieceType, Position, PositionIterator, Ranks};
+use crate::board::{Board, Direction, Piece, PieceType, Player, Position, PositionIterator, Ranks};
 use crate::game::{GameState, ModifiableGame, Move, MoveAction, MoveActionType, PromotionPieces};
 use crate::{mv, mva, pos};
 
@@ -55,9 +57,26 @@ pub type BoardCaptures = Ranks<Vec<Position>>;
 #[derive(PartialEq, Default, Eq, PartialOrd, Ord, Copy, Clone)]
 pub struct Score(i32);
 
+// Value in centipawns
 impl Score {
     pub const MAX: Self = Self(i32::MAX);
     pub const MIN: Self = Self(-i32::MAX); // -i32::MIN > i32::MAX
+
+    pub fn piece_value(piece: PieceType) -> Score {
+        match piece {
+            PieceType::Pawn => Score::from(100),
+            PieceType::Knight => Score::from(300),
+            PieceType::Bishop => Score::from(300),
+            PieceType::Rook => Score::from(500),
+            PieceType::Queen => Score::from(900),
+            PieceType::King => Score::MAX,
+        }
+    }
+
+    // Score lower than losing any piece, but higher than stalemate
+    pub fn stalemate() -> Score {
+        Score::from(Self::MIN.0 / 2)
+    }
 }
 
 impl From<i32> for Score {
@@ -128,11 +147,18 @@ pub struct WeightedMove {
     pub score: Score,
 }
 
+#[derive(Copy, Clone, PartialEq)]
+pub enum GameResult {
+    Win(Player),
+    Draw,
+}
+
 #[derive(Default)]
 pub struct Branch {
     pub moves: Vec<WeightedMove>,
     pub score: Score,
     pub searched: u32,
+    pub result: Option<GameResult>,
 }
 
 impl fmt::Display for Branch {
@@ -171,18 +197,6 @@ impl Default for SearchScores {
     }
 }
 
-// Value in centipawns
-fn get_piece_value(piece: PieceType) -> Score {
-    match piece {
-        PieceType::Pawn => Score::from(100),
-        PieceType::Knight => Score::from(300),
-        PieceType::Bishop => Score::from(300),
-        PieceType::Rook => Score::from(500),
-        PieceType::Queen => Score::from(900),
-        PieceType::King => Score::MAX,
-    }
-}
-
 impl<B: Board + SafetyChecks> PlayableGame<B> for GameState<B> {
     fn as_ref(&self) -> &GameState<B> {
         self
@@ -203,6 +217,7 @@ trait GamePrivate<B: Board + SafetyChecks>: PlayableGame<B> + ModifiableGame<B> 
         &self,
         move_action: &MoveAction,
         king_position: &Position,
+        reset_hash: bool,
     ) -> Option<GameState<B>> {
         let mv = &move_action.mv;
         let is_king = mv.source == *king_position;
@@ -240,7 +255,7 @@ trait GamePrivate<B: Board + SafetyChecks>: PlayableGame<B> + ModifiableGame<B> 
         }
 
         // Move
-        let new_game = self.clone_and_move(move_action).ok()?;
+        let new_game = self.clone_and_move(move_action, reset_hash).ok()?;
 
         // After moving, check if the king is in check
 
@@ -322,7 +337,7 @@ trait GamePrivate<B: Board + SafetyChecks>: PlayableGame<B> + ModifiableGame<B> 
         self.get_possible_moves_no_checks(position)
             .iter()
             .filter(|mv| {
-                self.clone_and_move_with_checks(mv, &king_position)
+                self.clone_and_move_with_checks(mv, &king_position, true)
                     .is_some()
             })
             .copied()
@@ -349,6 +364,7 @@ trait GamePrivate<B: Board + SafetyChecks>: PlayableGame<B> + ModifiableGame<B> 
         current_depth: u32,
         max_depth: u32,
         scores: SearchScores,
+        history: &mut HashedHistory,
         stop_signal: &mut impl HasStopSignal,
         feedback: &mut impl SearchFeedback,
     ) -> SearchResult {
@@ -394,23 +410,29 @@ trait GamePrivate<B: Board + SafetyChecks>: PlayableGame<B> + ModifiableGame<B> 
 
                 // Evaluate this move locally
                 let local_score = match &board.at(possible_position) {
-                    Some(piece) => get_piece_value(piece.piece),
+                    Some(piece) => Score::piece_value(piece.piece),
                     None => {
                         match possible_move.move_type {
                             MoveActionType::Promotion(promotion_piece) => {
                                 // Promotion
-                                get_piece_value(promotion_piece.into())
+                                Score::piece_value(promotion_piece.into())
                             }
                             _ => Score::from(0),
                         }
                     }
                 };
 
-                let Some(recursive_game) =
-                    self.clone_and_move_with_checks(&possible_move, &king_position)
+                let Some(mut recursive_game) =
+                    self.clone_and_move_with_checks(&possible_move, &king_position, false)
                 else {
                     continue;
                 };
+
+                // Threefold repetition
+                let hash = recursive_game.hash();
+                history.push(possible_move, hash);
+                let repetition_count = history.count(&hash);
+                let threefold_repetition = repetition_count >= 3;
 
                 let mut branch = Branch {
                     moves: vec![WeightedMove {
@@ -420,6 +442,7 @@ trait GamePrivate<B: Board + SafetyChecks>: PlayableGame<B> + ModifiableGame<B> 
                     // Negamax: negate score from previous move
                     score: local_score - scores.parent,
                     searched: 0,
+                    result: None,
                 };
 
                 feedback.update(current_depth, searched_moves, branch.score.into());
@@ -440,7 +463,11 @@ trait GamePrivate<B: Board + SafetyChecks>: PlayableGame<B> + ModifiableGame<B> 
                 }
 
                 // Recursion
-                if !is_leaf_node {
+                if threefold_repetition {
+                    // Enforce draw
+                    branch.score = Score::stalemate();
+                    branch.result = Some(GameResult::Draw);
+                } else if !is_leaf_node {
                     let mut search_result = recursive_game.get_best_move_recursive_alpha_beta(
                         current_depth + 1,
                         max_depth,
@@ -450,6 +477,7 @@ trait GamePrivate<B: Board + SafetyChecks>: PlayableGame<B> + ModifiableGame<B> 
                             alpha: -scores.beta,
                             beta: -local_alpha,
                         },
+                        history,
                         stop_signal,
                         feedback,
                     );
@@ -488,8 +516,14 @@ trait GamePrivate<B: Board + SafetyChecks>: PlayableGame<B> + ModifiableGame<B> 
                         branch.moves.append(&mut next_moves.moves);
                         branch.score = -next_moves.score; // notice the score of the child branch is negated
                         branch.searched = next_moves.searched;
+                        branch.result = next_moves.result;
                     } else if is_check_mate {
-                        branch.score = branch.score + get_piece_value(PieceType::King);
+                        branch.score = branch.score + Score::piece_value(PieceType::King);
+                        branch.result = Some(GameResult::Win(player));
+                    } else {
+                        // Stalemate
+                        branch.score = Score::stalemate();
+                        branch.result = Some(GameResult::Draw);
                     }
 
                     searched_moves += branch.searched;
@@ -499,6 +533,8 @@ trait GamePrivate<B: Board + SafetyChecks>: PlayableGame<B> + ModifiableGame<B> 
                         let _ = writeln!(feedback, "{}],", indent(current_depth));
                     }
                 }
+
+                history.pop().unwrap();
 
                 match &best_move {
                     Some(current_best_move) => {
@@ -576,6 +612,7 @@ trait GamePrivate<B: Board + SafetyChecks>: PlayableGame<B> + ModifiableGame<B> 
             0,
             0,
             SearchScores::default(),
+            &mut HashedHistory::default(),
             &mut (),
             &mut SilentSearchFeedback::default(),
         )
@@ -616,7 +653,8 @@ pub trait Game<B: Board + SafetyChecks>: GamePrivate<B> {
             return vec![];
         };
 
-        let mut game = self.as_ref().clone();
+        let mut game = self.as_ref().clone_unhashed();
+
         // Play as the color of the position
         game.update_player(player);
 
@@ -750,7 +788,7 @@ pub trait Game<B: Board + SafetyChecks>: GamePrivate<B> {
         }
 
         // Is check?
-        let mut new_game = self.as_ref().clone();
+        let mut new_game = self.as_ref().clone_unhashed();
 
         if Game::do_move(&mut new_game, move_action).is_some() {
             let enemy_king_position = new_game.board().find_king(&!*player);
@@ -770,6 +808,7 @@ pub trait Game<B: Board + SafetyChecks>: GamePrivate<B> {
     fn get_best_move_recursive(
         &self,
         search_depth: u32,
+        history: &GameHistory,
         stop_signal: &mut impl HasStopSignal,
         feedback: &mut impl SearchFeedback,
     ) -> Option<Branch> {
@@ -777,6 +816,7 @@ pub trait Game<B: Board + SafetyChecks>: GamePrivate<B> {
             0,
             search_depth,
             SearchScores::default(),
+            &mut HashedHistory::from(history).ok()?,
             stop_signal,
             feedback,
         )
@@ -798,6 +838,7 @@ pub trait Game<B: Board + SafetyChecks>: GamePrivate<B> {
     fn get_best_move_with_logger(
         &self,
         search_depth: u32,
+        history: &GameHistory,
         stop_signal: &mut impl HasStopSignal,
         engine_feedback: &mut impl EngineFeedback,
     ) -> GameMove {
@@ -805,7 +846,8 @@ pub trait Game<B: Board + SafetyChecks>: GamePrivate<B> {
         let start_time = Instant::now();
         let mut feedback =
             PeriodicalSearchFeedback::new(std::time::Duration::from_millis(500), engine_feedback);
-        let best_branch = self.get_best_move_recursive(search_depth, stop_signal, &mut feedback);
+        let best_branch =
+            self.get_best_move_recursive(search_depth, history, stop_signal, &mut feedback);
         let duration = (Instant::now() - start_time).as_secs_f64();
 
         if best_branch.is_none() {
@@ -864,8 +906,13 @@ pub trait Game<B: Board + SafetyChecks>: GamePrivate<B> {
         GameMove::Normal(**branch_moves.first().unwrap())
     }
 
-    fn get_best_move(&self, search_depth: u32) -> GameMove {
-        self.get_best_move_with_logger(search_depth, &mut (), &mut StdoutFeedback::default())
+    fn get_best_move(&self, history: &GameHistory, search_depth: u32) -> GameMove {
+        self.get_best_move_with_logger(
+            search_depth,
+            history,
+            &mut (),
+            &mut StdoutFeedback::default(),
+        )
     }
 
     fn is_mate(&self) -> Option<MateType> {
