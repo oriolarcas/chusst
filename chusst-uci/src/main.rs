@@ -2,17 +2,20 @@ mod duplex_thread;
 mod engine;
 mod stdin;
 
-use anyhow::Result;
-use chusst_gen::eval::GameMove;
-use chusst_gen::game::{BitboardGame, MoveAction};
-use duplex_thread::DuplexChannel;
-use engine::{EngineCommand, EngineResponse, GoCommand, NewGameCommand};
-use mio::{Poll, Token, Waker};
-use rust_fsm::*;
 use std::fmt;
 use std::fs::File;
 use std::io::Write;
 use std::time::Instant;
+
+use anyhow::Result;
+use duplex_thread::DuplexChannel;
+use engine::{EngineCommand, EngineResponse, GoCommand, NewGameCommand};
+use mio::{Poll, Token, Waker};
+use rust_fsm::*;
+
+use chusst_gen::eval::GameMove;
+use chusst_gen::game::{BitboardGame, MoveAction};
+
 use stdin::{stdin_task, StdinResponse};
 
 use crate::duplex_thread::create_duplex_thread;

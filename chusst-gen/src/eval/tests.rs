@@ -541,7 +541,7 @@ fn check_mate() {
                 2 [ ][ ][♛][ ][ ][ ][ ][ ]\n\
                 1 [♔][ ][ ][ ][ ][ ][ ][ ]",
             ),
-            player: Player::White,
+            player: Player::Black,
             initial_moves: vec![],
             mv: mva!(b3 => b2),
             checks: vec![],
@@ -558,7 +558,7 @@ fn check_mate() {
                 2 [♟][ ][ ][ ][ ][ ][ ][ ]\n\
                 1 [♔][ ][ ][ ][ ][ ][ ][ ]",
             ),
-            player: Player::White,
+            player: Player::Black,
             initial_moves: vec![],
             mv: mva!(b3 => b2),
             checks: vec![],
@@ -575,7 +575,7 @@ fn check_mate() {
                 2 [ ][ ][ ][ ][ ][ ][ ][ ]\n\
                 1 [♔][ ][ ][ ][ ][ ][ ][ ]",
             ),
-            player: Player::White,
+            player: Player::Black,
             initial_moves: vec![],
             mv: mva!(b8 => a8),
             checks: vec![],
@@ -592,7 +592,7 @@ fn check_mate() {
                 2 [ ][ ][ ][ ][ ][ ][ ][ ]\n\
                 1 [♔][ ][ ][ ][ ][ ][ ][ ]",
             ),
-            player: Player::White,
+            player: Player::Black,
             initial_moves: vec![],
             mv: mva!(f8 => g7),
             checks: vec![],
@@ -609,7 +609,7 @@ fn check_mate() {
                 2 [ ][ ][ ][ ][ ][ ][ ][ ]\n\
                 1 [♔][ ][ ][♞][ ][ ][ ][ ]",
             ),
-            player: Player::White,
+            player: Player::Black,
             initial_moves: vec![],
             mv: mva!(a5 => b3),
             checks: vec![],
