@@ -39,6 +39,9 @@ impl<B: Board> ModifiableGame<B> for GameState<B> {
 
     fn update_player(&mut self, player: Player) {
         self.data.player = player;
+        if let Some(hash) = self.data.hash.as_mut() {
+            hash.switch_turn();
+        }
     }
 
     fn info(&self) -> &GameInfo {
@@ -94,6 +97,11 @@ impl<B: Board> ModifiableGame<B> for GameState<B> {
         self.move_piece(&mv.source, &mv.target);
 
         match move_info {
+            MoveExtraInfo::Passed => {
+                if let Some(hash) = self.data.hash.as_mut() {
+                    hash.switch_en_passant_file(mv.source.file);
+                }
+            }
             MoveExtraInfo::EnPassant => {
                 // Capture passed pawn
                 let direction = B::pawn_progress_direction(&player);
@@ -147,7 +155,15 @@ impl<B: Board> ModifiableGame<B> for GameState<B> {
             }
         }
 
-        self.data.player = !self.data.player;
+        if let Some(last_move) = self.data.last_move {
+            if last_move.info == MoveExtraInfo::Passed {
+                if let Some(hash) = self.data.hash.as_mut() {
+                    hash.switch_en_passant_file(last_move.mv.source.file);
+                }
+            }
+        }
+
+        self.update_player(!self.data.player);
         self.data.last_move = Some(MoveInfo {
             mv: *mv,
             info: move_info,

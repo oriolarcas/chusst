@@ -2,17 +2,20 @@ mod duplex_thread;
 mod engine;
 mod stdin;
 
-use anyhow::Result;
-use chusst_gen::eval::GameMove;
-use chusst_gen::game::{BitboardGame, ModifiableGame, MoveAction};
-use duplex_thread::DuplexChannel;
-use engine::{EngineCommand, EngineResponse, GoCommand, NewGameCommand};
-use mio::{Poll, Token, Waker};
-use rust_fsm::*;
 use std::fmt;
 use std::fs::File;
 use std::io::Write;
 use std::time::Instant;
+
+use anyhow::Result;
+use duplex_thread::DuplexChannel;
+use engine::{EngineCommand, EngineResponse, GoCommand, NewGameCommand};
+use mio::{Poll, Token, Waker};
+use rust_fsm::*;
+
+use chusst_gen::eval::GameMove;
+use chusst_gen::game::{BitboardGame, MoveAction};
+
 use stdin::{stdin_task, StdinResponse};
 
 use crate::duplex_thread::create_duplex_thread;
@@ -325,10 +328,10 @@ async fn uci_loop(
             (Some(UciProtocolOutput::EngineCommandNewGame), ParsedInput::UciStdInInput(_)) => {
                 if engine_channel
                     .to_thread
-                    .send(EngineCommand::NewGame(NewGameCommand {
+                    .send(EngineCommand::NewGame(Box::new(NewGameCommand {
                         game: Some(BitboardGame::new()),
                         moves: Vec::new(),
-                    }))
+                    })))
                     .is_err()
                 {
                     log!("Error: could not send new game to engine");
@@ -368,9 +371,6 @@ async fn uci_loop(
                         continue;
                     }
                 };
-                if let Some(game) = &new_game {
-                    log!("New position:\n{}", game.board());
-                }
                 let mut new_game_command = NewGameCommand {
                     game: new_game,
                     moves: Vec::new(),
@@ -394,7 +394,7 @@ async fn uci_loop(
                 }
                 if engine_channel
                     .to_thread
-                    .send(EngineCommand::NewGame(new_game_command))
+                    .send(EngineCommand::NewGame(Box::new(new_game_command)))
                     .is_err()
                 {
                     log!("Error: could not send new game command to engine");

@@ -1,12 +1,18 @@
 mod play;
+mod zobrist;
 
-use crate::board::{Board, ModifiableBoard, Piece, PieceType, Player, Position, SimpleBoard};
-use crate::{mv, pos};
+use std::fmt;
+
 use anyhow::Result;
 use serde::ser::SerializeMap;
 use serde::Serialize;
-use std::fmt;
 
+use crate::board::{Board, ModifiableBoard, Piece, PieceType, Player, Position, SimpleBoard};
+use crate::{mv, pos};
+pub use zobrist::ZobristHash as GameHash;
+pub use zobrist::ZobristHashBuilder as GameHashBuilder;
+
+// Exports
 pub use play::ModifiableGame;
 
 #[derive(Copy, Clone, Debug, PartialEq, Serialize)]
@@ -252,6 +258,7 @@ pub struct GameMobilityData {
     player: Player,
     last_move: Option<MoveInfo>,
     info: GameInfo,
+    hash: Option<GameHash>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -282,6 +289,7 @@ impl<B: Board> From<B> for GameState<B> {
                 player: Player::White,
                 last_move: None,
                 info: GameInfo::new(),
+                hash: None,
             },
         }
     }
@@ -295,8 +303,15 @@ impl<B: Board> GameState<B> {
                 player: Player::White,
                 last_move: None,
                 info: GameInfo::new(),
+                hash: None,
             },
         }
+    }
+
+    pub fn clone_unhashed(&self) -> Self {
+        let mut new_game = self.clone();
+        new_game.data.hash = None;
+        new_game
     }
 
     pub fn data(&self) -> &GameMobilityData {
@@ -373,8 +388,95 @@ impl<B: Board> GameState<B> {
                 player,
                 last_move,
                 info,
+                hash: None,
             },
         })
+    }
+
+    pub fn to_fen(&self) -> String {
+        let mut fen = self.board.to_fen();
+        let player = match self.data.player {
+            Player::White => "w",
+            Player::Black => "b",
+        };
+        let mut castling = format!(
+            "{}{}{}{}",
+            if self.data.info.can_castle_kingside(Player::White) {
+                "K"
+            } else {
+                ""
+            },
+            if self.data.info.can_castle_queenside(Player::White) {
+                "Q"
+            } else {
+                ""
+            },
+            if self.data.info.can_castle_kingside(Player::Black) {
+                "k"
+            } else {
+                ""
+            },
+            if self.data.info.can_castle_queenside(Player::Black) {
+                "q"
+            } else {
+                ""
+            }
+        );
+
+        if castling.is_empty() {
+            castling = "-".to_string();
+        }
+
+        let en_passant = match self.data.last_move {
+            Some(MoveInfo {
+                mv: Move { source: _, target },
+                info: MoveExtraInfo::EnPassant,
+            }) => {
+                let rank = match self.data.player {
+                    Player::White => target.rank + 1,
+                    Player::Black => target.rank - 1,
+                };
+                format!("{}", pos!(rank, target.file))
+            }
+            _ => "-".to_string(),
+        };
+
+        fen.push_str(&format!(" {} {} {} 0 1", player, castling, en_passant));
+
+        fen
+    }
+
+    pub fn hash(&mut self) -> GameHash {
+        if let Some(hash) = self.data.hash {
+            return hash;
+        }
+
+        let mut hash = GameHash::from(&self.board);
+
+        if self.data.player == Player::Black {
+            hash.switch_turn();
+        }
+
+        for player in [Player::White, Player::Black] {
+            if !self.data.info.can_castle_kingside(player) {
+                hash.switch_kingside_castling(player);
+            }
+            if !self.data.info.can_castle_queenside(player) {
+                hash.switch_queenside_castling(player);
+            }
+        }
+
+        if let Some(MoveInfo {
+            mv,
+            info: MoveExtraInfo::Passed,
+        }) = self.data.last_move
+        {
+            hash.switch_en_passant_file(mv.target.file);
+        }
+
+        self.data.hash = Some(hash);
+
+        hash
     }
 }
 
@@ -384,10 +486,21 @@ impl<B: Board> ModifiableBoard<Position, Option<Piece>> for GameState<B> {
     }
 
     fn update(&mut self, pos: &Position, value: Option<Piece>) {
+        if let Some(hash) = self.data.hash.as_mut() {
+            hash.update_piece(pos, self.board.at(pos), value);
+        }
         self.board.update(pos, value);
     }
 
     fn move_piece(&mut self, source: &Position, target: &Position) {
+        if let Some(hash) = self.data.hash.as_mut() {
+            if let Some(captured_piece) = self.board.at(target) {
+                hash.update_piece(target, Some(captured_piece), None);
+            }
+            if let Some(moved_piece) = self.board.at(source) {
+                hash.move_piece(source, target, moved_piece);
+            }
+        }
         self.board.move_piece(source, target);
     }
 }
@@ -402,11 +515,23 @@ impl<B: Board> CastlingRights for GameState<B> {
     }
 
     fn disable_castle_kingside(&mut self, player: Player) {
+        if !self.data.info.can_castle_kingside(player) {
+            return;
+        }
         self.data.info.disable_castle_kingside(player);
+        if let Some(hash) = self.data.hash.as_mut() {
+            hash.switch_kingside_castling(player);
+        }
     }
 
     fn disable_castle_queenside(&mut self, player: Player) {
+        if !self.data.info.can_castle_queenside(player) {
+            return;
+        }
         self.data.info.disable_castle_queenside(player);
+        if let Some(hash) = self.data.hash.as_mut() {
+            hash.switch_queenside_castling(player);
+        }
     }
 }
 

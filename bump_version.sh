@@ -22,8 +22,7 @@ echo Updating package.json
 npm version --allow-same-version --commit-hooks false --git-tag-version false "$new_ver"
 
 echo Updating Cargo.toml
-cd src-tauri
-cargo bump "$new_ver"
+cargo set-version -p chusst-gen "$new_ver"
 
 echo Updating tauri.conf.json
-sed -E -i'' "s/\"version\": \"[0-9.]+\"/\"version\": \"$new_ver\"/" tauri.conf.json
+sed -E -i'' "s/\"version\": \"[0-9.]+\"/\"version\": \"$new_ver\"/" src-tauri/tauri.conf.json

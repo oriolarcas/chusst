@@ -1,15 +1,16 @@
 use divan::Bencher;
 
-use chusst_gen::eval::{Game, SilentSearchFeedback};
+use chusst_gen::eval::{Game, GameHistory, SilentSearchFeedback};
 use chusst_gen::game::BitboardGame;
 
 #[divan::bench]
 fn search(bench: Bencher) {
     bench.bench_local(|| {
         let game = BitboardGame::new();
+        let history = GameHistory::new();
 
         let best_branch = game
-            .get_best_move_recursive(4, &mut (), &mut SilentSearchFeedback::default())
+            .get_best_move_recursive(&history, 4, &mut (), &mut SilentSearchFeedback::default())
             .unwrap();
 
         best_branch.searched
@@ -123,9 +124,11 @@ fn game_benchmark() -> u64 {
     // use std::io::Write;
 
     let mut game = BitboardGame::new();
-    let get_best_move_helper = |game: &mut BitboardGame| {
+    let mut history = GameHistory::new();
+
+    let get_best_move_helper = |game: &mut BitboardGame, history: &mut GameHistory| {
         let best_branch = game
-            .get_best_move_recursive(3, &mut (), &mut SilentSearchFeedback::default())
+            .get_best_move_recursive(history, 3, &mut (), &mut SilentSearchFeedback::default())
             .unwrap();
 
         (best_branch.searched, best_branch.moves.first().unwrap().mv)
@@ -147,14 +150,14 @@ fn game_benchmark() -> u64 {
         // print!("{}. ", turn);
         // std::io::stdout().flush().unwrap();
 
-        let (white_searched, white_move) = get_best_move_helper(&mut game);
+        let (white_searched, white_move) = get_best_move_helper(&mut game, &mut history);
         // let white_move_name = move_name(&game.board, &game.last_move, &game.player, &white_move);
         game.do_move(&white_move);
 
         // print!("{} ", white_move_name);
         // std::io::stdout().flush().unwrap();
 
-        let (black_searched, black_move) = get_best_move_helper(&mut game);
+        let (black_searched, black_move) = get_best_move_helper(&mut game, &mut history);
         // let black_move_name = move_name(&game.board, &game.last_move, &game.player, &black_move);
         game.do_move(&black_move);
 

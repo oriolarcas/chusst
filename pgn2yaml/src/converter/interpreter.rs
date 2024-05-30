@@ -154,7 +154,7 @@ fn find_move_by_name(game: &SimpleGame, move_str: &str) -> Result<DetailedMoveIn
         game.board(),
         &possible_moves
             .iter()
-            .filter_map(|mv| game.move_name(mv))
+            .filter_map(|mv| game.move_name(mv).ok())
             .collect::<Vec<String>>()
             .join(", ")
     );
