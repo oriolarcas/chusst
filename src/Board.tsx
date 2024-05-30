@@ -4,7 +4,7 @@ import './Pieces.css';
 import { Component } from 'react';
 import { Row } from 'react-bootstrap';
 import Badge from 'react-bootstrap/Badge';
-import { invoke } from '@tauri-apps/api';
+import { invoke } from '@tauri-apps/api/core';
 
 export enum UserAction {
   Restart,
