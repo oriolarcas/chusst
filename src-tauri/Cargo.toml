@@ -10,13 +10,13 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [build-dependencies]
-tauri-build = { version = "1.4", features = [] }
+tauri-build = { version = "2.0.0-beta", features = [] }
 
 [dependencies]
 chusst-gen = { path = "../chusst-gen" }
-tauri = { version = "1.4", features = ["shell-open"] }
-serde = { version = "1.0.195", features = ["derive"] }
-serde_json = "1.0"
+tauri = { version = "2.0.0-beta", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 
 [features]
 default = ["bitboards"]
@@ -25,7 +25,3 @@ default = ["bitboards"]
 bitboards = ["chusst-gen/bitboards"]
 # Use a memory-efficient representation of the board (1 byte per square)
 compact-board = ["chusst-gen/compact-board"]
-
-# this feature is used for production builds or when `devPath` points to the filesystem
-# DO NOT REMOVE!!
-custom-protocol = ["tauri/custom-protocol"]

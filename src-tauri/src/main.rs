@@ -13,7 +13,6 @@ type GameModel = chusst_gen::game::CompactGame;
 type GameModel = chusst_gen::game::SimpleGame;
 
 use serde::Serialize;
-use tauri::{LogicalSize, Manager, Size};
 
 use std::sync::Mutex;
 
@@ -175,14 +174,6 @@ fn restart() {
 
 fn main() {
     tauri::Builder::default()
-        .setup(|app| {
-            let main_window = app.get_window("main").unwrap();
-            main_window.set_size(Size::Logical(LogicalSize {
-                width: 1000.0,
-                height: 800.0,
-            }))?;
-            Ok(())
-        })
         .invoke_handler(tauri::generate_handler![
             get_game,
             get_history,
