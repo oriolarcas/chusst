@@ -28,9 +28,53 @@ macro_rules! pp {
     };
 }
 
+#[derive(Clone, Copy)]
+#[allow(dead_code)]
+enum TestMove {
+    AsMove(MoveAction),
+    AsString(&'static str),
+}
+
+macro_rules! tm {
+    ($src:ident => $tgt:ident) => {
+        TestMove::AsMove(mva!($src => $tgt))
+    };
+    ($src:ident => $tgt:ident, $promote:ident) => {
+        TestMove::AsMove(mva!($src => $tgt, $promote))
+    };
+    ($str:expr) => {
+        TestMove::AsString($str)
+    };
+}
+
+fn from_test_move(game: &TestGame, mv: &TestMove) -> MoveAction {
+    match mv {
+        TestMove::AsMove(mv) => *mv,
+        TestMove::AsString(mv_str) => {
+            let all_moves = game.get_all_possible_moves();
+            let Some(mv) = all_moves
+                .iter()
+                .find(|mv| game.move_name(mv).unwrap().as_str() == *mv_str)
+            else {
+                panic!(
+                    "move {} not found:\n{}\npossible moves: {}",
+                    mv_str,
+                    game.board(),
+                    all_moves
+                        .iter()
+                        .map(|mv| game.move_name(mv).unwrap())
+                        .collect::<Vec<String>>()
+                        .join(", ")
+                );
+            };
+            mv.to_owned()
+        }
+    }
+}
+
 struct TestBoard<'a> {
     board: Option<&'a str>,
-    initial_moves: Vec<MoveAction>,
+    initial_moves: Vec<TestMove>,
     mv: MoveAction,
     checks: Vec<PiecePosition>,
 }
@@ -257,19 +301,14 @@ fn move_reversable() {
         // Pawn capturing
         TestBoard {
             board: None,
-            initial_moves: vec![mva!(e2 => e4), mva!(d7 => d5)],
+            initial_moves: vec![tm!(e2 => e4), tm!(d7 => d5)],
             mv: mva!(e4 => d5),
             checks: vec![pp!(pw @ d5), pp!(e4)],
         },
         // Pawn capturing en passant
         TestBoard {
             board: None,
-            initial_moves: vec![
-                mva!(e2 => e4),
-                mva!(a7 => a6),
-                mva!(e4 => e5),
-                mva!(d7 => d5),
-            ],
+            initial_moves: vec![tm!(e2 => e4), tm!(a7 => a6), tm!(e4 => e5), tm!(d7 => d5)],
             mv: mva!(e5 => d6),
             checks: vec![pp!(pw @ d6), pp!(e5), pp!(d5)],
         },
@@ -277,14 +316,14 @@ fn move_reversable() {
         TestBoard {
             board: None,
             initial_moves: vec![
-                mva!(h2 => h4),
-                mva!(g7 => g6),
-                mva!(h4 => h5),
-                mva!(a7 => a6),
-                mva!(h5 => g6),
-                mva!(a6 => a5),
-                mva!(g6 => g7),
-                mva!(a5 => a4),
+                tm!(h2 => h4),
+                tm!(g7 => g6),
+                tm!(h4 => h5),
+                tm!(a7 => a6),
+                tm!(h5 => g6),
+                tm!(a6 => a5),
+                tm!(g6 => g7),
+                tm!(a5 => a4),
             ],
             mv: mva!(g7 => h8, PromotionPieces::Knight),
             checks: vec![pp!(nw @ h8)],
@@ -293,14 +332,14 @@ fn move_reversable() {
         TestBoard {
             board: None,
             initial_moves: vec![
-                mva!(h2 => h4),
-                mva!(g7 => g6),
-                mva!(h4 => h5),
-                mva!(a7 => a6),
-                mva!(h5 => g6),
-                mva!(a6 => a5),
-                mva!(g6 => g7),
-                mva!(a5 => a4),
+                tm!(h2 => h4),
+                tm!(g7 => g6),
+                tm!(h4 => h5),
+                tm!(a7 => a6),
+                tm!(h5 => g6),
+                tm!(a6 => a5),
+                tm!(g6 => g7),
+                tm!(a5 => a4),
             ],
             mv: mva!(g7 => h8, PromotionPieces::Bishop),
             checks: vec![pp!(bw @ h8)],
@@ -309,14 +348,14 @@ fn move_reversable() {
         TestBoard {
             board: None,
             initial_moves: vec![
-                mva!(h2 => h4),
-                mva!(g7 => g6),
-                mva!(h4 => h5),
-                mva!(a7 => a6),
-                mva!(h5 => g6),
-                mva!(a6 => a5),
-                mva!(g6 => g7),
-                mva!(a5 => a4),
+                tm!(h2 => h4),
+                tm!(g7 => g6),
+                tm!(h4 => h5),
+                tm!(a7 => a6),
+                tm!(h5 => g6),
+                tm!(a6 => a5),
+                tm!(g6 => g7),
+                tm!(a5 => a4),
             ],
             mv: mva!(g7 => h8, PromotionPieces::Rook),
             checks: vec![pp!(rw @ h8)],
@@ -325,14 +364,14 @@ fn move_reversable() {
         TestBoard {
             board: None,
             initial_moves: vec![
-                mva!(h2 => h4),
-                mva!(g7 => g6),
-                mva!(h4 => h5),
-                mva!(a7 => a6),
-                mva!(h5 => g6),
-                mva!(a6 => a5),
-                mva!(g6 => g7),
-                mva!(a5 => a4),
+                tm!(h2 => h4),
+                tm!(g7 => g6),
+                tm!(h4 => h5),
+                tm!(a7 => a6),
+                tm!(h5 => g6),
+                tm!(a6 => a5),
+                tm!(g6 => g7),
+                tm!(a5 => a4),
             ],
             mv: mva!(g7 => h8, PromotionPieces::Queen),
             checks: vec![pp!(qw @ h8)],
@@ -341,12 +380,12 @@ fn move_reversable() {
         TestBoard {
             board: None,
             initial_moves: vec![
-                mva!(e2 => e3),
-                mva!(a7 => a6),
-                mva!(f1 => e2),
-                mva!(b7 => b6),
-                mva!(g1 => h3),
-                mva!(c7 => c6),
+                tm!(e2 => e3),
+                tm!(a7 => a6),
+                tm!(f1 => e2),
+                tm!(b7 => b6),
+                tm!(g1 => h3),
+                tm!(c7 => c6),
             ],
             mv: mva!(e1 => g1),
             checks: vec![pp!(kw @ g1), pp!(rw @ f1)],
@@ -355,14 +394,14 @@ fn move_reversable() {
         TestBoard {
             board: None,
             initial_moves: vec![
-                mva!(d2 => d4),
-                mva!(a7 => a6),
-                mva!(d1 => d3),
-                mva!(b7 => b6),
-                mva!(c1 => d2),
-                mva!(c7 => c6),
-                mva!(b1 => c3),
-                mva!(d7 => d6),
+                tm!(d2 => d4),
+                tm!(a7 => a6),
+                tm!(d1 => d3),
+                tm!(b7 => b6),
+                tm!(c1 => d2),
+                tm!(c7 => c6),
+                tm!(b1 => c3),
+                tm!(d7 => d6),
             ],
             mv: mva!(e1 => c1),
             checks: vec![pp!(kw @ c1), pp!(rw @ d1)],
@@ -374,7 +413,8 @@ fn move_reversable() {
         let mut game: TestGame = custom_game(&test_board.board, Player::White);
 
         // Do setup moves
-        for mv in &test_board.initial_moves {
+        for tm in &test_board.initial_moves {
+            let mv = &from_test_move(&game, tm);
             assert!(
                 game.do_move(mv).is_some(),
                 "move {} failed:\n{}",
@@ -506,7 +546,8 @@ fn check_mate() {
         game.disable_castle_queenside(Player::Black);
 
         // Do setup moves
-        for mv in &test_board.initial_moves {
+        for tm in &test_board.initial_moves {
+            let mv = &from_test_move(&game, tm);
             assert!(
                 game.do_move(mv).is_some(),
                 "move {} failed:\n{}",
@@ -658,6 +699,7 @@ fn perft_slow() {
 fn quick_test() {
     // White: ♙ ♘ ♗ ♖ ♕ ♔
     // Black: ♟ ♞ ♝ ♜ ♛ ♚
+    #[rustfmt::skip]
     let test_boards = [TestBoard {
         board: Some(
             "  a  b  c  d  e  f  g  h \n\
@@ -683,7 +725,8 @@ fn quick_test() {
         game.disable_castle_kingside(Player::Black);
 
         // Do setup moves
-        for mv in &test_board.initial_moves {
+        for tm in &test_board.initial_moves {
+            let mv = &from_test_move(&game, tm);
             assert!(
                 game.do_move(mv).is_some(),
                 "move {} failed:\n{}",

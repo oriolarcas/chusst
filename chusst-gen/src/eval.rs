@@ -20,7 +20,7 @@ use crate::board::{Board, Direction, Piece, PieceType, Position, PositionIterato
 use crate::game::{GameState, ModifiableGame, Move, MoveAction, MoveActionType, PromotionPieces};
 use crate::{mv, mva, pos};
 
-use core::panic;
+use core::{fmt, panic};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::time::Instant;
@@ -133,6 +133,21 @@ pub struct Branch {
     pub moves: Vec<WeightedMove>,
     pub score: Score,
     pub searched: u32,
+}
+
+impl fmt::Display for Branch {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{} = {:+}",
+            self.moves
+                .iter()
+                .map(|mv| format!("{}{}{:+}", mv.mv.mv.source, mv.mv.mv.target, mv.score))
+                .collect::<Vec<String>>()
+                .join(" "),
+            self.score
+        )
+    }
 }
 
 struct SearchResult {
@@ -371,6 +386,8 @@ trait GamePrivate<B: Board + SafetyChecks>: PlayableGame<B> + ModifiableGame<B> 
                     break 'main_loop;
                 }
 
+                let mut cutoff = false;
+
                 let mv = &possible_move.mv;
                 let possible_position = &mv.target;
                 searched_moves += 1;
@@ -411,14 +428,14 @@ trait GamePrivate<B: Board + SafetyChecks>: PlayableGame<B> + ModifiableGame<B> 
                 {
                     let _ = writeln!(
                         feedback,
-                        "{}{} {} {:+} α: {}, β: {}{}",
+                        "{}{{\"{}\": \"{} {:+} α: {}, β: {}\"{}",
                         indent(current_depth),
                         player,
                         mv,
                         branch.score,
                         local_alpha,
                         scores.beta,
-                        if !is_leaf_node { " {" } else { "" },
+                        if !is_leaf_node { ", \"s\": [" } else { "}," },
                     );
                 }
 
@@ -457,60 +474,29 @@ trait GamePrivate<B: Board + SafetyChecks>: PlayableGame<B> + ModifiableGame<B> 
                     {
                         let _ = writeln!(
                             feedback,
-                            "{}Best child: {}",
+                            "{}{{\"best child\": \"{}\"}},",
                             indent(current_depth + 1),
                             next_moves_opt
                                 .as_ref()
                                 .map_or("<mate>".to_string(), |sub_branch| {
-                                    format!(
-                                        "{}{:+}",
-                                        sub_branch.moves.first().unwrap().mv.mv,
-                                        sub_branch.score
-                                    )
+                                    format!("{}", sub_branch)
                                 })
                         );
                     }
 
-                    let is_stale_mate = next_moves_opt.is_none() && !is_check_mate;
-
-                    if is_check_mate {
-                        branch.score = branch.score + get_piece_value(PieceType::King);
-                    } else if !is_stale_mate {
-                        let next_moves = next_moves_opt.as_mut().unwrap();
-
+                    if let Some(next_moves) = next_moves_opt {
                         branch.moves.append(&mut next_moves.moves);
-                        branch.score = -next_moves.score; // notice the score of the next move is negated
+                        branch.score = -next_moves.score; // notice the score of the child branch is negated
                         branch.searched = next_moves.searched;
+                    } else if is_check_mate {
+                        branch.score = branch.score + get_piece_value(PieceType::King);
                     }
 
                     searched_moves += branch.searched;
 
                     #[cfg(feature = "verbose-search")]
                     {
-                        let _ = writeln!(feedback, "{}}}", indent(current_depth));
-                    }
-
-                    if branch.score >= scores.beta && branch.score < Score::MAX {
-                        // Fail hard beta cutoff
-
-                        #[cfg(feature = "verbose-search")]
-                        {
-                            let _ = writeln!(
-                                feedback,
-                                "{}β cutoff: {} >= {}",
-                                indent(current_depth),
-                                branch.score,
-                                scores.beta
-                            );
-                        }
-
-                        if best_move.as_ref().is_none() {
-                            best_move = Some(branch);
-                        }
-
-                        best_move.as_mut().unwrap().score = scores.beta;
-
-                        break 'main_loop;
+                        let _ = writeln!(feedback, "{}],", indent(current_depth));
                     }
                 }
 
@@ -520,28 +506,63 @@ trait GamePrivate<B: Board + SafetyChecks>: PlayableGame<B> + ModifiableGame<B> 
                             || (branch.score == current_best_move.score
                                 && branch.moves.len() < current_best_move.moves.len())
                         {
+                            #[cfg(feature = "verbose-search")]
+                            {
+                                let _ = writeln!(
+                                    feedback,
+                                    "{}{{\"new best move\": \"{} > {}\"}},",
+                                    indent(current_depth),
+                                    branch,
+                                    current_best_move,
+                                );
+                            }
                             best_move = Some(branch);
                         }
                     }
                     None => {
+                        #[cfg(feature = "verbose-search")]
+                        {
+                            let _ = writeln!(
+                                feedback,
+                                "{}{{\"new best move\": \"{}\"}},",
+                                indent(current_depth),
+                                branch,
+                            );
+                        }
                         best_move = Some(branch);
                     }
+                };
+
+                if let Some(best_move_score) = best_move.as_ref().map(|branch| branch.score) {
+                    if best_move_score >= scores.beta {
+                        // Fail hard beta cutoff
+
+                        #[cfg(feature = "verbose-search")]
+                        {
+                            let _ = writeln!(
+                                feedback,
+                                "{}{{\"β cutoff\": \"{} >= {}\"}},",
+                                indent(current_depth),
+                                best_move_score,
+                                scores.beta
+                            );
+                        }
+
+                        cutoff = true;
+                    }
+
+                    // This will be the beta of the next recursion
+                    local_alpha = best_move_score;
                 }
 
-                // This will be the beta for the next move
-                local_alpha = best_move.as_ref().unwrap().score;
-
-                if stopped {
+                if stopped || cutoff {
                     break 'main_loop;
                 }
-            }
-        }
+            } // possible moves loop
+        } // main loop
 
-        match &mut best_move {
-            Some(best_move) => {
-                best_move.searched = searched_moves;
-            }
-            None => (),
+        if let Some(best_move) = best_move.as_mut() {
+            best_move.searched = searched_moves;
         }
 
         SearchResult {
@@ -832,10 +853,10 @@ pub trait Game<B: Board + SafetyChecks>: GamePrivate<B> {
             total_score,
             total_moves,
             std::iter::zip(
-                &best_branch.as_ref().unwrap().moves,
-                self.move_branch_names(&branch_moves)
+                self.move_branch_names(&branch_moves),
+                &best_branch.as_ref().unwrap().moves
             )
-            .map(|(move_info, move_name)| format!("{}{:+}", move_name, move_info.score))
+            .map(|(move_name, move_info)| format!("{}{:+}", move_name, move_info.score))
             .collect::<Vec<String>>()
             .join(" ")
         );
