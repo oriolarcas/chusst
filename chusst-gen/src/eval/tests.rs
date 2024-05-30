@@ -630,7 +630,15 @@ fn check_mate() {
 
         let game = &mut test_case.game;
 
-        let name = game.move_name(&test_case.mv).unwrap();
+        let name = match game.move_name(&test_case.mv) {
+            Ok(name) => name,
+            Err(err) => panic!(
+                "no move name for {}: {}\n{}",
+                test_case.mv.mv,
+                err,
+                game.board()
+            ),
+        };
         assert!(
             name.ends_with('#'),
             "notation `{}` for move {} doesn't show checkmate sign # in:\n{}",
@@ -768,8 +776,8 @@ fn zobrist() {
     // game1 has a hash from the beginning
     game1.hash();
 
-    MoveChain::new(&mut game1).do_move(tm!("e3"));
-    MoveChain::new(&mut game2).do_move(tm!("e3"));
+    MoveChain::new(&mut game1).do_move(tm!("e4"));
+    MoveChain::new(&mut game2).do_move(tm!("e4"));
     let hash1 = game1.hash();
     let hash2 = game2.hash(); // game2 gets the hash from scratch after making the moves
     assert_eq!(
@@ -782,7 +790,8 @@ fn zobrist() {
 }
 
 #[test]
-fn fen_parsing() {
+fn fen() {
+    // Parsing
     let start_pos_fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
     let parsed_game = TestGame::try_from_fen(
         start_pos_fen
@@ -793,6 +802,15 @@ fn fen_parsing() {
     assert!(parsed_game.is_some(), "Failed to parse FEN string");
     let game = parsed_game.unwrap();
     assert_eq!(game, TestGame::new(), "\n{}", game.board());
+
+    // Generating
+    assert_eq!(
+        game.to_fen(),
+        start_pos_fen,
+        "FEN string should match the original:\n{}\n{}",
+        start_pos_fen,
+        game.to_fen()
+    );
 }
 
 fn perft_impl(force_comparison: bool) {

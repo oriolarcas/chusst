@@ -1,24 +1,17 @@
 use crate::game::Position;
 use lazy_static::lazy_static;
 use rand::prelude::*;
-use std::{fmt, sync::Mutex};
+use std::hash::{BuildHasher, Hasher};
 use std::ops::BitXorAssign;
+use std::{fmt, sync::Mutex};
 
 use crate::{
     board::{Board, Piece, PieceType, Player},
     pos,
 };
 
-use super::GameHash;
-
-#[derive(Copy, Clone, Debug, PartialEq)]
-pub struct ZobristHash(GameHash);
-
-impl From<ZobristHash> for GameHash {
-    fn from(value: ZobristHash) -> Self {
-        value.0
-    }
-}
+#[derive(Default, Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub struct ZobristHash(u64);
 
 impl BitXorAssign for ZobristHash {
     fn bitxor_assign(&mut self, rhs: Self) {
@@ -29,6 +22,48 @@ impl BitXorAssign for ZobristHash {
 impl fmt::Display for ZobristHash {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{:016x}", self.0)
+    }
+}
+
+impl From<ZobristHash> for u64 {
+    fn from(value: ZobristHash) -> u64 {
+        value.0
+    }
+}
+
+impl From<u64> for ZobristHash {
+    fn from(value: u64) -> Self {
+        Self(value)
+    }
+}
+
+#[derive(Default)]
+pub struct ZobristHasher(ZobristHash);
+
+/// Custom Hasher for ZobristHasher that just uses the hash value unchanged,
+/// to avoid hashing on top of the Zobrist hash.
+impl Hasher for ZobristHasher {
+    fn finish(&self) -> u64 {
+        self.0.into()
+    }
+
+    fn write(&mut self, _bytes: &[u8]) {
+        unimplemented!()
+    }
+
+    fn write_u64(&mut self, i: u64) {
+        self.0 = ZobristHash::from(i);
+    }
+}
+
+#[derive(Default)]
+pub struct ZobristHashBuilder;
+
+impl BuildHasher for ZobristHashBuilder {
+    type Hasher = ZobristHasher;
+
+    fn build_hasher(&self) -> Self::Hasher {
+        ZobristHasher::default()
     }
 }
 

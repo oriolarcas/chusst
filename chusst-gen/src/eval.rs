@@ -22,8 +22,10 @@ use crate::board::{Board, Direction, Piece, PieceType, Player, Position, Positio
 use crate::game::{GameState, ModifiableGame, Move, MoveAction, MoveActionType, PromotionPieces};
 use crate::{mv, mva, pos};
 
+use anyhow::{bail, Result};
 use core::{fmt, panic};
 use serde::Serialize;
+
 use std::collections::HashMap;
 use std::time::Instant;
 
@@ -681,13 +683,13 @@ pub trait Game<B: Board + SafetyChecks>: GamePrivate<B> {
         moves
     }
 
-    fn move_name(&self, move_action: &MoveAction) -> Option<String> {
+    fn move_name(&self, move_action: &MoveAction) -> Result<String> {
         let board = self.board();
         let player = &self.player();
         let mv = &move_action.mv;
         let mut name = String::new();
         let Some(src_piece) = board.at(&mv.source) else {
-            return None;
+            bail!("No piece at {}", mv.source);
         };
 
         let is_castling =
@@ -780,7 +782,7 @@ pub trait Game<B: Board + SafetyChecks>: GamePrivate<B> {
             // Is promotion?
             if is_pawn && mv.target.rank == B::promotion_rank(player) {
                 let MoveActionType::Promotion(promotion_piece) = move_action.move_type else {
-                    return None;
+                    bail!("Promotion piece not specified in {}", move_action.mv);
                 };
                 name.push('=');
                 name.push(piece_char(&promotion_piece.into()).unwrap());
@@ -799,9 +801,9 @@ pub trait Game<B: Board + SafetyChecks>: GamePrivate<B> {
                 name.push(if is_checkmate { '#' } else { '+' });
             }
 
-            Some(name)
+            Ok(name)
         } else {
-            None
+            bail!("Invalid move {}", move_action.mv);
         }
     }
 
@@ -812,11 +814,15 @@ pub trait Game<B: Board + SafetyChecks>: GamePrivate<B> {
         stop_signal: &mut impl HasStopSignal,
         feedback: &mut impl SearchFeedback,
     ) -> Option<Branch> {
+        let mut hashed_history = HashedHistory::from(history).ok()?;
+
+        hashed_history.reserve(search_depth as usize);
+
         self.get_best_move_recursive_alpha_beta(
             0,
             search_depth,
             SearchScores::default(),
-            &mut HashedHistory::from(history).ok()?,
+            &mut hashed_history,
             stop_signal,
             feedback,
         )

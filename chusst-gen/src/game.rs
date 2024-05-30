@@ -9,12 +9,11 @@ use serde::Serialize;
 
 use crate::board::{Board, ModifiableBoard, Piece, PieceType, Player, Position, SimpleBoard};
 use crate::{mv, pos};
-use zobrist::ZobristHash;
+pub use zobrist::ZobristHash as GameHash;
+pub use zobrist::ZobristHashBuilder as GameHashBuilder;
 
 // Exports
 pub use play::ModifiableGame;
-
-pub type GameHash = u64;
 
 #[derive(Copy, Clone, Debug, PartialEq, Serialize)]
 pub struct Move {
@@ -259,7 +258,7 @@ pub struct GameMobilityData {
     player: Player,
     last_move: Option<MoveInfo>,
     info: GameInfo,
-    hash: Option<ZobristHash>,
+    hash: Option<GameHash>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -449,10 +448,10 @@ impl<B: Board> GameState<B> {
 
     pub fn hash(&mut self) -> GameHash {
         if let Some(hash) = self.data.hash {
-            return hash.into();
+            return hash;
         }
 
-        let mut hash = ZobristHash::from(&self.board);
+        let mut hash = GameHash::from(&self.board);
 
         if self.data.player == Player::Black {
             hash.switch_turn();
@@ -477,7 +476,7 @@ impl<B: Board> GameState<B> {
 
         self.data.hash = Some(hash);
 
-        hash.into()
+        hash
     }
 }
 

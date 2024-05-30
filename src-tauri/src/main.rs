@@ -105,9 +105,9 @@ fn do_move(
     let game_data = &mut GAME.lock().unwrap();
 
     let white_move = match game_data.game.move_name(&mv) {
-        Some(name) => name,
-        None => {
-            println!("Invalid move: {}", mv.mv);
+        Ok(name) => name,
+        Err(err) => {
+            println!("Invalid move {}: {}", mv.mv, err);
             return false;
         }
     };
@@ -125,7 +125,7 @@ fn do_move(
     let (black_move_opt, black_captures, mate) =
         match game_data.game.get_best_move(&game_data.move_history, 4) {
             eval::GameMove::Normal(mv) => {
-                let description = game_data.game.move_name(&mv);
+                let description = game_data.game.move_name(&mv).ok();
 
                 let black_captures = game_data.game.do_move(&mv);
                 assert!(black_captures.is_some());
