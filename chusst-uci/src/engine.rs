@@ -1,7 +1,7 @@
 use anyhow::Result;
 use chusst_gen::eval::{
     EngineFeedback, EngineFeedbackMessage, EngineMessage, Game, GameHistory, GameMove,
-    HasStopSignal,
+    HasStopSignal, PeriodicalSearchFeedback,
 };
 use chusst_gen::game::{BitboardGame, MoveAction};
 use tokio::sync::mpsc;
@@ -167,11 +167,15 @@ pub async fn engine_task(
                 }
             }
             Some(EngineCommand::Go(go_command)) => {
-                let best_move = game.get_best_move_with_logger(
-                    go_command.depth,
-                    &history,
-                    &mut command_receiver,
+                let mut feedback = PeriodicalSearchFeedback::new(
+                    std::time::Duration::from_millis(500),
                     &mut communicator,
+                );
+                let best_move = game.get_best_move_with_logger(
+                    &history,
+                    go_command.depth,
+                    &mut command_receiver,
+                    &mut feedback,
                 );
                 let _ignore_error = communicator.send(EngineResponse::BestBranch(Some(best_move)));
             }
