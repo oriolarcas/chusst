@@ -1,7 +1,7 @@
 use super::play::PlayableGame;
 use crate::board::{Board, ModifiableBoard, Piece, PieceType, Player, Position};
 use crate::eval::check::SafetyChecks;
-use crate::eval::Game;
+use crate::eval::{Game, GameHistory, GameMove};
 use crate::game::{
     CastlingRights, GameState, ModifiableGame, Move, MoveAction, MoveActionType, PromotionPieces,
     SimpleGame,
@@ -668,6 +668,61 @@ fn check_mate() {
 
         test_case.make_checks();
     }
+}
+
+#[test]
+fn fast_mate() {
+    // White: ♙ ♘ ♗ ♖ ♕ ♔
+    // Black: ♟ ♞ ♝ ♜ ♛ ♚
+    #[rustfmt::skip]
+    let test_board = TestBoard {
+        board: Some(
+            "  a  b  c  d  e  f  g  h \n\
+            8 [ ][ ][♚][ ][ ][ ][♞][♜]\n\
+            7 [ ][ ][♟][ ][ ][♟][♟][ ]\n\
+            6 [ ][♟][ ][ ][♟][ ][♟][ ]\n\
+            5 [ ][ ][ ][ ][ ][ ][ ][ ]\n\
+            4 [♔][ ][ ][ ][ ][ ][ ][ ]\n\
+            3 [♞][ ][ ][ ][ ][♜][ ][ ]\n\
+            2 [ ][ ][ ][ ][ ][ ][ ][ ]\n\
+            1 [ ][ ][ ][ ][ ][ ][ ][ ]",
+        ),
+        player: Player::White,
+        initial_moves: vec![],
+        mv: mva!(a4 => b4),
+        checks: vec![],
+    };
+
+    // Prepare board
+    let mut test_case = GameTestCase::new(test_board);
+
+    test_case.game.disable_castle_kingside(Player::White);
+    test_case.game.disable_castle_queenside(Player::White);
+    test_case.game.disable_castle_kingside(Player::Black);
+    test_case.game.disable_castle_queenside(Player::Black);
+
+    // Do setup moves
+    test_case.do_initial_moves();
+
+    let game = &mut test_case.game;
+
+    // Do move
+    assert!(
+        game.do_move_with_checks(&test_case.mv),
+        "invalid move {}:\n{}",
+        test_case.mv.mv,
+        game.as_ref().board()
+    );
+
+    const SEARCH_DEPTH: u32 = 4;
+
+    let history = GameHistory::new();
+
+    let GameMove::Normal(best_move) = game.get_best_move(&history, SEARCH_DEPTH) else {
+        panic!("Unexpected mate");
+    };
+
+    assert_eq!(best_move.mv, mva!(h8 => h4).mv, "expected mate move");
 }
 
 #[test]

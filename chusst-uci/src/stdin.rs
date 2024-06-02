@@ -129,9 +129,7 @@ impl<'a> Iterator for LinesWithRemainder<'a> {
             return None;
         }
 
-        let Some(line_ending_pos) = self.string[self.pos..].find('\n') else {
-            return None;
-        };
+        let line_ending_pos = self.string[self.pos..].find('\n')?;
         let next_line = &self.string[self.pos..self.pos + line_ending_pos];
         // Skip the newline character
         self.pos += next_line.len() + 1;

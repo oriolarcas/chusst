@@ -1,4 +1,5 @@
 mod play;
+mod tree;
 mod zobrist;
 
 use std::fmt;
@@ -9,6 +10,7 @@ use serde::Serialize;
 
 use crate::board::{Board, ModifiableBoard, Piece, PieceType, Player, Position, SimpleBoard};
 use crate::{mv, pos};
+pub use tree::{AddNode, GameTree, TreeNode};
 pub use zobrist::ZobristHash as GameHash;
 pub use zobrist::ZobristHashBuilder as GameHashBuilder;
 

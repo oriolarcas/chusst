@@ -9,10 +9,11 @@ mod play;
 mod tests;
 
 use self::check::{only_empty_and_safe, SafetyChecks};
+use self::feedback::SearchFeedback;
 pub use self::feedback::{
-    EngineFeedback, EngineFeedbackMessage, EngineMessage, SilentSearchFeedback, StdoutFeedback,
+    EngineFeedback, EngineFeedbackMessage, EngineMessage, PeriodicalSearchFeedback,
+    SearchTreeFeedback, SilentSearchFeedback, StdoutFeedback,
 };
-use self::feedback::{PeriodicalSearchFeedback, SearchFeedback};
 pub use self::history::GameHistory;
 use self::history::HashedHistory;
 pub use self::iter::dir;
@@ -373,10 +374,11 @@ trait GamePrivate<B: Board + SafetyChecks>: PlayableGame<B> + ModifiableGame<B> 
         let board = self.board();
         let player = self.player();
 
-        let pieces_iter = self
+        let mut playable_pieces = self
             .board_iter()
             .only_player(player)
-            .collect::<Vec<Position>>();
+            .collect::<Vec<Position>>()
+            .into_iter();
 
         let mut best_move: Option<Branch> = None;
 
@@ -389,15 +391,12 @@ trait GamePrivate<B: Board + SafetyChecks>: PlayableGame<B> + ModifiableGame<B> 
         let is_leaf_node = current_depth == max_depth;
         let mut stopped = false;
 
-        #[cfg(feature = "verbose-search")]
-        let indent = |depth: u32| {
-            std::iter::repeat("  ")
-                .take(usize::try_from(depth).unwrap())
-                .collect::<String>()
-        };
-
-        'main_loop: for player_piece_position in pieces_iter {
-            for possible_move in self.get_possible_moves_no_checks(player_piece_position) {
+        #[allow(clippy::while_let_on_iterator)]
+        'main_loop: while let Some(player_piece_position) = playable_pieces.next() {
+            let mut possible_moves = self
+                .get_possible_moves_from_game(player_piece_position)
+                .into_iter();
+            while let Some(possible_move) = possible_moves.next() {
                 if stop_signal.stop() {
                     let _ = writeln!(feedback, "Search stopped");
                     stopped = true;
@@ -450,19 +449,15 @@ trait GamePrivate<B: Board + SafetyChecks>: PlayableGame<B> + ModifiableGame<B> 
                 feedback.update(current_depth, searched_moves, branch.score.into());
 
                 #[cfg(feature = "verbose-search")]
-                {
-                    let _ = writeln!(
-                        feedback,
-                        "{}{{\"{}\": \"{} {:+} α: {}, β: {}\"{}",
-                        indent(current_depth),
-                        player,
-                        mv,
-                        branch.score,
-                        local_alpha,
-                        scores.beta,
-                        if !is_leaf_node { ", \"s\": [" } else { "}," },
-                    );
-                }
+                feedback.search_node(crate::eval::feedback::SearchNodeFeedback::Child(
+                    crate::eval::feedback::SearchMove {
+                        mv: Some(possible_move),
+                        info: format!(
+                            "{}: {} {:+} α: {}, β: {}",
+                            player, mv, branch.score, local_alpha, scores.beta
+                        ),
+                    },
+                ));
 
                 // Recursion
                 if threefold_repetition {
@@ -501,18 +496,14 @@ trait GamePrivate<B: Board + SafetyChecks>: PlayableGame<B> + ModifiableGame<B> 
                     };
 
                     #[cfg(feature = "verbose-search")]
-                    {
-                        let _ = writeln!(
-                            feedback,
-                            "{}{{\"best child\": \"{}\"}},",
-                            indent(current_depth + 1),
-                            next_moves_opt
-                                .as_ref()
-                                .map_or("<mate>".to_string(), |sub_branch| {
-                                    format!("{}", sub_branch)
-                                })
-                        );
-                    }
+                    feedback.search_node(crate::eval::feedback::SearchNodeFeedback::Info(format!(
+                        "best child: {}",
+                        next_moves_opt
+                            .as_ref()
+                            .map_or("<mate>".to_string(), |sub_branch| {
+                                format!("{}", sub_branch)
+                            })
+                    )));
 
                     if let Some(next_moves) = next_moves_opt {
                         branch.moves.append(&mut next_moves.moves);
@@ -529,11 +520,6 @@ trait GamePrivate<B: Board + SafetyChecks>: PlayableGame<B> + ModifiableGame<B> 
                     }
 
                     searched_moves += branch.searched;
-
-                    #[cfg(feature = "verbose-search")]
-                    {
-                        let _ = writeln!(feedback, "{}],", indent(current_depth));
-                    }
                 }
 
                 history.pop().unwrap();
@@ -545,48 +531,51 @@ trait GamePrivate<B: Board + SafetyChecks>: PlayableGame<B> + ModifiableGame<B> 
                                 && branch.moves.len() < current_best_move.moves.len())
                         {
                             #[cfg(feature = "verbose-search")]
-                            {
-                                let _ = writeln!(
-                                    feedback,
-                                    "{}{{\"new best move\": \"{} > {}\"}},",
-                                    indent(current_depth),
-                                    branch,
-                                    current_best_move,
-                                );
-                            }
+                            feedback.search_node(crate::eval::feedback::SearchNodeFeedback::Info(
+                                format!("new best move: {} > {}", branch, current_best_move),
+                            ));
+
                             best_move = Some(branch);
                         }
                     }
                     None => {
                         #[cfg(feature = "verbose-search")]
-                        {
-                            let _ = writeln!(
-                                feedback,
-                                "{}{{\"new best move\": \"{}\"}},",
-                                indent(current_depth),
-                                branch,
-                            );
-                        }
+                        feedback.search_node(crate::eval::feedback::SearchNodeFeedback::Info(
+                            format!("new best move: {}", branch),
+                        ));
+
                         best_move = Some(branch);
                     }
                 };
 
-                if let Some(best_move_score) = best_move.as_ref().map(|branch| branch.score) {
+                if let Some(best_move_branch) = best_move.as_ref() {
+                    let best_move_score = best_move_branch.score;
+
+                    // If the best move is a mate in more than one, don't cutoff the search yet,
+                    // because there's a chance that the remaining moves are mates in less
+                    let is_mate_in_more_than_one = best_move_score
+                        >= Score::piece_value(PieceType::King)
+                        && best_move_branch.moves.len() > 1;
+
                     if best_move_score >= scores.beta {
-                        // Fail hard beta cutoff
+                        if !is_mate_in_more_than_one {
+                            // Fail hard beta cutoff
 
-                        #[cfg(feature = "verbose-search")]
-                        {
-                            let _ = writeln!(
-                                feedback,
-                                "{}{{\"β cutoff\": \"{} >= {}\"}},",
-                                indent(current_depth),
-                                best_move_score,
-                                scores.beta
-                            );
+                            #[cfg(feature = "verbose-search")]
+                            feedback.search_node(crate::eval::feedback::SearchNodeFeedback::Info(
+                                format!("β cutoff: {} >= {}", best_move_score, scores.beta,),
+                            ));
+
+                            cutoff = true;
+                        } else {
+                            #[cfg(feature = "verbose-search")]
+                            feedback.search_node(crate::eval::feedback::SearchNodeFeedback::Info(
+                                format!(
+                                    "Not cutting off because mate in more than one: {}",
+                                    best_move_score
+                                ),
+                            ));
                         }
-
-                        cutoff = true;
                     }
 
                     // This will be the beta of the next recursion
@@ -594,8 +583,34 @@ trait GamePrivate<B: Board + SafetyChecks>: PlayableGame<B> + ModifiableGame<B> 
                 }
 
                 if stopped || cutoff {
+                    #[cfg(feature = "verbose-search")]
+                    {
+                        feedback.search_node(crate::eval::feedback::SearchNodeFeedback::Info(
+                            format!(
+                                "Skipping remaining moves for this piece: [{}]",
+                                possible_moves
+                                    .map(|mv| format!("{}", mv.mv))
+                                    .collect::<Vec<_>>()
+                                    .join(", "),
+                            ),
+                        ));
+                        feedback.search_node(crate::eval::feedback::SearchNodeFeedback::Info(
+                            format!(
+                                "Skipping remaining pieces: [{}]",
+                                playable_pieces
+                                    .map(|position| format!("{}", position))
+                                    .collect::<Vec<_>>()
+                                    .join(", "),
+                            ),
+                        ));
+                        feedback.search_node(crate::eval::feedback::SearchNodeFeedback::Return);
+                    }
+
                     break 'main_loop;
                 }
+
+                #[cfg(feature = "verbose-search")]
+                feedback.search_node(crate::eval::feedback::SearchNodeFeedback::Return);
             } // possible moves loop
         } // main loop
 
@@ -809,14 +824,19 @@ pub trait Game<B: Board + SafetyChecks>: GamePrivate<B> {
 
     fn get_best_move_recursive(
         &self,
-        search_depth: u32,
         history: &GameHistory,
+        search_depth: u32,
         stop_signal: &mut impl HasStopSignal,
         feedback: &mut impl SearchFeedback,
     ) -> Option<Branch> {
         let mut hashed_history = HashedHistory::from(history).ok()?;
 
         hashed_history.reserve(search_depth as usize);
+
+        #[cfg(feature = "verbose-search")]
+        feedback.search_node(crate::eval::feedback::SearchNodeFeedback::Fen(
+            self.as_ref().to_fen().to_string(),
+        ));
 
         self.get_best_move_recursive_alpha_beta(
             0,
@@ -843,17 +863,17 @@ pub trait Game<B: Board + SafetyChecks>: GamePrivate<B> {
 
     fn get_best_move_with_logger(
         &self,
-        search_depth: u32,
         history: &GameHistory,
+        search_depth: u32,
         stop_signal: &mut impl HasStopSignal,
-        engine_feedback: &mut impl EngineFeedback,
+        feedback: &mut impl SearchFeedback,
     ) -> GameMove {
         let player = self.player();
         let start_time = Instant::now();
-        let mut feedback =
-            PeriodicalSearchFeedback::new(std::time::Duration::from_millis(500), engine_feedback);
+
         let best_branch =
-            self.get_best_move_recursive(search_depth, history, stop_signal, &mut feedback);
+            self.get_best_move_recursive(history, search_depth, stop_signal, feedback);
+
         let duration = (Instant::now() - start_time).as_secs_f64();
 
         if best_branch.is_none() {
@@ -861,12 +881,12 @@ pub trait Game<B: Board + SafetyChecks>: GamePrivate<B> {
             let king_position = self.board().find_king(&player);
             let is_check_mate = self.board().is_piece_unsafe(&king_position);
 
-            log!(engine_feedback, "  ({:.2} s.) ", duration);
+            log!(feedback, "  ({:.2} s.) ", duration);
             let enemy_player = !player;
             if is_check_mate {
-                log!(engine_feedback, "Checkmate, {} wins", enemy_player);
+                log!(feedback, "Checkmate, {} wins", enemy_player);
             } else {
-                log!(engine_feedback, "Stalemate caused by {}", enemy_player);
+                log!(feedback, "Stalemate caused by {}", enemy_player);
             }
             return if is_check_mate {
                 GameMove::Mate(MateType::Checkmate)
@@ -894,7 +914,7 @@ pub trait Game<B: Board + SafetyChecks>: GamePrivate<B> {
             .collect::<Vec<&MoveAction>>();
 
         log!(
-            engine_feedback,
+            feedback,
             "  ({:.2} s., {:.0} mps) Best branch {:+} after {}: {}",
             duration,
             f64::from(total_moves) / duration,
@@ -913,12 +933,7 @@ pub trait Game<B: Board + SafetyChecks>: GamePrivate<B> {
     }
 
     fn get_best_move(&self, history: &GameHistory, search_depth: u32) -> GameMove {
-        self.get_best_move_with_logger(
-            search_depth,
-            history,
-            &mut (),
-            &mut StdoutFeedback::default(),
-        )
+        self.get_best_move_with_logger(history, search_depth, &mut (), &mut StdoutFeedback)
     }
 
     fn is_mate(&self) -> Option<MateType> {
